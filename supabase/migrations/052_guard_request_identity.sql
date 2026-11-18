@@ -334,7 +334,24 @@ DECLARE
     link RECORD;
     shipment_status public.shipment_status;
     order_status public.purchase_order_status;
+    order_client UUID;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.shipment_id IS DISTINCT FROM OLD.shipment_id OR NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id THEN
+            RAISE EXCEPTION 'shipment_po_link_immutable' USING ERRCODE = 'check_violation';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        SELECT po.client_tenant_id INTO order_client
+        FROM public.purchase_order po
+        WHERE po.id = NEW.purchase_order_id AND po.tenant_id = NEW.tenant_id;
+        IF FOUND AND order_client IS DISTINCT FROM NEW.client_tenant_id THEN
+            RAISE EXCEPTION 'client_mismatch' USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
     IF private.rules_bypassed() THEN
         RETURN coalesce(NEW, OLD);
     END IF;
