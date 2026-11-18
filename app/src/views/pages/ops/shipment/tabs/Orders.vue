@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+   lineProduct,
    PURCHASE_ORDER_STATUSES,
    PURCHASE_ORDER_STATUS_SEVERITY,
    type PurchaseOrderStatus
@@ -171,11 +172,11 @@ const addOrder = async (order: OrderOption) => {
          <DataTable :value="order.purchase_order_line" dataKey="id" showGridlines size="small">
             <Column :header="$t('ops.purchase_order.fields.sku')">
                <template #body="{ data }">
-                  {{ data.product?.sku }}
+                  {{ lineProduct(data).sku }}
                </template>
             </Column>
             <Column :header="$t('ops.purchase_order.fields.display_name')">
-               <template #body="{ data }">{{ data.product?.display_name }}</template>
+               <template #body="{ data }">{{ lineProduct(data).name }}</template>
             </Column>
             <Column field="quantity" :header="$t('ops.shipment.fields.ordered')" />
             <Column :header="$t('ops.shipment.fields.on_shipment')">
@@ -218,7 +219,7 @@ const addOrder = async (order: OrderOption) => {
                            severity="danger"
                            :icon="PrimeIcons.TRASH"
                            :aria-label="$t('action.delete')"
-                           @click="removeLine(shipmentLines.get(data.id)!, data.product?.sku)"
+                           @click="removeLine(shipmentLines.get(data.id)!, lineProduct(data).sku)"
                         />
                      </template>
                      <CustomLink

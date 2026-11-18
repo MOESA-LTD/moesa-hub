@@ -138,6 +138,7 @@ const mountTab = (
             FormField: Slot,
             SelectSupplier,
             ProjectSelect: Stub('ProjectSelect'),
+            SelectClient: Stub('SelectClient'),
             CustomLink
          }
       }
@@ -200,6 +201,37 @@ describe('general tab', () => {
       expect(wrapper.get('[data-field="ready_on"] input').attributes()).not.toHaveProperty(
          'disabled'
       );
+   });
+
+   it('offers the client on a new order only, and its projects', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000099';
+      const form = standInForm(null);
+      form.values.value.project_id = 'pr1';
+      const wrapper = mountTab(General, form);
+      const client = wrapper.getComponent({ name: 'SelectClient' });
+      expect(client.attributes('disabled')).toBe('false');
+
+      form.values.value.client_tenant_id = CLIENT;
+      client.vm.$emit('change', CLIENT);
+      expect(form.values.value.project_id).toBeNull();
+
+      const saved = mountTab(General, standInForm(order('draft')));
+      expect(saved.getComponent({ name: 'SelectClient' }).attributes('disabled')).toBe('true');
+   });
+
+   it('names the client tenant to the project picker', async () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000099';
+      const form = standInForm(null);
+      form.values.value.client_tenant_id = CLIENT;
+      const wrapper = mountTab(General, form);
+      expect(wrapper.getComponent({ name: 'ProjectSelect' }).attributes('tenantid')).toBe(CLIENT);
+   });
+
+   it('keeps the project of an order past its draft (po_project_locked)', () => {
+      const draft = mountTab(General, standInForm(order('draft')));
+      expect(draft.getComponent({ name: 'ProjectSelect' }).attributes('disabled')).toBe('false');
+      const sent = mountTab(General, standInForm(order('sent')));
+      expect(sent.getComponent({ name: 'ProjectSelect' }).attributes('disabled')).toBe('true');
    });
 
    it('keeps the terms of a sent order editable', () => {
@@ -270,6 +302,7 @@ describe('general tab for a coordinator', () => {
                BlockUI: Slot,
                SelectSupplier,
                ProjectSelect: Stub('ProjectSelect'),
+               SelectClient: Stub('SelectClient'),
                CustomLink
             }
          }

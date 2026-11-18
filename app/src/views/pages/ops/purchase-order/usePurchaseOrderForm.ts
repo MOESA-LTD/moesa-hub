@@ -1,5 +1,6 @@
 import {
    isPurchaseOrderLocked,
+   lineProduct,
    purchaseOrderResource,
    purchaseOrderSchema,
    toPurchaseOrderFormValues,
@@ -141,7 +142,7 @@ export function purchaseOrderPiCheck(
                pi_line_total: finite(
                   line.id in lineTotals ? lineTotals[line.id] : line.pi_line_total
                ),
-               ...(line.product?.sku ? { label: line.product.sku } : {})
+               ...(lineProduct(line).sku ? { label: lineProduct(line).sku } : {})
             }
          ];
       });

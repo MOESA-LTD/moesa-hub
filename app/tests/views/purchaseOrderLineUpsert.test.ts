@@ -18,10 +18,16 @@ const api = vi.hoisted(() => ({
    values: null as unknown as Ref<PurchaseOrderLineFormValues>,
    options: undefined as undefined | { toPayload: (data: unknown) => Record<string, unknown> },
    order: null as unknown,
-   specs: {} as Record<string, { value: string; label: string }[]>
+   specs: {} as Record<string, { value: string; label: string }[]>,
+   sourcing: [] as { id: string; product_id: string }[],
+   specParams: [] as { entityType: string; entityId: string | null }[]
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('@/api/sourcing', async () => {
+   const { computed } = await import('vue');
+   return { useSourcingPrices: () => computed(() => api.sourcing) };
+});
 vi.mock('@/composables/useUpsertForm', async () => {
    const { ref } = await import('vue');
    return {
@@ -51,8 +57,11 @@ vi.mock('@/api/purchaseOrder', async (importOriginal) => {
          ...original.purchaseOrderResource,
          useOne: () => ({ data: ref(api.order), suspense: () => Promise.resolve() })
       },
-      useEntityDocumentOptions: (params: () => { entityId: string | null }) =>
-         computed(() => api.specs[toValue(params).entityId ?? ''] ?? [])
+      useEntityDocumentOptions: (params: () => { entityType: string; entityId: string | null }) =>
+         computed(() => {
+            api.specParams.push(toValue(params));
+            return api.specs[toValue(params).entityId ?? ''] ?? [];
+         })
    };
 });
 
@@ -133,6 +142,23 @@ describe('order line dialog', () => {
          ],
          [TIPS]: [{ value: SPEC_TIPS_V1, label: 'v01' }]
       };
+      api.sourcing = [];
+      api.specParams = [];
+   });
+
+   it("offers a client line the spec sheets of the order tenant's sourcing row", async () => {
+      api.order = { ...order([1]), tenant_id: 'provider', client_tenant_id: 'client' };
+      api.sourcing = [{ id: 'src-mop', product_id: MOP }];
+      api.specs['src-mop'] = [{ value: 'provider-spec', label: 'v01' }];
+      const wrapper = await mountLine();
+
+      const select = wrapper.getComponent(ProductSelect);
+      expect(select.attributes('clienttenantid')).toBe('client');
+      expect(select.attributes('tenantid')).toBe('provider');
+      await pick(wrapper, mop);
+
+      expect(api.specParams.at(-1)).toMatchObject({ entityType: 'sourcing', entityId: 'src-mop' });
+      expect(api.values.value.spec_document_id).toBe('provider-spec');
    });
 
    it("prices a picked product at its purchase price in the order's currency", async () => {

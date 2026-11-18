@@ -8,10 +8,13 @@ import { injectShipmentForm } from '../useShipmentForm';
 provideFieldAccess('shipment');
 
 // The shipment's warehouse, mode, parties, terms, transport and packed quantities, in the card's
-// shared form. The warehouse is one of the shipment's tenant, with its S14 receiving rules (dock
-// hours, appointment) shown under it.
+// shared form. The client (empty for an own shipment) is chosen on a new shipment only. The
+// warehouse is one of the tenant the goods go to (the client's on a client shipment), with its S14
+// receiving rules (dock hours, appointment) shown under it.
 const form = injectShipmentForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, warehouses } = form;
+
+const id = computed(() => values.value.id ?? null);
 
 const warehouseOptions = computed(() =>
    warehouses.value.map((warehouse) => ({
@@ -55,6 +58,20 @@ const PACKED_AMOUNTS = [
       :submitting="isSubmitting"
       :draft
    >
+      <FormField
+         fluid
+         :label="$t('ops.shipment.fields.client')"
+         :error="errors.client_tenant_id"
+         :readonly="readonly || !!id"
+         v-slot="slotProps"
+      >
+         <SelectClient
+            v-bind="slotProps"
+            v-model="values.client_tenant_id"
+            data-field="client_tenant_id"
+            :disabled="!!id"
+         />
+      </FormField>
       <FormField
          fluid
          :label="$t('ops.shipment.fields.delivery_warehouse')"

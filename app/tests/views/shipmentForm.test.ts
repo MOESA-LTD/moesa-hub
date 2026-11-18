@@ -246,6 +246,7 @@ const mountTab = (
             FormBox: Slot,
             FormField: Slot,
             CustomLink,
+            SelectClient: true,
             teleport: true
          }
       }
@@ -295,6 +296,19 @@ describe('useShipmentForm', () => {
          table: 'warehouse',
          options: { in: { column: 'tenant_id', values: ['t1'] } }
       });
+   });
+
+   it("lists the client's warehouses on a client shipment", async () => {
+      api.lookups.warehouse = [{ id: 'cw1', is_default: true }];
+      api.values.value.client_tenant_id = 'client';
+      useShipmentForm(() => null);
+      await nextTick();
+
+      expect(api.lookupCalls.at(-1)).toMatchObject({
+         table: 'warehouse',
+         options: { in: { column: 'tenant_id', values: ['client'] }, tenantId: 'client' }
+      });
+      expect(api.values.value.delivery_warehouse_id).toBe('cw1');
    });
 
    it('keeps a warehouse of the tenant already chosen', async () => {

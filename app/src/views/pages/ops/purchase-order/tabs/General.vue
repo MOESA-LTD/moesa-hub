@@ -12,8 +12,10 @@ import { injectPurchaseOrderForm, useOrderLocked } from '../usePurchaseOrderForm
 // Hides the fields the user may not read, makes read-only those they may not write.
 const fieldAccess = provideFieldAccess('purchase_order');
 
-// The order's parties and terms, in the card's shared form. The supplier is chosen on a new order
-// only; the terms are fixed from pi_approved on (PO_LOCKED_FIELDS).
+// The order's parties and terms, in the card's shared form. The supplier and the client (empty for
+// an own order) are chosen on a new order only; the project while the order is a draft
+// (po_project_locked), among the client's projects on a client order; the terms are fixed from
+// pi_approved on (PO_LOCKED_FIELDS).
 const form = injectPurchaseOrderForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
 
@@ -21,6 +23,8 @@ const { t } = useI18n();
 
 const id = computed(() => values.value.id ?? null);
 const locked = useOrderLocked(form);
+/** Past its draft, the order keeps its project (po_project_locked). */
+const projectLocked = computed(() => !!form.row.value && form.row.value.status !== 'draft');
 
 const isLocked = (field: string) =>
    locked.value && (PO_LOCKED_FIELDS as readonly string[]).includes(field);
@@ -79,12 +83,35 @@ const applySupplier = (
       </FormField>
       <FormField
          fluid
-         :label="$t('ops.purchase_order.fields.project')"
-         :error="errors.project_id"
-         :readonly
+         :label="$t('ops.purchase_order.fields.client')"
+         :error="errors.client_tenant_id"
+         :readonly="readonly || !!id"
          v-slot="slotProps"
       >
-         <ProjectSelect v-bind="slotProps" v-model="values.project_id" />
+         <!-- A project is the client's, so another client clears it. -->
+         <SelectClient
+            v-bind="slotProps"
+            v-model="values.client_tenant_id"
+            data-field="client_tenant_id"
+            :disabled="!!id"
+            @change="values.project_id = null"
+         />
+      </FormField>
+      <FormField
+         fluid
+         :label="$t('ops.purchase_order.fields.project')"
+         :error="errors.project_id"
+         :readonly="readonly || projectLocked"
+         v-tooltip.top="projectLocked ? $t('ops.purchase_order.project_locked_hint') : undefined"
+         v-slot="slotProps"
+      >
+         <ProjectSelect
+            v-bind="slotProps"
+            v-model="values.project_id"
+            data-field="project_id"
+            :tenantId="values.client_tenant_id"
+            :disabled="projectLocked"
+         />
       </FormField>
       <FormField
          fluid

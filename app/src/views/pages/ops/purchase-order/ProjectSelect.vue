@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { useLookup } from '@/api/useLookup';
 
-/** Picks one of the form tenant's projects (see provideFormTenant). */
+/**
+ * Picks one of the projects of the order's client (`tenantId`), or of the form's tenant for an own
+ * order (see provideFormTenant).
+ */
 type ProjectOption = Pick<Tables['project']['Row'], 'id' | 'code' | 'display_name'>;
 
+const props = defineProps<{ tenantId?: string | null }>();
 const model = defineModel<string | null>();
 
 const { data: projects } = useLookup<ProjectOption>('project', () => ({
    select: 'id, code, display_name',
-   order: 'code'
+   order: 'code',
+   tenantId: props.tenantId
 }));
 
 const options = computed(() =>

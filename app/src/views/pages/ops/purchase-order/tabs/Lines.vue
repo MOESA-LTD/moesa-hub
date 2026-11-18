@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatAmount, type PurchaseOrderCardLine } from '@/api/purchaseOrder';
+import { formatAmount, lineProduct, type PurchaseOrderCardLine } from '@/api/purchaseOrder';
 import { canInsertFields, useFieldAccess } from '@/composables/useFieldAccess';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import {
@@ -57,10 +57,10 @@ const lineAccess = useFieldAccess('purchase_order_line');
       <template #empty>{{ $t('ops.purchase_order.no_lines') }}</template>
       <Column field="position" :header="$t('ops.purchase_order.fields.position')" />
       <Column :header="$t('ops.purchase_order.fields.sku')">
-         <template #body="{ data }">{{ data.product?.sku }}</template>
+         <template #body="{ data }">{{ lineProduct(data).sku }}</template>
       </Column>
       <Column :header="$t('ops.purchase_order.fields.display_name')">
-         <template #body="{ data }">{{ data.product?.display_name }}</template>
+         <template #body="{ data }">{{ lineProduct(data).name }}</template>
       </Column>
       <Column field="quantity" :header="$t('ops.purchase_order.fields.quantity')" />
       <Column

@@ -9,15 +9,18 @@ import {
    toPurchaseOrderLinePayload,
    useEntityDocumentOptions
 } from '@/api/purchaseOrder';
+import { useSourcingPrices } from '@/api/sourcing';
 import { useUpsertForm } from '@/composables/useUpsertForm';
+import LineProduct from '@/components/service-components/purchase-order-table/LineProduct.vue';
 import ProductSelect from './ProductSelect.vue';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('purchase_order_line');
 
 // Opened as a dialog from an order's lines: a new line belongs to the route's order and goes last.
-// The product is one of the order's tenant's, and its spec sheet one of its signed or approved
-// versions, the newest preselected.
+// The product is one of the order's tenant's, or of its client's on a client order. Its spec sheet
+// is one of its signed or approved versions, the newest preselected: on a client order, a document
+// of the order tenant's sourcing row of the product (the provider's own spec sheet).
 const props = defineProps<{
    id?: string | null;
    purchaseOrderId?: string | null;
@@ -66,6 +69,15 @@ const nextPosition = () =>
 // saved line keeps what it has.
 const preselectSpec = ref(!props.id);
 
+// The order tenant's sourcing rows: a client product's spec sheets are documents of its row.
+const sourcingPrices = useSourcingPrices(() => order.value?.tenant_id);
+const sourcingId = computed(
+   () =>
+      sourcingPrices.value.find(({ product_id }) => product_id === values.value.product_id)?.id ??
+      null
+);
+const clientTenantId = computed(() => order.value?.client_tenant_id ?? null);
+
 /** A picked product's purchase price, in the order's currency, fills an empty unit price. */
 const onProductPicked = (product: Parameters<typeof defaultUnitPrice>[0] | null) => {
    values.value.spec_document_id = null;
@@ -76,8 +88,9 @@ const onProductPicked = (product: Parameters<typeof defaultUnitPrice>[0] | null)
 };
 
 const specOptions = useEntityDocumentOptions(() => ({
-   entityType: 'product',
-   entityId: values.value.product_id ?? null,
+   ...(clientTenantId.value
+      ? { entityType: 'sourcing' as const, entityId: sourcingId.value }
+      : { entityType: 'product' as const, entityId: values.value.product_id ?? null }),
    type: 'spec_sheet',
    statuses: ['signed', 'approved']
 }));
@@ -111,7 +124,21 @@ watch(
             :readonly
             v-slot="slotProps"
          >
-            <ProductSelect v-bind="slotProps" v-model="values.product_id" @pick="onProductPicked" />
+            <ProductSelect
+               v-bind="slotProps"
+               v-model="values.product_id"
+               :tenantId="order?.tenant_id"
+               :clientTenantId
+               @pick="onProductPicked"
+            />
+            <!-- A saved line whose product is gone keeps the SKU and name it had. -->
+            <small
+               v-if="row && !values.product_id && row.product_sku"
+               class="text-muted-color"
+               data-line-snapshot
+            >
+               <LineProduct :line="row" />
+            </small>
          </FormField>
          <FormField
             fluid

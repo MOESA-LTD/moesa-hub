@@ -73,7 +73,8 @@ export type WarehouseOption = Pick<
 
 /**
  * The shipment card's one form: the general, dates and acceptance tabs each show their part of
- * it. A new shipment goes to its tenant's default warehouse (or the only one). Once a new shipment
+ * it. A new shipment goes to the default warehouse (or the only one) of its tenant, or of its
+ * client on a client shipment. Once a new shipment
  * is saved, its "new" draft is dropped: the card goes on under the shipment's id (see ShipmentCard).
  */
 export function useShipmentForm(
@@ -97,16 +98,23 @@ export function useShipmentForm(
       }
    });
 
-   // The warehouses of the shipment's tenant.
-   const tenantId = form.tenantId;
+   // The warehouses of the tenant the goods go to: the client's on a client shipment
+   // (warehouse_tenant_id), else the shipment's own.
+   const warehouseTenantId = computed(
+      () => form.values.value.client_tenant_id || form.tenantId.value
+   );
    const { data: warehouses } = useLookup<WarehouseOption>(
       'warehouse',
       () => ({
          select: 'id, display_name, city, is_default, dock_hours, appointment_rule',
          order: 'display_name',
-         in: { column: 'tenant_id', values: tenantId.value ? [tenantId.value] : [] }
+         in: {
+            column: 'tenant_id',
+            values: warehouseTenantId.value ? [warehouseTenantId.value] : []
+         },
+         tenantId: warehouseTenantId.value
       }),
-      () => !!tenantId.value
+      () => !!warehouseTenantId.value
    );
 
    // A warehouse that is not on the list gives way to the default one. A saved shipment keeps its
