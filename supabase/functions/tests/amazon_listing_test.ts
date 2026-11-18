@@ -2150,8 +2150,8 @@ Deno.test('amazon-listing selects no sensitive product or cell column', () => {
    const product = PRODUCT_LISTING_COLUMNS.split(',').map((s) => s.trim());
    const cell = MARKET_CELL_LISTING_COLUMNS.split(',').map((s) => s.trim());
    for (const c of SENSITIVE) assert(!product.includes(c), c);
-   // Read through the caller's api client only (masked NULL without the right).
-   assert(product.includes('manufacturer_art_no'));
+   // Supplier identity sits on the sourcing row, never on the product read.
+   assert(!product.includes('manufacturer_art_no'));
    assert(!cell.includes('notes'));
 });
 

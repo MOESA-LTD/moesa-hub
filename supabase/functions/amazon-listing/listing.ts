@@ -51,20 +51,21 @@ export type ProductRow = Pick<
    | 'pack_qty'
    | 'origin_country'
    | 'is_hazmat'
-   | 'manufacturer_art_no'
->;
+> & {
+   /** Lives on the sourcing row now (the procuring tenant's), so the product read never carries it. */
+   manufacturer_art_no?: string | null;
+};
 
 /**
  * The product columns the listing reads: open ones only. The product card columns (unit/pack size,
  * weight, quantity, origin, hazmat) feed the derived attributes. The listing never needs cost,
  * supplier or notes, and a service-role read must not carry them along with a `*`. The manufacturer
- * article number is supplier identity: it is read only through the caller's api client, where it is
- * NULL without the right (then nothing is derived from it); never with the service role. The derived
- * value lands in listing_submission.payload, readable by other tenant members: accepted, as it is
- * published publicly on Amazon.
+ * article number is supplier identity and sits on the sourcing row, which the procuring tenant owns,
+ * so the product read does not carry it; nothing is derived from it until sharing (Plan 2) lets the
+ * client tenant read it.
  */
 export const PRODUCT_LISTING_COLUMNS =
-   'id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat, manufacturer_art_no';
+   'id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat';
 
 export type CellContext = {
    cell: MarketCellRow;

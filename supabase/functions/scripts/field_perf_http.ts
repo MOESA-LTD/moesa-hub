@@ -9,7 +9,7 @@
 //    the same requests with Accept-Profile: public, then REVOKE in a finally block, and a check that
 //    no public relation grants anything to anon/authenticated afterwards (exit 3 if one does).
 // 3. The same requests through api. 30 per case per actor (after 3 warm-ups): the product list
-//    (50, with customer(code),supplier(code)), the purchase-order overview (50) and a PATCH with
+//    (50), the sourcing list (50, with supplier(code)), the purchase-order overview (50) and a PATCH with
 //    return=representation. Medians compared against R10's budget (amended 2026-11-09): reads
 //    internal ≤ max(+15%, +5 ms), restricted and mixed ≤ max(+40%, +10 ms) (the per-query fixed
 //    cost of masking dominates indexed lists); writes (a case with a method) ≤ +15 ms absolute,
@@ -29,7 +29,8 @@ const READ_ALLOWANCE_MS = { internal: 5, restricted: 10, mixed: 10 } as const;
 const PERF_PRODUCT = 'feed0001-0000-4000-8000-000000000001';
 const MEASURED = [
    'public.product',
-   'public.customer',
+   'public.sourcing',
+   'public.provider_relationship',
    'public.supplier',
    'public.purchase_order',
    'public.purchase_order_line',
@@ -66,7 +67,8 @@ type Actor = { name: 'internal' | 'restricted' | 'mixed'; token: string; headers
 type Case = { name: string; path: string; method?: string; body?: unknown; prefer?: string };
 
 const CASES: Case[] = [
-   { name: 'product list 50 + embeds', path: 'product?select=*,customer(code),supplier(code)&order=created_at.desc&limit=50' },
+   { name: 'product list 50', path: 'product?select=*&order=created_at.desc&limit=50' },
+   { name: 'sourcing list 50 + embed', path: 'sourcing?select=*,supplier(code)&order=created_at.desc&limit=50' },
    { name: 'purchase_order_overview 50', path: 'purchase_order_overview?select=*&limit=50' },
    {
       name: 'PATCH return=representation',

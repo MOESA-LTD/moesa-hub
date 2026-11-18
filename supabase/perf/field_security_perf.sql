@@ -2,8 +2,8 @@
 -- app/ (scripts/field-security-perf.mjs pipes this file to psql in the local database container and
 -- inlines field_security_perf_load.sql at the \ir line). Everything runs inside BEGIN … ROLLBACK.
 --
--- For each actor, the spike's Q1–Q4 (spike.md §3), Q5 (the product list's embed shape: customer join
--- and the api.supplier(p) computed relationship) and Q6 (the purchase-order overview) run against
+-- For each actor, the spike's Q1–Q4 (spike.md §3; Q4 now sums the cost on the sourcing rows, where it
+-- lives, per tenant: the join it had is gone), Q5 (the sourcing list's embed shape: the api.supplier(s) computed relationship) and Q6 (the purchase-order overview) run against
 -- api.* and against the same query on public.* (temporarily granted to authenticated, so both sides
 -- pay the same RLS). Each side: one warm-up, then 5 alternating runs; the median planning + execution
 -- time of EXPLAIN ANALYZE. Budget (R10, amended 2026-11-09): reads, internal ≤ max(+15%, +5 ms),
@@ -24,8 +24,9 @@ SELECT private.create_test_helpers();
 \o
 
 -- The baseline: the same queries on the base tables, with RLS, as the same caller.
-GRANT SELECT ON public.product, public.customer, public.supplier, public.purchase_order, public.purchase_order_line,
-    public.purchase_order_payment, public.project, public.document, public.purchase_order_overview TO authenticated;
+GRANT SELECT ON public.product, public.sourcing, public.supplier, public.purchase_order, public.purchase_order_line,
+    public.purchase_order_payment, public.project, public.document, public.purchase_order_overview,
+    public.provider_relationship TO authenticated;
 
 -- Median planning + execution ms of `base` and `api`, alternating, after one warm-up of each.
 CREATE FUNCTION t.perf_pair (base TEXT, api TEXT, n INT DEFAULT 5) RETURNS TABLE (base_ms NUMERIC, api_ms NUMERIC)
@@ -63,14 +64,13 @@ INSERT INTO perf_case VALUES
     (1, 'Q1 list 50 newest', 'SELECT * FROM %1$s.product ORDER BY created_at DESC LIMIT 50'),
     (2, 'Q2 sku prefix', 'SELECT * FROM %1$s.product WHERE sku LIKE ''L-00012%%'''),
     (3, 'Q3 count', 'SELECT count(*) FROM %1$s.product'),
-    (4, 'Q4 join customer + sum(price)',
-        'SELECT c.code, count(*), sum(v.purchase_price) FROM %1$s.product v JOIN %1$s.customer c ON c.id = v.customer_id AND c.tenant_id = v.tenant_id GROUP BY c.code'),
-    (5, 'Q5 list 50 + customer, supplier embed', NULL),
+    (4, 'Q4 sum(price) per tenant',
+        'SELECT v.tenant_id, count(*), sum(v.purchase_price) FROM %1$s.sourcing v GROUP BY v.tenant_id'),
+    (5, 'Q5 sourcing list 50 + supplier embed', NULL),
     (6, 'Q6 purchase_order_overview 50', 'SELECT * FROM %1$s.purchase_order_overview LIMIT 50');
--- Q5: PostgREST's shape for product?select=*,customer(code),supplier(code): a join to customer and a
--- lateral subquery per embed; through api the supplier embed is the computed relationship.
-UPDATE perf_case SET sql = 'SELECT p.*, c.code AS customer_code, s.code AS supplier_code FROM %1$s.product p '
-    || 'LEFT JOIN %1$s.customer c ON c.id = p.customer_id '
+-- Q5: PostgREST's shape for sourcing?select=*,supplier(code): a lateral subquery per embed; through api
+-- the supplier embed is the computed relationship.
+UPDATE perf_case SET sql = 'SELECT p.*, s.code AS supplier_code FROM %1$s.sourcing p '
     || 'LEFT JOIN LATERAL (%2$s) s ON TRUE ORDER BY p.created_at DESC LIMIT 50'
 WHERE pos = 5;
 

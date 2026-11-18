@@ -110,11 +110,19 @@ async function storageAdmin(path: string, init: RequestInit): Promise<Response> 
 export type Fixture = {
    restricted: string;
    mixed: string;
+   /** The THO viewer (portal@): a user of the client tenant, no provider membership. */
    portal: string;
+   /** The token of thomas@, owner of the client tenant THO. */
+   clientOwner: string;
    koordinator: string;
+   /** The sourcing row HTTP-SECRET (MOESA LTD, client THO): cost 12.5, a supplier and an internal note. */
    secretId: string;
+   /** The sourcing row HTTP-EU in MOESA Europe (a tenant procuring its own product), cost 77.7. */
    euId: string;
-   thoId: string;
+   /** MOESA LTD's own product HTTP-NEW, without a sourcing row yet. */
+   newProductId: string;
+   /** The client tenant THO. */
+   client: string;
    moesa: string;
    europe: string;
    nova: string;
@@ -128,7 +136,6 @@ export type Fixture = {
 const HTTP_SKUS = '(HTTP-SECRET,HTTP-EU,HTTP-NEW)';
 const HTTP_ROLES = '(http_restricted,http_no_cost)';
 const HTTP_PI = 'HTTP-PI';
-const HTTP_EU_CUSTOMER = 'HEU';
 
 const one = <T>(r: RestResult, what: string): T => {
    if (!Array.isArray(r.body) || r.body.length !== 1) throw new Error(`expected one ${what}, got ${JSON.stringify(r.body).slice(0, 200)}`);
@@ -154,8 +161,9 @@ async function cleanup(): Promise<void> {
       }
    }
    await admin(`purchase_order?pi_number=eq.${HTTP_PI}`, { method: 'DELETE' });
+   // Sourcing rows first: they keep a product's sku as a snapshot and would outlive it.
+   await admin(`sourcing?product_sku=in.${HTTP_SKUS}`, { method: 'DELETE' });
    await admin(`product?sku=in.${HTTP_SKUS}`, { method: 'DELETE' });
-   await admin(`customer?code=eq.${HTTP_EU_CUSTOMER}`, { method: 'DELETE' });
    const users = await admin(`user?email=in.(${RESTRICTED_EMAIL},${MIXED_EMAIL})&select=id`);
    for (const { id } of users.body as { id: string }[]) {
       await admin(`user_role?user_id=eq.${id}`, { method: 'DELETE' });
@@ -179,19 +187,21 @@ async function createUser(email: string): Promise<string> {
 
 /**
  * The HTTP fixtures, through the service key and the GoTrue admin API:
- * - http-restricted: MOESA LTD, role http_restricted (product and customer select/insert/update,
+ * - http-restricted: MOESA LTD, role http_restricted (product (with sourcing) and client select/insert/update,
  *   purchase_order with delete, audit_log select, user select/update; no field rows: every
  *   sensitive field denied);
  * - http-mixed: management in MOESA LTD, http_no_cost in MOESA Europe (management's permissions and
  *   field rights without the cost group);
- * - products HTTP-SECRET (MOESA LTD, cost and note set, a supplier) and HTTP-EU (Europe);
- * - an HTTP purchase order (draft) with a line priced 12.5 (written by the mixed user, who holds
- *   the cost rights in MOESA LTD), and a PI document on it with a file in Storage (the 060 row rule).
+ * - products HTTP-SECRET (client tenant THO) and HTTP-EU (Europe's own), each with a sourcing row in the
+ *   procuring tenant: HTTP-SECRET in MOESA LTD for client THO (cost and note set, a supplier), HTTP-EU in
+ *   Europe (cost 77.7);
+ * - an HTTP purchase order (draft) with a line priced 12.5 (written by akif, management in both
+ *   MOESA LTD and THO), and a PI document on it with a file in Storage (the 060 row rule).
  */
 export async function adminSetup(): Promise<Fixture> {
    await cleanup();
 
-   const tenants = (await admin('tenant?select=id,display_name&display_name=in.("MOESA LTD","MOESA Europe","Nova Yazılım")'))
+   const tenants = (await admin('tenant?select=id,display_name&display_name=in.("MOESA LTD","MOESA Europe","Nova Yazılım","THOMETZKI ONLINE HANDEL")'))
       .body as { id: string; display_name: string }[];
    const tenant = (name: string) => {
       const t = tenants.find((x) => x.display_name === name);
@@ -201,11 +211,12 @@ export async function adminSetup(): Promise<Fixture> {
    const moesa = tenant('MOESA LTD');
    const europe = tenant('MOESA Europe');
    const nova = tenant('Nova Yazılım');
+   const client = tenant('THOMETZKI ONLINE HANDEL');
    const inMoesa = { 'x-tenant-id': moesa };
    const inEurope = { 'x-tenant-id': europe };
+   const inClient = { 'x-tenant-id': client };
    const rep = { Prefer: 'return=representation' };
 
-   const thoId = one<{ id: string }>(await admin(`customer?tenant_id=eq.${moesa}&code=eq.THO&select=id`), 'THO').id;
    const supplierId = one<{ id: string }>(
       await admin(`supplier?tenant_id=eq.${moesa}&select=id&order=code&limit=1`),
       'MOESA supplier',
@@ -233,7 +244,7 @@ export async function adminSetup(): Promise<Fixture> {
    }[];
    const restrictedPermissions = permissions.filter(
       (p) =>
-         (['product', 'customer'].includes(p.group_name) && ['select', 'insert', 'update'].includes(p.command)) ||
+         (['product', 'client'].includes(p.group_name) && ['select', 'insert', 'update'].includes(p.command)) ||
          p.group_name === 'purchase_order' ||
          (p.group_name === 'audit_log' && p.command === 'select') ||
          (p.group_name === 'user' && ['select', 'update'].includes(p.command)),
@@ -288,51 +299,73 @@ export async function adminSetup(): Promise<Fixture> {
       ],
    });
 
-   // Products.
-   const secretId = one<{ id: string }>(
+   // Products and their sourcing. The product HTTP-SECRET is THO's; MOESA LTD sources it for THO.
+   // HTTP-EU is Europe's own product, sourced in Europe.
+   const productSecret = one<{ id: string }>(
       await admin('product', {
          method: 'POST',
-         headers: { ...inMoesa, ...rep },
-         body: {
-            tenant_id: moesa,
-            customer_id: thoId,
-            sku: 'HTTP-SECRET',
-            display_name: 'HTTP secret',
-            supplier_id: supplierId,
-            purchase_price: 12.5,
-            purchase_currency: 'USD',
-            notes: 'secret note',
-         },
+         headers: { ...inClient, ...rep },
+         body: { tenant_id: client, sku: 'HTTP-SECRET', display_name: 'HTTP secret' },
       }),
       'product',
    ).id;
-   const euCustomer = one<{ id: string }>(
-      await admin('customer', {
-         method: 'POST',
-         headers: { ...inEurope, ...rep },
-         body: { tenant_id: europe, code: HTTP_EU_CUSTOMER, display_name: 'HTTP EU customer', commercial_model: 'trading_partner' },
-      }),
-      'customer',
-   ).id;
-   const euId = one<{ id: string }>(
+   // A link into a client tenant needs a caller who reads the client's products (the link guard), which
+   // the service key is not: akif is management in MOESA LTD and a member of THO.
+   const akif = await signIn('akif@moesa-panel.test');
+   const secretSourcing = await rest(akif, 'sourcing', {
+      method: 'POST',
+      headers: { ...inMoesa, ...rep },
+      body: {
+         tenant_id: moesa,
+         client_tenant_id: client,
+         product_id: productSecret,
+         supplier_id: supplierId,
+         purchase_price: 12.5,
+         purchase_currency: 'USD',
+         notes: 'secret note',
+      },
+   });
+   if (secretSourcing.status !== 201) {
+      throw new Error(`creating the HTTP sourcing row: ${secretSourcing.status} ${JSON.stringify(secretSourcing.body).slice(0, 200)}`);
+   }
+   const secretId = one<{ id: string }>(secretSourcing, 'sourcing').id;
+   const productEu = one<{ id: string }>(
       await admin('product', {
          method: 'POST',
          headers: { ...inEurope, ...rep },
-         body: { tenant_id: europe, customer_id: euCustomer, sku: 'HTTP-EU', display_name: 'HTTP EU', purchase_price: 77.7 },
+         body: { tenant_id: europe, sku: 'HTTP-EU', display_name: 'HTTP EU' },
+      }),
+      'product',
+   ).id;
+   const euId = one<{ id: string }>(
+      await admin('sourcing', {
+         method: 'POST',
+         headers: { ...inEurope, ...rep },
+         body: { tenant_id: europe, product_id: productEu, purchase_price: 77.7, purchase_currency: 'EUR' },
+      }),
+      'sourcing',
+   ).id;
+   // MOESA LTD's own product with no sourcing row, for the restricted user's sourcing POST (the user is no
+   // member of THO, so it cannot link a THO product).
+   const newProductId = one<{ id: string }>(
+      await admin('product', {
+         method: 'POST',
+         headers: { ...inMoesa, ...rep },
+         body: { tenant_id: moesa, sku: 'HTTP-NEW', display_name: 'HTTP new' },
       }),
       'product',
    ).id;
 
    // A PI file (060): purchase order, Storage object, media row and the pi document.
-   // The PO code is numbered in the request's tenant, which the service role has none of: the mixed
-   // user (management in MOESA LTD) creates it through api.
+   // The PO code is numbered in the request's tenant, which the service role has none of: akif
+   // (management in MOESA LTD, member of THO, so the line may link THO's product) creates it through api.
    const mixed = await signIn(MIXED_EMAIL);
-   const po = await rest(mixed, 'purchase_order', {
+   const po = await rest(akif, 'purchase_order', {
       method: 'POST',
       headers: { ...inMoesa, ...rep },
       body: {
          tenant_id: moesa,
-         customer_id: thoId,
+         client_tenant_id: client,
          supplier_id: supplierId,
          currency: 'USD',
          incoterm: 'FOB',
@@ -342,10 +375,10 @@ export async function adminSetup(): Promise<Fixture> {
    });
    if (po.status !== 201) throw new Error(`creating the HTTP purchase order: ${po.status} ${JSON.stringify(po.body).slice(0, 200)}`);
    const poId = one<{ id: string }>(po, 'purchase order').id;
-   const line = await rest(mixed, 'purchase_order_line', {
+   const line = await rest(akif, 'purchase_order_line', {
       method: 'POST',
       headers: { ...inMoesa, ...rep },
-      body: { tenant_id: moesa, purchase_order_id: poId, product_id: secretId, quantity: 10, unit_price: 12.5 },
+      body: { tenant_id: moesa, purchase_order_id: poId, product_id: productSecret, quantity: 10, unit_price: 12.5 },
    });
    if (line.status !== 201) throw new Error(`creating the HTTP order line: ${line.status} ${JSON.stringify(line.body).slice(0, 200)}`);
    const lineId = one<{ id: string }>(line, 'order line').id;
@@ -364,7 +397,6 @@ export async function adminSetup(): Promise<Fixture> {
       body: {
          id: mediaId,
          tenant_id: moesa,
-         customer_id: thoId,
          storage_path: piObject,
          file_name: 'pi.pdf',
          mime_type: 'application/pdf',
@@ -376,7 +408,6 @@ export async function adminSetup(): Promise<Fixture> {
       headers: inMoesa,
       body: {
          tenant_id: moesa,
-         customer_id: thoId,
          entity_type: 'purchase_order',
          entity_id: poId,
          type: 'pi',
@@ -385,9 +416,10 @@ export async function adminSetup(): Promise<Fixture> {
       },
    });
 
-   const [restricted, portal, koordinator] = await Promise.all([
+   const [restricted, portal, clientOwner, koordinator] = await Promise.all([
       signIn(RESTRICTED_EMAIL),
       signIn('portal@moesa-panel.test'),
+      signIn('thomas@moesa-panel.test'),
       signIn('koordinator@moesa-panel.test'),
    ]);
 
@@ -395,10 +427,12 @@ export async function adminSetup(): Promise<Fixture> {
       restricted,
       mixed,
       portal,
+      clientOwner,
       koordinator,
       secretId,
       euId,
-      thoId,
+      newProductId,
+      client,
       moesa,
       europe,
       nova,
@@ -434,7 +468,7 @@ export const APP_SELECTS: [string, string][] = [
    // amazon
    ['amazon_product_type_definition', '*'],
    ['market_cell', 'id, country, listing_language, price, currency'],
-   ['customer_platform_account', 'id, customer_id, platform_id, api_connection, authorized_at, seller_id'],
+   ['platform_account', 'id, tenant_id, platform_id, api_connection, authorized_at, seller_id'],
    ['listing_submission', '*'],
    ['market_cell', 'id'],
    // audit
@@ -457,32 +491,32 @@ export const APP_SELECTS: [string, string][] = [
    ],
    ['permission', 'id,resource_name,group_name,kind'],
    ['field_group', 'id,position'],
-   // customer
-   ['customer', '*'],
-   ['customer', 'id, code, display_name, status'],
-   ['customer', 'id, code, display_name'],
-   ['customer_contact', '*'],
-   ['customer_warehouse', '*'],
-   ['customer_warehouse', 'id, display_name, city, is_default, dock_hours, appointment_rule'],
-   ['customer_platform_account', '*'],
-   ['customer_brand', '*'],
+   // company data and the provider relationship
+   ['provider_relationship', '*'],
+   ['provider_relationship', 'id, client_tenant_id, client_code, client_name, status'],
+   ['contact', '*'],
+   ['warehouse', '*'],
+   ['warehouse', 'id, display_name, city, is_default, dock_hours, appointment_rule'],
+   ['platform_account', '*'],
+   ['brand', '*'],
    ['platform', 'id, display_name, countries'],
    // supplier
    ['supplier', '*'],
    ['supplier', 'id, code, display_name, default_incoterm, deposit_rate'],
    ['supplier_contact', '*'],
    // product
-   ['product', '*, customer(code), supplier(code)'],
-   ['product', '*, customer(code, display_name), supplier(code, display_name)'],
+   ['product', '*'],
+   ['sourcing', '*, supplier(code, display_name)'],
+   ['sourcing', 'id, product_id, client_tenant_id, supplier_id, purchase_price, purchase_currency, sell_price_eur'],
    ['product', 'id'],
    ['product', 'id, sku, display_name'],
    ['product', 'id, sku, display_name, status'],
-   ['product', 'id, sku, display_name, status, purchase_price, purchase_currency'],
-   ['product_with_evidence', '*, customer(code, display_name), supplier(code)'],
+   ['product', 'id, sku, display_name, status'],
+   ['product_with_evidence', '*'],
    ['product_with_evidence', '*, branch:tenant(display_name)'],
    // project
-   ['project', '*, customer(code, display_name), project_gate(*), project_product(product(id, sku, display_name))'],
-   ['project', '*, customer(code, display_name), project_gate(id, code, position, status)'],
+   ['project', '*, project_gate(*), project_product(product(id, sku, display_name))'],
+   ['project', '*, project_gate(id, code, position, status)'],
    ['project', 'id, code, display_name'],
    ['project_task', '*'],
    ['project_product', '*'],
@@ -492,10 +526,9 @@ export const APP_SELECTS: [string, string][] = [
       'purchase_order',
       [
          '*',
-         'customer!purchase_order_customer_fkey(code, display_name)',
          'supplier(code, display_name, default_incoterm, deposit_rate)',
          'project!purchase_order_project_fkey(code, display_name)',
-         'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status, purchase_price, purchase_currency), spec_document:document!purchase_order_line_spec_fkey(id, version, status))',
+         'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status), spec_document:document!purchase_order_line_spec_fkey(id, version, status))',
          'purchase_order_payment!purchase_order_payment_po_fkey(*)',
       ].join(', '),
    ],
@@ -506,14 +539,13 @@ export const APP_SELECTS: [string, string][] = [
    ['purchase_order_update', '*'],
    ['purchase_order_overview', '*'],
    ['purchase_order_overview', 'id'],
-   ['purchase_order_overview', 'id, code, status, customer_id'],
+   ['purchase_order_overview', 'id, code, status, client_tenant_id'],
    // shipment
    [
       'shipment',
       [
          '*',
-         'customer!shipment_customer_fkey(code, display_name)',
-         'customer_warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
+         'warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
          'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
          'shipment_line!shipment_line_shipment_fkey(*)',
       ].join(', '),
@@ -528,14 +560,14 @@ export const APP_SELECTS: [string, string][] = [
    // change request
    [
       'change_request',
-      '*, customer!change_request_customer_fkey(code, display_name), project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)',
+      '*, project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)',
    ],
-   ['change_request', '*, customer!change_request_customer_fkey(code), project!change_request_project_fkey(code)'],
+   ['change_request', '*, project!change_request_project_fkey(code)'],
    ['change_request_product', '*'],
    // incident
    [
       'incident',
-      '*, customer!incident_customer_fkey(code, display_name), incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)',
+      '*, incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)',
    ],
    ['incident', 'id, code, title'],
    ['incident_log', '*'],
@@ -551,8 +583,7 @@ export const APP_SELECTS: [string, string][] = [
    ['market_cell_overview', '*'],
    // documents and media
    ['document', '*, media!document_media_fkey(id, storage_path, file_name)'],
-   ['document', '*, customer!document_customer_fkey(code), media!document_media_fkey(id, storage_path, file_name)'],
-   ['document', 'id, type, version, status'],
+      ['document', 'id, type, version, status'],
    ['document', 'id, version, status'],
    ['document', 'id, entity_id, type, version, file_name'],
    ['document', 'id, type, version, file_name'],
