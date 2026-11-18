@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Functions defined in more than one migration. A later migration restates a body an earlier one
 -- owns (052 the guards' cascade exits (R7) and request identity (R6), 058 the RPCs as api_owner
 -- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
--- policies' shared-row call), or extends it (a chain such as 021 → 032 → 036). A restated body is
+-- policies' shared-row call and the api view generator's shared-row masking), or extends it (a chain such as 021 → 032 → 036). A restated body is
 -- the owner's current body plus only the restating migration's own delta, so an edit of the owner
 -- that is not carried into the restatement would be undone silently, and so would a chain step a
 -- later restatement forgot. Each row below names, for the live function, every rule its owner raises
@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(39);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -111,7 +111,26 @@ VALUES
    ('private.enable_tenant_level_security(text)', '004', '067',
     ARRAY['restrict_selects_to_current_tenant', 'restrict_inserts_to_allowed_tenants', 'restrict_updates_to_current_tenant',
           'restrict_deletes_to_current_tenant', 'private.is_tenant_id_nullable(t_name)', 'tenant_id = ANY ((SELECT private.tenant_scope())::UUID[])',
-          'IF private.is_shared_table(t_name) THEN', 'PERFORM private.enable_shared_rows(t_name)']);
+          'IF private.is_shared_table(t_name) THEN', 'PERFORM private.enable_shared_rows(t_name)']),
+   -- 067: the generator masks a shared row by the row's own tenant (053 → 059 → 067).
+   ('private.api_column_expr(text, text)', '053', '059, 067',
+    ARRAY['field_security_unsupported', 'CASE WHEN t.id = auth.uid() OR t.id = ANY (m.u%s)', 'CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) THEN',
+          'private.mask_audit_data(t.table_name', 'private.mask_json_deep(t.%1$I', 'private.is_shared_table(p_table)',
+          'JSON masking on a shared table', 'CASE WHEN t.%1$I = ANY (m.t%2$s) THEN', 'OR t.client_tenant_id = ANY (m.t%1$s) THEN',
+          'CASE WHEN t.tenant_id = ANY (m.t%1$s) THEN', 'CASE WHEN t.tenant_id = ANY (m.s) THEN t.%1$I ELSE NULL::%2$s END']),
+   ('private.api_view_from(text)', '053', '067',
+    ARRAY['WITH r AS MATERIALIZED', 'private.field_user_rights(', 'private.field_read_rights(', 'private.api_rights_expr(p_table, a.attname)',
+          'OFFSET 0) m', '(SELECT coalesce(private.tenant_scope(), ''{}'')) AS s']),
+   ('private.api_view_query(text)', '053', '067',
+    ARRAY['private.api_column_expr(p_table, a.attname)', 'private.api_view_from(p_table)', 'private.api_view_derived_columns(p_table)']),
+   ('private.api_view_drift()', '053', '059, 067',
+    ARRAY['''columns''', '''unmasked ''', '''masked ''', '''expression ''', '''definition''', '''owner''', '''security_invoker''', '''trigger''',
+          '''anon or public privilege''', '''anon or public execute ''', '''guard''', 'mask_audit_data(', '''unshared ''',
+          '''shared without s''', 'private.api_view_derived_columns(v.name)']),
+   ('private.enable_field_security(text, boolean)', '053', '057, 067',
+    ARRAY['private.api_view_query(p_table)', 'security_invoker = false', 'OWNER TO api_owner', 'DROP TRIGGER IF EXISTS api_forward',
+          'INSTEAD OF INSERT OR UPDATE OR DELETE', 'field_security_unsupported', '_by_', 'private.enable_field_write_guard(p_table)',
+          'private.is_shared_table(p_table)', 'f.client_visible']);
 
 SELECT is_empty(format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n WHERE strpos(pg_get_functiondef(%L::REGPROCEDURE), n) = 0 $q$,
                        r.needle, r.fn),

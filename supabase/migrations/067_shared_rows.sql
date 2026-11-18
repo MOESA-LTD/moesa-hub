@@ -128,3 +128,653 @@ WHERE c.relnamespace = 'public'::REGNAMESPACE
   AND c.relkind = 'r'
   AND private.is_shared_table(c.relname::TEXT)
 ORDER BY c.relname;
+
+-- ======================================================================================= 2. masking
+--
+-- The api views (053) mask a shared row's columns by the row's own tenant. On a shared table
+-- (private.is_shared_table), with n the column's attnum, cv field_class.client_visible and rc
+-- field_class.rights_column:
+--
+--   sensitive and rc IS NOT NULL      CASE WHEN t.<rc> = ANY (m.t<n>) THEN t.<c> END
+--   sensitive and shared and cv       CASE WHEN m.a<n> OR t.tenant_id = ANY (m.t<n>) OR t.client_tenant_id = ANY (m.t<n>) THEN t.<c> END
+--   sensitive and shared and not cv   CASE WHEN t.tenant_id = ANY (m.t<n>) THEN t.<c> END
+--   sensitive otherwise               unchanged: CASE WHEN m.a<n> OR t.tenant_id = ANY (m.t<n>) THEN t.<c> END
+--   open and shared and not cv        CASE WHEN t.tenant_id = ANY (m.s) THEN t.<c> ELSE NULL::<type> END
+--   open otherwise                    t.<c>
+--   JSON-masked on a shared table     refused (field_security_unsupported) unless sensitive and not cv
+--
+-- A column outside the client-visible set is read only with rights in the row's own tenant (the
+-- provider): m.a<n> ("readable in every tenant of the scope") would unmask it for a client owner
+-- (the owner bypass), and t.client_tenant_id would let a right the client grants itself (save_role)
+-- reach it, so neither appears. Open and system columns too: m.s is the request's tenant scope
+-- (x-tenant-ids within the user's tenants), so they read only for a member of the provider. A
+-- client-visible sensitive field is read through either tenant's right; a client role without it
+-- reads NULL (the client narrows, never widens). The open mask's ELSE keeps the column's type (a
+-- domain, a typmod) as a constant, so the view's column type does not change and nothing is cast per
+-- row. The rights tenant of a write is never this generated column (F1): the triggers and the
+-- forwarder read base columns.
+--
+-- api_view_from adds (SELECT coalesce(private.tenant_scope(), '{}')) AS s to m on a shared table (an
+-- InitPlan like the rights pairs). api_view_query appends the derived columns of
+-- private.api_view_derived_columns after the base columns. api_view_drift reports 'unshared <c>' (a
+-- provider-only column of a shared table not gated on t.tenant_id alone) and 'shared without s', and
+-- compares a derived column's whole expression like any other.
+--
+-- Derived column api.purchase_order.client_status (Q1). Raw status is provider-only: pi_received,
+-- pi_approved, deposit_paid and balance_paid reveal the provider's supplier-payment progress
+-- (decision 15). The client reads the order's stage instead, from the status and the order's
+-- shipments (shipment_purchase_order; a cancelled shipment counts for nothing):
+--   cancelled       status cancelled
+--   delivered       status closed, or at least one shipment and every one of them delivered,
+--                   accepted or disputed
+--   shipped         a shipment loaded, in transit, at customs or arrived
+--   in_production   status in_production, ready or balance_paid
+--   confirmed       otherwise: draft, sent, pi_received, pi_approved, deposit_paid (a planned or
+--                   booked shipment changes nothing)
+-- private.purchase_order_client_status is SECURITY DEFINER (the shipments may lie outside what the
+-- reader selects; only the stage of an order the reader already reads comes out) and executable by
+-- authenticated (the view calls it as the caller), which has no USAGE on private.
+--
+-- The derived views (058) read the api twins, so they mask alike. purchase_order_overview gains
+-- client_status, and its spec_missing_line_ids is NULL outside the order's own tenant: it would
+-- read a masked spec_document_id through the provider's spec setting (F16).
+--
+-- Restated (F12, pinned in 052_guard_restatements.test.sql): api_column_expr (059's body),
+-- api_view_from (053's), api_view_query (053's), api_view_drift (059's) and enable_field_security
+-- (057's: the R4 functions across a provider-only link, which PostgREST no longer sees as a foreign
+-- key once masked), each plus only this delta.
+
+CREATE TYPE public.purchase_order_client_status AS ENUM ('confirmed', 'in_production', 'shipped', 'delivered', 'cancelled');
+
+CREATE OR REPLACE FUNCTION private.purchase_order_client_status (
+   p_purchase_order_id UUID,
+   p_tenant_id UUID,
+   p_status public.purchase_order_status
+) RETURNS public.purchase_order_client_status LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT CASE
+        WHEN p_status = 'cancelled' THEN 'cancelled'
+        WHEN p_status = 'closed' OR (s.live > 0 AND s.arrived = s.live) THEN 'delivered'
+        WHEN s.underway > 0 THEN 'shipped'
+        WHEN p_status IN ('in_production', 'ready', 'balance_paid') THEN 'in_production'
+        ELSE 'confirmed'
+    END::public.purchase_order_client_status
+    FROM (
+        SELECT count(*) AS live,
+               count(*) FILTER (WHERE sh.status IN ('delivered', 'accepted', 'disputed')) AS arrived,
+               count(*) FILTER (WHERE sh.status IN ('loaded', 'in_transit', 'at_customs', 'delivered', 'accepted', 'disputed')) AS underway
+        FROM public.shipment_purchase_order sp
+        JOIN public.shipment sh ON sh.id = sp.shipment_id AND sh.tenant_id = sp.tenant_id
+        WHERE sp.purchase_order_id = p_purchase_order_id AND sp.tenant_id = p_tenant_id
+          AND sh.status <> 'cancelled'
+    ) s;
+$$;
+
+REVOKE ALL ON FUNCTION private.purchase_order_client_status (UUID, UUID, public.purchase_order_status) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION private.purchase_order_client_status (UUID, UUID, public.purchase_order_status) TO authenticated;
+
+-- The columns an api view adds after the base columns: (name, select-list entry over t).
+CREATE OR REPLACE FUNCTION private.api_view_derived_columns (p_table TEXT) RETURNS TABLE (name TEXT, expr TEXT) LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT 'client_status', 'private.purchase_order_client_status(t.id, t.tenant_id, t.status) AS client_status'
+    WHERE p_table = 'purchase_order';
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_derived_columns (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 059's api_column_expr plus the shared-table rules (see the header).
+CREATE OR REPLACE FUNCTION private.api_column_expr (p_table TEXT, p_column TEXT) RETURNS TEXT LANGUAGE plpgsql STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    has_tenant BOOLEAN;
+    n INT;
+    expr TEXT;
+    -- 067
+    shared BOOLEAN := private.is_shared_table(p_table);
+    sensitive BOOLEAN := private.api_is_sensitive('public.' || p_table, p_column);
+    cv BOOLEAN;
+    rc TEXT;
+    col_type TEXT;
+BEGIN
+    has_tenant := EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+    );
+    SELECT a.attnum, pg_catalog.format_type(a.atttypid, a.atttypmod) INTO n, col_type
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = base AND a.attname = p_column AND a.attnum > 0 AND NOT a.attisdropped;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'no such column: ' || resource || '.' || p_column;
+    END IF;
+    SELECT f.client_visible, f.rights_column INTO cv, rc
+    FROM public.field_class f
+    WHERE f.resource_name = resource AND f.field = p_column;
+    cv := coalesce(cv, FALSE);
+
+    -- 067: a JSON mask reads the caller's rights in t.tenant_id; on a shared table only a provider-only
+    -- sensitive column (masked whole by the provider's rights) may carry one.
+    IF shared AND EXISTS (SELECT 1 FROM private.api_json_masked j WHERE j.resource_name = resource AND j.field = p_column)
+       AND NOT (sensitive AND NOT cv) THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'JSON masking on a shared table: ' || resource || '.' || p_column;
+    END IF;
+
+    IF sensitive THEN
+        IF p_table = 'user' THEN
+            expr := format('CASE WHEN t.id = auth.uid() OR t.id = ANY (m.u%s) THEN t.%I END', n, p_column);
+        ELSIF rc IS NOT NULL THEN
+            -- 067: the rights of the tenant rc names.
+            expr := format('CASE WHEN t.%1$I = ANY (m.t%2$s) THEN t.%3$I END', rc, n, p_column);
+        ELSIF has_tenant AND shared AND cv THEN
+            -- 067: client-visible, read through either tenant's right.
+            expr := format('CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) OR t.client_tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSIF has_tenant AND shared THEN
+            -- 067: provider-only, read with a right in the row's own tenant only.
+            expr := format('CASE WHEN t.tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSIF has_tenant THEN
+            expr := format('CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSE
+            RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = resource || '.' || p_column;
+        END IF;
+        -- No cast back to the column's type: a per-row typmod or domain cast is paid on every row
+        -- before Sort/Limit (R10). The view column keeps the base type without its typmod, and a
+        -- domain column its base type (as the generated TS types already map them).
+        RETURN format('%s AS %I', expr, p_column);
+    END IF;
+
+    -- A JSON column whose keys are masked per row tenant (the maps from m): the audit snapshots by the
+    -- row's own table, any other by every table's sensitive fields.
+    IF EXISTS (SELECT 1 FROM private.api_json_masked j WHERE j.resource_name = resource AND j.field = p_column) THEN
+        IF NOT has_tenant THEN
+            RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'JSON masking needs tenant_id: ' || resource || '.' || p_column;
+        ELSIF p_table = 'audit_log' THEN
+            RETURN format('private.mask_audit_data(t.table_name, t.tenant_id, t.%1$I, m.rights, m.sensitive) AS %1$I', p_column);
+        END IF;
+        RETURN format('private.mask_json_deep(t.%1$I, t.tenant_id, m.rights, m.sensitive) AS %1$I', p_column);
+    END IF;
+    -- 067: an open (or system) provider-only column of a shared table: members of the row's tenant.
+    IF shared AND NOT cv THEN
+        RETURN format('CASE WHEN t.tenant_id = ANY (m.s) THEN t.%1$I ELSE NULL::%2$s END AS %1$I', p_column, col_type);
+    END IF;
+    RETURN format('t.%I', p_column);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_column_expr (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 053's api_view_from plus the scope entry s of a shared table.
+CREATE OR REPLACE FUNCTION private.api_view_from (p_table TEXT) RETURNS TEXT LANGUAGE plpgsql STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    fields TEXT[];
+    nums INT[];
+    entries TEXT[] := '{}';
+    rights TEXT := '';
+    i INT;
+BEGIN
+    SELECT array_agg(a.attname::TEXT ORDER BY a.attnum), array_agg(a.attnum::INT ORDER BY a.attnum) INTO fields, nums
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND private.api_is_sensitive(resource, a.attname);
+    IF fields IS NOT NULL THEN
+        rights := format(
+            'WITH r AS MATERIALIZED (SELECT %s AS x) ',
+            CASE WHEN p_table = 'user' THEN format('private.field_user_rights(%L::TEXT[])', fields)
+                 ELSE format('private.field_read_rights(%L, %L::TEXT[])', resource, fields) END
+        );
+        FOR i IN 1 .. cardinality(fields) LOOP
+            IF p_table = 'user' THEN
+                entries := entries || format('(SELECT (r.x[%s]).ids FROM r) AS u%s', i, nums[i]);
+            ELSE
+                entries := entries || format('(SELECT (r.x[%s]).readable_all FROM r) AS a%s', i, nums[i])
+                                   || format('(SELECT (r.x[%s]).ids FROM r) AS t%s', i, nums[i]);
+            END IF;
+        END LOOP;
+    END IF;
+    -- Other entries (059: the JSON maps), one of each.
+    entries := entries || ARRAY(
+        SELECT x.e
+        FROM pg_catalog.pg_attribute a,
+             unnest(private.api_rights_expr(p_table, a.attname)) WITH ORDINALITY AS x (e, k)
+        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped
+        GROUP BY x.e
+        ORDER BY min(a.attnum * 100 + x.k)
+    );
+    -- 067: the request's tenant scope, once per view, for the open provider-only columns.
+    IF private.is_shared_table(p_table) THEN
+        entries := entries || $e$(SELECT coalesce(private.tenant_scope(), '{}')) AS s$e$::TEXT;
+    END IF;
+    IF cardinality(entries) = 0 THEN
+        RETURN format('%s t', base);
+    END IF;
+    RETURN format('%s t CROSS JOIN (%sSELECT %s OFFSET 0) m', base, rights, array_to_string(entries, ', '));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_from (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 053's api_view_query plus the derived columns after the base columns.
+CREATE OR REPLACE FUNCTION private.api_view_query (p_table TEXT) RETURNS TEXT LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT format('SELECT %s%s FROM %s',
+                  string_agg(private.api_column_expr(p_table, a.attname), ', ' ORDER BY a.attnum),
+                  (SELECT coalesce(string_agg(', ' || d.expr, '' ORDER BY d.name), '') FROM private.api_view_derived_columns(p_table) d),
+                  private.api_view_from(p_table))
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = format('public.%I', p_table)::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_query (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 059's api_view_drift plus the derived columns, 'unshared <c>' and 'shared without s'.
+CREATE OR REPLACE FUNCTION private.api_view_drift () RETURNS TABLE (relation TEXT, problem TEXT) LANGUAGE plpgsql VOLATILE
+SET
+   search_path = '' AS $$
+DECLARE
+    v RECORD;
+    c RECORD;
+    resource TEXT;
+    expected_ok BOOLEAN;
+    anon_oid OID := (SELECT r.oid FROM pg_catalog.pg_roles r WHERE r.rolname = 'anon');
+    -- 067
+    shared BOOLEAN;
+BEGIN
+    FOR v IN
+        SELECT b.oid AS base, w.oid AS view, w.reltype, w.reloptions, w.relacl, b.relname::TEXT AS name,
+               pg_catalog.pg_get_userbyid(w.relowner)::TEXT AS owner
+        FROM pg_catalog.pg_class w
+        JOIN pg_catalog.pg_namespace wn ON wn.oid = w.relnamespace AND wn.nspname = 'api'
+        JOIN pg_catalog.pg_class b ON b.relname = w.relname AND b.relkind IN ('r', 'p')
+        JOIN pg_catalog.pg_namespace bn ON bn.oid = b.relnamespace AND bn.nspname = 'public'
+        WHERE w.relkind = 'v'
+        ORDER BY b.relname
+    LOOP
+        resource := 'public.' || v.name;
+        relation := v.name;
+        shared := private.is_shared_table(v.name);
+
+        -- 067: the base columns, then the derived ones.
+        IF ARRAY(SELECT a.attname::TEXT FROM pg_catalog.pg_attribute a WHERE a.attrelid = v.base AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum)
+           || ARRAY(SELECT d.name FROM private.api_view_derived_columns(v.name) d ORDER BY d.name)
+           IS DISTINCT FROM
+           ARRAY(SELECT a.attname::TEXT FROM pg_catalog.pg_attribute a WHERE a.attrelid = v.view AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) THEN
+            problem := 'columns';
+            RETURN NEXT;
+        ELSE
+            -- What the generator would produce, deparsed the same way as the live view.
+            expected_ok := TRUE;
+            IF to_regclass('pg_temp.api_drift_expected') IS NOT NULL THEN
+                EXECUTE 'DROP VIEW pg_temp.api_drift_expected';
+            END IF;
+            BEGIN
+                EXECUTE 'CREATE TEMPORARY VIEW api_drift_expected AS ' || private.api_view_query(v.name);
+            EXCEPTION WHEN OTHERS THEN
+                expected_ok := FALSE;
+                problem := 'expected: ' || SQLERRM;
+                RETURN NEXT;
+            END;
+
+            FOR c IN
+                SELECT a.attname::TEXT AS name, s.expr, e.expr AS expected,
+                       -- m's pairs are numbered by the base column's attnum (the view's skips dropped ones).
+                       (SELECT b.attnum FROM pg_catalog.pg_attribute b WHERE b.attrelid = v.base AND b.attname = a.attname) AS n,
+                       private.api_is_sensitive(resource, a.attname) AS sensitive,
+                       EXISTS (SELECT 1 FROM private.api_json_masked j WHERE j.resource_name = resource AND j.field = a.attname) AS json_masked,
+                       -- 067
+                       NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute b WHERE b.attrelid = v.base AND b.attname = a.attname
+                                     AND b.attnum > 0 AND NOT b.attisdropped) AS derived,
+                       coalesce((SELECT f.client_visible FROM public.field_class f WHERE f.resource_name = resource AND f.field = a.attname), FALSE) AS cv,
+                       (SELECT f.rights_column FROM public.field_class f WHERE f.resource_name = resource AND f.field = a.attname) AS rc
+                FROM pg_catalog.pg_attribute a
+                JOIN private.api_view_select_list(v.view) s ON s.n = a.attnum
+                LEFT JOIN private.api_view_select_list(CASE WHEN expected_ok THEN to_regclass('pg_temp.api_drift_expected') END) e ON e.n = a.attnum
+                WHERE a.attrelid = v.view AND a.attnum > 0
+                ORDER BY a.attnum
+            LOOP
+                IF c.derived THEN
+                    -- 067: a derived column is compared whole (below) with the generator's.
+                    NULL;
+                ELSIF c.sensitive THEN
+                    -- The mask reads its own pair of the rights subquery m, and m holds the view's rights call.
+                    IF (v.name = 'user' AND (c.expr !~ format('\mm\.u%s\M', c.n)
+                                             OR strpos(pg_catalog.pg_get_viewdef(v.view), 'private.field_user_rights(') = 0))
+                       OR (v.name <> 'user' AND (c.expr !~ format('\mm\.t%s\M', c.n)
+                                                 OR strpos(replace(pg_catalog.pg_get_viewdef(v.view), '::text', ''), format('private.field_read_rights(%L', resource)) = 0)) THEN
+                        problem := 'unmasked ' || c.name;
+                        RETURN NEXT;
+                    END IF;
+                ELSIF c.expr <> format('t.%I', c.name) AND NOT (c.json_masked AND (strpos(c.expr, 'mask_json_deep(') > 0 OR strpos(c.expr, 'mask_audit_data(') > 0))
+                      AND NOT (shared AND NOT c.cv) THEN
+                    problem := 'masked ' || c.name;
+                    RETURN NEXT;
+                END IF;
+                -- 067: a provider-only column of a shared table reads only through the row's own tenant:
+                -- its rights pair (sensitive) or the scope s (open), nothing else in the condition.
+                IF shared AND NOT c.derived AND NOT c.cv AND c.rc IS NULL
+                   AND c.expr !~ format('^CASE\s+WHEN \(t\.tenant_id = ANY \(m\.%1$s\)\) THEN (t\.%2$s|\(t\.%2$s\)::[^\s]+)\s+ELSE [^\n]+\s+END$',
+                                        CASE WHEN c.sensitive THEN 't' || c.n ELSE 's' END, quote_ident(c.name)) THEN
+                    problem := 'unshared ' || c.name;
+                    RETURN NEXT;
+                END IF;
+                -- The whole expression, so `true OR ...` or a THEN naming another column is caught.
+                IF expected_ok AND c.expr IS DISTINCT FROM c.expected THEN
+                    problem := 'expression ' || c.name;
+                    RETURN NEXT;
+                END IF;
+            END LOOP;
+            -- 067: a shared view's m carries the scope s.
+            IF shared AND pg_catalog.pg_get_viewdef(v.view) !~ '\(\s*SELECT COALESCE\(private\.tenant_scope\(\), ''\{\}''::uuid\[\]\) AS "coalesce"\)\s+AS s\M' THEN
+                problem := 'shared without s';
+                RETURN NEXT;
+            END IF;
+            -- The whole query (FROM, WHERE, ...), deparsed under the same search_path ''.
+            IF expected_ok AND pg_catalog.pg_get_viewdef(v.view) IS DISTINCT FROM pg_catalog.pg_get_viewdef(to_regclass('pg_temp.api_drift_expected')) THEN
+                problem := 'definition';
+                RETURN NEXT;
+            END IF;
+            IF to_regclass('pg_temp.api_drift_expected') IS NOT NULL THEN
+                EXECUTE 'DROP VIEW pg_temp.api_drift_expected';
+            END IF;
+        END IF;
+
+        IF v.owner <> 'api_owner' THEN
+            problem := 'owner';
+            RETURN NEXT;
+        END IF;
+
+        IF NOT coalesce('security_invoker=false' = ANY (v.reloptions), FALSE) THEN
+            problem := 'security_invoker';
+            RETURN NEXT;
+        END IF;
+
+        -- Read-only is a view authenticated may not write; any other needs the forwarder.
+        IF (has_table_privilege('authenticated', v.view, 'INSERT') OR has_table_privilege('authenticated', v.view, 'DELETE')
+            OR has_any_column_privilege('authenticated', v.view, 'UPDATE'))
+           AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_trigger t
+               WHERE t.tgrelid = v.view AND t.tgname = 'api_forward' AND t.tgenabled = 'O'
+                 AND t.tgfoid = 'private.api_forward()'::REGPROCEDURE
+           ) THEN
+            problem := 'trigger';
+            RETURN NEXT;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM aclexplode(v.relacl) x WHERE x.grantee IN (0, anon_oid))
+           OR EXISTS (
+               SELECT 1 FROM pg_catalog.pg_attribute a, aclexplode(a.attacl) x
+               WHERE a.attrelid = v.view AND x.grantee IN (0, anon_oid)
+           ) THEN
+            problem := 'anon or public privilege';
+            RETURN NEXT;
+        END IF;
+
+        -- The R4 functions over this view: no ACL means EXECUTE for PUBLIC.
+        FOR c IN
+            SELECT p.proname::TEXT AS name
+            FROM pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace AND pn.nspname = 'api'
+            WHERE (v.reltype = ANY (p.proargtypes::OID[]) OR p.prorettype = v.reltype)
+              AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) x WHERE x.grantee IN (0, anon_oid)))
+            ORDER BY p.proname
+        LOOP
+            problem := 'anon or public execute ' || c.name;
+            RETURN NEXT;
+        END LOOP;
+
+        IF (EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = v.base AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped)
+            OR EXISTS (SELECT 1 FROM public.field_class f WHERE f.resource_name = resource AND f.class = 'sensitive'))
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = v.base AND t.tgname = 'aa_field_write_guard' AND t.tgenabled = 'O') THEN
+            problem := 'guard';
+            RETURN NEXT;
+        END IF;
+    END LOOP;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_drift () FROM PUBLIC, anon, authenticated;
+
+-- 057's enable_field_security plus the R4 functions across a provider-only link of a shared table
+-- (purchase_order_line.spec_document, purchase_order.packing_instruction_document): masked by the
+-- scope, the link is no foreign key PostgREST can see, so the app embeds it through the function.
+CREATE OR REPLACE FUNCTION private.enable_field_security (p_table TEXT, p_read_only BOOLEAN DEFAULT FALSE) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    expr TEXT;
+    priv TEXT;
+    update_cols TEXT;
+    fk RECORD;
+    fk_col TEXT;
+    link TEXT;
+    forward_fn TEXT;
+    reverse_fn TEXT;
+    view_name TEXT := format('api.%I', p_table);
+    existed BOOLEAN := to_regclass(format('api.%I', p_table)) IS NOT NULL;
+    prior TEXT[] := '{}';
+    prior_cols TEXT[] := '{}';
+BEGIN
+    -- What authenticated may already write through the view: table-level, then column-level UPDATE.
+    IF existed THEN
+        prior := ARRAY(
+            SELECT p FROM unnest(ARRAY['INSERT', 'UPDATE', 'DELETE']) AS p
+            WHERE has_table_privilege('authenticated', view_name, p)
+        );
+        prior_cols := ARRAY(
+            SELECT a.attname::TEXT FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid = view_name::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped
+              AND has_column_privilege('authenticated', view_name::REGCLASS, a.attnum, 'UPDATE')
+        );
+    END IF;
+
+    -- 1. The view.
+    EXECUTE format('CREATE OR REPLACE VIEW api.%I WITH (security_invoker = false) AS %s',
+                   p_table, private.api_view_query(p_table));
+
+    -- 2. Ownership and grants. The write privileges mirror authenticated's on the base, never more
+    -- (a default privilege on the schema does not count); those the view already had are kept, so a
+    -- re-run after the cutover (Task 19 revokes the base) loses nothing.
+    EXECUTE format('ALTER VIEW api.%I OWNER TO api_owner', p_table);
+    IF NOT existed THEN
+        prior := '{}';
+    END IF;
+    SELECT string_agg(format('%I', a.attname), ', ' ORDER BY a.attnum) INTO update_cols
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped
+      AND (has_column_privilege('authenticated', base, a.attnum, 'UPDATE')
+           OR (existed AND a.attname::TEXT = ANY (prior_cols)));
+    EXECUTE format('REVOKE ALL ON api.%I FROM PUBLIC, anon, authenticated', p_table);
+    EXECUTE format('GRANT SELECT ON api.%I TO authenticated', p_table);
+    IF NOT p_read_only THEN
+        FOREACH priv IN ARRAY ARRAY['INSERT', 'DELETE'] LOOP
+            IF has_table_privilege('authenticated', base, priv) OR priv = ANY (prior) THEN
+                EXECUTE format('GRANT %s ON api.%I TO authenticated', priv, p_table);
+            END IF;
+        END LOOP;
+        IF has_table_privilege('authenticated', base, 'UPDATE') OR 'UPDATE' = ANY (prior) THEN
+            EXECUTE format('GRANT UPDATE ON api.%I TO authenticated', p_table);
+        ELSIF update_cols IS NOT NULL THEN
+            EXECUTE format('GRANT UPDATE (%s) ON api.%I TO authenticated', update_cols, p_table);
+        END IF;
+    END IF;
+    IF p_read_only THEN
+        -- A read-only view never writes its base: api_owner keeps SELECT only (and loses any write an earlier run gave it).
+        EXECUTE format('GRANT SELECT ON %s TO api_owner', base);
+        EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON %s FROM api_owner', base);
+    ELSE
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO api_owner', base);
+    END IF;
+
+    -- 3. The forwarder.
+    IF p_read_only THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS api_forward ON api.%I', p_table);
+    ELSE
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER api_forward INSTEAD OF INSERT OR UPDATE OR DELETE ON api.%I FOR EACH ROW EXECUTE FUNCTION private.api_forward ()',
+            p_table
+        );
+    END IF;
+
+    -- 4. R4: embeds across a sensitive link, once the target has its view.
+    FOR fk IN
+        SELECT tc.relname::TEXT AS target, c.conkey, c.confkey, c.conrelid, c.confrelid
+        FROM pg_catalog.pg_constraint c
+        JOIN pg_catalog.pg_class tc ON tc.oid = c.confrelid
+        JOIN pg_catalog.pg_namespace tn ON tn.oid = tc.relnamespace
+        WHERE c.conrelid = base AND c.contype = 'f' AND tn.nspname = 'public'
+          AND to_regclass(format('api.%I', tc.relname)) IS NOT NULL
+        ORDER BY c.conname
+    LOOP
+        FOR fk_col IN
+            SELECT a.attname::TEXT
+            FROM unnest(fk.conkey) AS k (attnum)
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = fk.conrelid AND a.attnum = k.attnum
+            -- 067: a provider-only link of a shared table is masked too (an open one by the scope), so
+            -- PostgREST no longer infers its foreign key; it gets the R4 functions like a sensitive one.
+            WHERE (private.api_is_sensitive(resource, a.attname)
+                   OR (private.is_shared_table(p_table)
+                       AND NOT coalesce((SELECT f.client_visible FROM public.field_class f
+                                         WHERE f.resource_name = resource AND f.field = a.attname), FALSE)))
+              AND a.attname LIKE '%\_id'
+        LOOP
+            link := left(fk_col, -3);
+            forward_fn := link;
+            reverse_fn := p_table || '_by_' || link;
+            IF octet_length(reverse_fn) > 63 THEN
+                RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'name too long: ' || reverse_fn;
+            END IF;
+            -- The pairs of the key, as written in the constraint.
+            expr := (
+                SELECT string_agg(format('x.%I = $1.%I', ta.attname, sa.attname), ' AND ' ORDER BY k.n)
+                FROM unnest(fk.conkey, fk.confkey) WITH ORDINALITY AS k (src, dst, n)
+                JOIN pg_catalog.pg_attribute sa ON sa.attrelid = fk.conrelid AND sa.attnum = k.src
+                JOIN pg_catalog.pg_attribute ta ON ta.attrelid = fk.confrelid AND ta.attnum = k.dst
+            );
+            EXECUTE format(
+                'CREATE OR REPLACE FUNCTION api.%1$I (api.%2$I) RETURNS SETOF api.%3$I ROWS 1 STABLE LANGUAGE sql SECURITY INVOKER AS %4$L',
+                forward_fn, p_table, fk.target, format('SELECT x.* FROM api.%I x WHERE %s', fk.target, expr)
+            );
+            expr := (
+                SELECT string_agg(format('x.%I = $1.%I', sa.attname, ta.attname), ' AND ' ORDER BY k.n)
+                FROM unnest(fk.conkey, fk.confkey) WITH ORDINALITY AS k (src, dst, n)
+                JOIN pg_catalog.pg_attribute sa ON sa.attrelid = fk.conrelid AND sa.attnum = k.src
+                JOIN pg_catalog.pg_attribute ta ON ta.attrelid = fk.confrelid AND ta.attnum = k.dst
+            );
+            EXECUTE format(
+                'CREATE OR REPLACE FUNCTION api.%1$I (api.%2$I) RETURNS SETOF api.%3$I STABLE LANGUAGE sql SECURITY INVOKER AS %4$L',
+                reverse_fn, fk.target, p_table, format('SELECT x.* FROM api.%I x WHERE %s', p_table, expr)
+            );
+            EXECUTE format('REVOKE ALL ON FUNCTION api.%I (api.%I) FROM PUBLIC, anon', forward_fn, p_table);
+            EXECUTE format('REVOKE ALL ON FUNCTION api.%I (api.%I) FROM PUBLIC, anon', reverse_fn, fk.target);
+            EXECUTE format('GRANT EXECUTE ON FUNCTION api.%I (api.%I) TO authenticated', forward_fn, p_table);
+            EXECUTE format('GRANT EXECUTE ON FUNCTION api.%I (api.%I) TO authenticated', reverse_fn, fk.target);
+        END LOOP;
+    END LOOP;
+
+    -- 5. The base write guard, the second line.
+    PERFORM private.enable_field_write_guard(p_table);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.enable_field_security (TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
+
+-- The views over the restated generator: every shared table (and, as the brief lists them, incident,
+-- change_request and the read-only audit trail) is regenerated; the R4 functions follow.
+SELECT private.enable_field_security (c.relname::TEXT)
+FROM pg_catalog.pg_class c
+WHERE c.relnamespace = 'public'::REGNAMESPACE
+  AND c.relkind = 'r'
+  AND private.is_shared_table(c.relname::TEXT)
+ORDER BY c.relname;
+
+SELECT private.enable_field_security (t)
+FROM unnest(ARRAY['incident', 'change_request']) AS t;
+
+SELECT private.enable_field_security ('audit_log', TRUE);
+
+-- 058's purchase_order_overview plus client_status (appended) and spec_missing_line_ids NULL outside
+-- the order's own tenant.
+CREATE OR REPLACE VIEW api.purchase_order_overview WITH (security_invoker = true) AS
+SELECT po.id,
+    po.tenant_id,
+    po.client_tenant_id,
+    po.supplier_id,
+    po.project_id,
+    po.project_tenant_id,
+    po.project_code,
+    po.code,
+    po.status,
+    po.currency,
+    po.incoterm,
+    po.incoterm_place,
+    po.deposit_rate,
+    po.ready_on,
+    po.tolerance_pct,
+    po.penalty_rule,
+    po.packing_instruction_document_id,
+    po.pi_document_id,
+    po.pi_number,
+    po.pi_subtotal,
+    po.pi_total,
+    po.pi_deposit_amount,
+    po.pi_balance_amount,
+    po.pi_extra_amount,
+    po.pi_discount_amount,
+    po.pi_check,
+    po.pi_checked_by,
+    po.pi_checked_at,
+    po.notes,
+    po.created_at,
+    po.updated_at,
+    r.client_code,
+    s.code AS supplier_code,
+    l.line_count,
+    l.total_quantity,
+    l.product_ids,
+    -- 067: outside the order's own tenant the spec is masked, so the provider's spec setting would decide (F16).
+    CASE WHEN po.tenant_id = ANY (private.tenant_scope()) THEN l.spec_missing_line_ids END AS spec_missing_line_ids,
+    f.subtotal AS system_subtotal,
+    f.total AS system_total,
+    f.deposit AS system_deposit,
+    f.balance AS system_balance,
+    pay.deposit_planned_on,
+    pay.deposit_paid_on,
+    pay.balance_planned_on,
+    pay.balance_paid_on,
+    (EXISTS (
+        SELECT 1
+        FROM api.document d
+        WHERE d.tenant_id = po.tenant_id AND d.entity_type = 'purchase_order'::public.document_entity AND d.entity_id = po.id
+          AND d.type = 'psi_report'::public.document_type AND d.status = 'approved'::public.document_status
+    )) AS has_approved_psi,
+    po.client_status
+FROM api.purchase_order po
+LEFT JOIN api.provider_relationship r ON r.tenant_id = po.tenant_id AND r.client_tenant_id = po.client_tenant_id
+LEFT JOIN api.supplier s ON s.id = po.supplier_id AND s.tenant_id = po.tenant_id
+LEFT JOIN LATERAL (
+    SELECT count(*)::INTEGER AS line_count,
+        coalesce(sum(ln.quantity), 0::BIGINT)::INTEGER AS total_quantity,
+        coalesce(array_agg(ln.product_id ORDER BY ln.position, ln.created_at, ln.id), '{}'::UUID[]) AS product_ids,
+        coalesce(array_agg(ln.id ORDER BY ln.position, ln.created_at, ln.id)
+                 FILTER (WHERE ln.spec_document_id IS NULL AND private.po_line_needs_spec(ln.product_id, ln.tenant_id)), '{}'::UUID[]) AS spec_missing_line_ids
+    FROM api.purchase_order_line ln
+    WHERE ln.purchase_order_id = po.id AND ln.tenant_id = po.tenant_id
+) l ON TRUE
+LEFT JOIN LATERAL private.purchase_order_figures(po.id, po.tenant_id) f (subtotal, total, deposit, balance) ON TRUE
+LEFT JOIN LATERAL (
+    SELECT min(p.planned_on) FILTER (WHERE p.kind = 'deposit'::public.payment_kind AND p.paid_on IS NULL) AS deposit_planned_on,
+        max(p.paid_on) FILTER (WHERE p.kind = 'deposit'::public.payment_kind) AS deposit_paid_on,
+        min(p.planned_on) FILTER (WHERE p.kind = 'balance'::public.payment_kind AND p.paid_on IS NULL) AS balance_planned_on,
+        max(p.paid_on) FILTER (WHERE p.kind = 'balance'::public.payment_kind) AS balance_paid_on
+    FROM api.purchase_order_payment p
+    WHERE p.purchase_order_id = po.id AND p.tenant_id = po.tenant_id
+) pay ON TRUE;

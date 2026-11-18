@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- compared against the masked OLD, so a correct guess is refused like a wrong one (S1).
 BEGIN;
 
-SELECT plan(83);
+SELECT plan(86);
 
 -- The role and the generated objects.
 SELECT ok(NOT (SELECT rolbypassrls OR rolcanlogin FROM pg_roles WHERE rolname = 'api_owner'), 'api_owner cannot log in and does not bypass RLS');
@@ -14,6 +14,8 @@ SELECT ok(NOT pg_has_role('authenticator', 'api_owner', 'MEMBER') AND NOT pg_has
           AND NOT pg_has_role('anon', 'api_owner', 'MEMBER'), 'api_owner cannot be assumed');
 SELECT ok(pg_has_role('api_owner', 'authenticated', 'MEMBER'), 'api_owner is a member of authenticated');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() is empty');
+SELECT is_empty($$ SELECT * FROM private.api_view_drift() WHERE problem LIKE 'unshared %' OR problem = 'shared without s' $$,
+   'shared views gate every provider-only column');
 SELECT is((SELECT pg_get_userbyid(relowner)::TEXT FROM pg_class WHERE oid = 'api.product'::REGCLASS), 'api_owner', 'every api view is owned by api_owner');
 SELECT is((SELECT pg_get_userbyid(proowner)::TEXT FROM pg_proc WHERE oid = 'private.api_forward()'::REGPROCEDURE), 'api_owner',
    'the forwarder is owned by api_owner, not postgres');
@@ -229,7 +231,7 @@ CREATE FUNCTION t.tampered_view (p_column TEXT, p_from TEXT, p_to TEXT) RETURNS 
                   CASE WHEN p_column = '' THEN replace(private.api_view_from('sourcing'), p_from, p_to) ELSE private.api_view_from('sourcing') END)
     FROM pg_attribute a WHERE a.attrelid = 'public.sourcing'::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped;
 $$;
-SELECT ok('expression purchase_price' = ANY (t.drift_after(t.tampered_view('purchase_price', 'CASE WHEN m.', 'CASE WHEN TRUE OR m.'))),
+SELECT ok('expression purchase_price' = ANY (t.drift_after(t.tampered_view('purchase_price', 'CASE WHEN ', 'CASE WHEN TRUE OR '))),
    'drift: a leading `true OR` in the mask is reported');
 SELECT ok('expression notes' = ANY (t.drift_after(t.tampered_view('notes', ') THEN t.notes', ') OR TRUE THEN t.notes'))),
    'drift: a trailing `OR true` in the mask is reported');
@@ -247,6 +249,12 @@ SELECT ok('trigger' = ANY (t.drift_after('DROP TRIGGER api_forward ON api.sourci
 SELECT ok('anon or public privilege' = ANY (t.drift_after('GRANT SELECT ON api.sourcing TO anon')), 'drift: a grant to anon is reported');
 SELECT ok('anon or public execute supplier' = ANY (t.drift_after('GRANT EXECUTE ON FUNCTION api.supplier (api.sourcing) TO PUBLIC')),
    'drift: EXECUTE on an R4 function for PUBLIC is reported');
+-- 067: api.sourcing is shared; a provider-only column gated on the client tenant, or m without the
+-- scope, is reported.
+SELECT ok('unshared notes' = ANY (t.drift_after(t.tampered_view('notes', 't.tenant_id = ANY (m.t', 't.client_tenant_id = ANY (m.t'))),
+   'drift: a provider-only column gated on the client tenant is reported');
+SELECT ok('shared without s' = ANY (t.drift_after(t.tampered_view('', ', (SELECT coalesce(private.tenant_scope(), ''{}'')) AS s', ''))),
+   'drift: a shared view without the scope entry is reported');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'every tamper was undone');
 
 -- S1 at the column type: elif reads t_cost's cost fields in MOESA Europe but may no longer write them.
