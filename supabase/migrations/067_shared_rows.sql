@@ -209,29 +209,109 @@ ORDER BY c.relname;
 -- reads) and statement_timestamp(), so the policies and the view of one query share one lookup.
 -- private.notify_access_changed and private.impersonate_scope (050) empty it, as they do
 -- access.tenant_scope, so an access change or a new test sign-in never reads a stale result.
+--
+-- The access caches are signed. A custom setting is writable by whoever runs SQL in the session
+-- (set_config), and the cached value is the authorization answer itself, so an entry is read only
+-- when its HMAC-SHA256 under private.cache_secret (32 random bytes made here, readable by postgres
+-- alone, the owner of both definers) matches; a missing, forged or foreign entry is a miss: computed
+-- afresh and overwritten. An entry is '<hex hmac>:<key>=<value>', the HMAC over '<key>=<value>'.
+-- The key is a JSON array (no separator a header could forge, a NULL kept as null) of the request
+-- settings the answer is read from, as they stand (request.jwt.claim.sub, request.jwt.claims and
+-- request.headers: the caller, the active tenant and x-tenant-ids, without parsing them on a hit),
+-- plus statement_timestamp() for permitted_tenants. tenant_scope's value is its UUID[]; that of
+-- permitted_tenants is one line per lookup, '\n<resource> <command>\t<UUID[]>'. Restated (pinned in
+-- 052): private.tenant_scope (004's body) plus only this signing and the array key.
+CREATE TABLE private.cache_secret (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    secret BYTEA NOT NULL
+);
 
--- 004's permitted_tenants; 067: its results are kept for the statement (see above).
+ALTER TABLE private.cache_secret OWNER TO postgres;
+
+ALTER TABLE private.cache_secret ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE private.cache_secret FROM PUBLIC, anon, authenticated, service_role, api_owner;
+
+INSERT INTO private.cache_secret (secret) VALUES (extensions.gen_random_bytes(32));
+
+-- 004's tenant_scope; 067: the transaction's cache is signed (see above).
+CREATE OR REPLACE FUNCTION private.tenant_scope () RETURNS UUID[] LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+    search_path = '' AS $$
+DECLARE
+    header TEXT;
+    requested UUID[];
+    scope UUID[];
+    -- Policies of every table in a statement ask for it; the transaction keeps it, and
+    -- private.notify_access_changed drops it when memberships or ownerships change.
+    cache_key TEXT := jsonb_build_array(current_setting('request.jwt.claim.sub', true), current_setting('request.jwt.claims', true),
+                                        current_setting('request.headers', true))::TEXT || '=';
+    cached TEXT := coalesce(current_setting('access.tenant_scope', true), '');
+    secret BYTEA;
+    entry TEXT;
+BEGIN
+    -- Only a signed entry of this key is read: a forged one is a miss.
+    IF substr(cached, 65, length(cache_key) + 1) = ':' || cache_key THEN
+        secret := (SELECT c.secret FROM private.cache_secret c);
+        IF left(cached, 64) = encode(extensions.hmac(convert_to(substr(cached, 66), 'UTF8'), secret, 'sha256'), 'hex') THEN
+            RETURN substr(cached, 66 + length(cache_key))::UUID[];
+        END IF;
+    END IF;
+
+    header := nullif(current_setting('request.headers', true), '')::JSONB ->> 'x-tenant-ids';
+    BEGIN
+        requested := string_to_array(header, ',')::UUID[];
+    EXCEPTION
+        WHEN OTHERS THEN
+            requested := NULL;
+    END;
+
+    -- The allowed tenants once: the active one is in them exactly when tenant_id() would accept it.
+    scope := ARRAY(
+        SELECT id FROM unnest(coalesce(requested, '{}') || private.requested_tenant()) AS id
+        WHERE id IS NOT NULL
+        INTERSECT
+        SELECT unnest(private.allowed_tenant())
+    );
+    secret := coalesce(secret, (SELECT c.secret FROM private.cache_secret c));
+    entry := cache_key || scope::TEXT;
+    PERFORM set_config('access.tenant_scope',
+                       encode(extensions.hmac(convert_to(entry, 'UTF8'), secret, 'sha256'), 'hex') || ':' || entry, true);
+    RETURN scope;
+END;
+$$;
+
+-- 004's permitted_tenants; 067: its results are kept, signed, for the statement (see above).
 CREATE OR REPLACE FUNCTION private.permitted_tenants (p_resource_name TEXT, p_command TEXT) RETURNS UUID[] LANGUAGE plpgsql SECURITY DEFINER STABLE
 SET
     search_path = '' AS $$
 DECLARE
-    cache_key TEXT := concat_ws('|', auth.uid(), private.requested_tenant(),
-                                nullif(current_setting('request.headers', true), '')::JSONB ->> 'x-tenant-ids',
-                                statement_timestamp());
-    cached TEXT := current_setting('access.permitted_tenants', true);
-    entries JSONB := '{}';
-    entry TEXT := p_resource_name || ' ' || p_command;
+    cache_key TEXT := jsonb_build_array(current_setting('request.jwt.claim.sub', true), current_setting('request.jwt.claims', true),
+                                        current_setting('request.headers', true), statement_timestamp())::TEXT || '=';
+    cached TEXT := coalesce(current_setting('access.permitted_tenants', true), '');
+    secret BYTEA;
+    lines TEXT := '';
+    line TEXT := E'\n' || p_resource_name || ' ' || p_command || E'\t';
+    at INT;
     permitted UUID[];
+    entry TEXT;
 BEGIN
-    IF left(cached, length(cache_key) + 1) = cache_key || '=' THEN
-        entries := substr(cached, length(cache_key) + 2)::JSONB;
-        IF entries ? entry THEN
-            RETURN (entries ->> entry)::UUID[];
+    -- Only a signed entry of this key is read: a forged one is a miss, overwritten below.
+    IF substr(cached, 65, length(cache_key) + 1) = ':' || cache_key THEN
+        secret := (SELECT c.secret FROM private.cache_secret c);
+        IF left(cached, 64) = encode(extensions.hmac(convert_to(substr(cached, 66), 'UTF8'), secret, 'sha256'), 'hex') THEN
+            lines := substr(cached, 66 + length(cache_key));
+            at := strpos(lines, line);
+            IF at > 0 THEN
+                RETURN split_part(substr(lines, at + length(line)), E'\n', 1)::UUID[];
+            END IF;
         END IF;
     END IF;
     permitted := private.tenants_permitting(auth.uid(), private.tenant_scope(), p_resource_name, p_command);
+    secret := coalesce(secret, (SELECT c.secret FROM private.cache_secret c));
+    entry := cache_key || lines || line || permitted::TEXT;
     PERFORM set_config('access.permitted_tenants',
-                       cache_key || '=' || (entries || jsonb_build_object(entry, permitted::TEXT))::TEXT, true);
+                       encode(extensions.hmac(convert_to(entry, 'UTF8'), secret, 'sha256'), 'hex') || ':' || entry, true);
     RETURN permitted;
 END;
 $$;

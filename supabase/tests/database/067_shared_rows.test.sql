@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(96);
+SELECT plan(100);
 
 SELECT private.create_test_helpers();
 
@@ -865,6 +865,91 @@ SELECT is((SELECT count(DISTINCT p.resource_name)::INT FROM public.permission p
           (SELECT count(*)::INT FROM pg_catalog.pg_class c
            WHERE c.relnamespace = 'public'::REGNAMESPACE AND c.relkind = 'r' AND private.is_shared_table(c.relname::TEXT)),
           'the row-condition check covers every shared table');
+
+-- The access caches are signed: a value set with set_config is a miss, not an answer. pm (in P with
+-- every right, in C a product reader) signs in to C alone; forging either cache to name P, C and D
+-- reads the suppliers the honest request reads (none: P's supplier stays out).
+RESET ROLE;
+SELECT is((SELECT count(*)::INT FROM unnest(ARRAY['anon', 'authenticated', 'service_role', 'api_owner']) AS r (name)
+           WHERE has_table_privilege(r.name, 'private.cache_secret', 'SELECT, INSERT, UPDATE, DELETE')), 0,
+          'the cache secret is readable by no API role');
+CREATE FUNCTION pg_temp.supplier_read (p_forge TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+    every TEXT := '{00000000-0000-4000-8000-000000006701,00000000-0000-4000-8000-000000006702,00000000-0000-4000-8000-000000006703}';
+    claims JSONB := jsonb_build_array(current_setting('request.jwt.claim.sub', true), current_setting('request.jwt.claims', true),
+                                      current_setting('request.headers', true));
+BEGIN
+    -- The entry as the cache writes it, the right key, any signature.
+    IF p_forge = 'tenant_scope' THEN
+        PERFORM set_config('access.tenant_scope', repeat('0', 64) || ':' || claims::TEXT || '=' || every, true);
+        PERFORM set_config('access.permitted_tenants', '', true);
+    ELSIF p_forge = 'permitted_tenants' THEN
+        PERFORM set_config('access.permitted_tenants',
+                           repeat('0', 64) || ':' || (claims || jsonb_build_array(statement_timestamp()))::TEXT || '='
+                           || chr(10) || 'public.supplier select' || chr(9) || every, true);
+    END IF;
+    RETURN (SELECT count(*) || ' rows in ' || coalesce(string_agg(DISTINCT p.tenant_id::TEXT, ',' ORDER BY p.tenant_id::TEXT), '')
+            FROM api.supplier p);
+END;
+$$;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006702',
+                                 ARRAY['00000000-0000-4000-8000-000000006702']::UUID[]);
+SELECT set_config('test.honest_suppliers', pg_temp.supplier_read(''), TRUE);
+SELECT is(pg_temp.supplier_read('tenant_scope'), current_setting('test.honest_suppliers'),
+          'a forged tenant_scope cache is a miss: the read equals the honest one');
+SELECT is(pg_temp.supplier_read('permitted_tenants'), current_setting('test.honest_suppliers'),
+          'a forged permitted_tenants cache is a miss: the read equals the honest one');
+
+-- Differential: for every fixture user, scope and permission, the cached answers (a second call
+-- reads the signed entry) equal the uncached computation.
+RESET ROLE;
+CREATE FUNCTION pg_temp.cache_differential () RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+    u RECORD;
+    p RECORD;
+    every UUID[] := ARRAY['00000000-0000-4000-8000-000000006701', '00000000-0000-4000-8000-000000006702',
+                          '00000000-0000-4000-8000-000000006703']::UUID[];
+    sc UUID[];
+    sc2 UUID[];
+    a UUID[];
+    a2 UUID[];
+    b UUID[];
+    n INT := 0;
+    bad INT := 0;
+    unsigned INT := 0;
+BEGIN
+    FOR u IN SELECT DISTINCT x.user_id, x.tenant_id FROM (SELECT tu.user_id, tu.tenant_id FROM public.tenant_user tu
+                                                          UNION SELECT o.user_id, o.tenant_id FROM public.tenant_owner o) x
+             WHERE x.tenant_id = ANY (every) LOOP
+        FOR i IN 1 .. 3 LOOP
+            PERFORM private.impersonate_scope(u.user_id, CASE WHEN i = 3 THEN NULL ELSE u.tenant_id END,
+                                              CASE i WHEN 1 THEN ARRAY[u.tenant_id] WHEN 2 THEN every ELSE '{}'::UUID[] END);
+            PERFORM pg_catalog.set_config('role', 'none', true);
+            FOR p IN SELECT pm.resource_name::TEXT AS r, pm.command::TEXT AS c FROM public.permission pm ORDER BY 1, 2 LOOP
+                PERFORM set_config('access.tenant_scope', '', true);
+                PERFORM set_config('access.permitted_tenants', '', true);
+                sc := private.tenant_scope();
+                sc2 := private.tenant_scope();
+                a := private.permitted_tenants(p.r, p.c);
+                a2 := private.permitted_tenants(p.r, p.c);
+                b := private.tenants_permitting(auth.uid(), sc, p.r, p.c);
+                n := n + 1;
+                IF sc IS DISTINCT FROM sc2 OR a IS DISTINCT FROM b OR a2 IS DISTINCT FROM b THEN
+                    bad := bad + 1;
+                END IF;
+                IF current_setting('access.permitted_tenants') !~ '^[0-9a-f]{64}:' OR current_setting('access.tenant_scope') !~ '^[0-9a-f]{64}:' THEN
+                    unsigned := unsigned + 1;
+                END IF;
+            END LOOP;
+        END LOOP;
+    END LOOP;
+    RETURN format('%s differ, %s unsigned, of %s', bad, unsigned, CASE WHEN n > 100 THEN 'many' ELSE n::TEXT END);
+END;
+$$;
+SELECT is(pg_temp.cache_differential(), '0 differ, 0 unsigned, of many',
+          'cached access answers equal the uncached ones, and every entry is signed');
+RESET ROLE;
+SELECT private.unimpersonate();
 
 SELECT * FROM finish();
 ROLLBACK;

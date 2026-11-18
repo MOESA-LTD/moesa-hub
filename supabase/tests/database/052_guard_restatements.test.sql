@@ -3,15 +3,15 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Functions defined in more than one migration. A later migration restates a body an earlier one
 -- owns (052 the guards' cascade exits (R7) and request identity (R6), 058 the RPCs as api_owner
 -- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
--- policies' shared-row call, permitted_tenants' statement cache, the api view generator's shared-row
--- masking, and the forwarder's and the base write guard's rights tenant, 068 the incident guard's
--- provider link and the audit snapshots' rights columns, and the revert's and the forwarder's rights
--- tenant), or extends it (a chain such as 021 → 032 → 036). A restated body is
--- the owner's current body plus only the restating migration's own delta, so an edit of the owner
--- that is not carried into the restatement would be undone silently, and so would a chain step a
--- later restatement forgot. Each row below names, for the live function, every rule its owner raises
--- (by error code), the logic that matters where no error code shows it (non-error needles), and the
--- markers of each later step; a missing one fails here. Needs no seed rows.
+-- policies' shared-row call, the signed access caches (tenant_scope, permitted_tenants), the api
+-- view generator's shared-row masking, and the forwarder's and the base write guard's rights
+-- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
+-- revert's and the forwarder's rights tenant), or extends it (a chain such as 021 → 032 → 036). A
+-- restated body is the owner's current body plus only the restating migration's own delta, so an
+-- edit of the owner that is not carried into the restatement would be undone silently, and so
+-- would a chain step a later restatement forgot. Each row below names, for the live function,
+-- every rule its owner raises (by error code), the logic that matters where no error code shows it
+-- (non-error needles), and the markers of each later step; a missing one fails here. Needs no seed rows.
 --
 -- Not pinned, on purpose:
 --   private.rules_bypassed (019, 030): 030 restates 019's body unchanged (050 only grants it); the
@@ -20,7 +20,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(46);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -113,10 +113,23 @@ VALUES
    ('private.notify_access_changed()', '011', '050',
     ARRAY['public.tenant_owner o', 'TG_TABLE_NAME IN (''role_permission'', ''role_field_permission'')',
           'set_config(''access.tenant_scope'', '''', true)', 'set_config(''access.permitted_tenants'', '''', true)']),
-   -- 067: the results are kept for the statement (the views' s repeats the policies' lookup).
+   -- 067: the results are kept for the statement (the views' s repeats the policies' lookup), signed:
+   -- an entry whose HMAC does not match is a miss.
    ('private.permitted_tenants(text, text)', '004', '067',
     ARRAY['private.tenants_permitting(auth.uid(), private.tenant_scope(), p_resource_name, p_command)', 'statement_timestamp()',
-          '''x-tenant-ids''', 'private.requested_tenant()', 'access.permitted_tenants']),
+          'access.permitted_tenants', 'jsonb_build_array(current_setting(''request.jwt.claim.sub'', true)',
+          'current_setting(''request.headers'', true), statement_timestamp())', 'SELECT c.secret FROM private.cache_secret c',
+          'IF substr(cached, 65, length(cache_key) + 1) = '':'' || cache_key THEN',
+          'IF left(cached, 64) = encode(extensions.hmac(convert_to(substr(cached, 66), ''UTF8''), secret, ''sha256''), ''hex'') THEN']),
+   -- 067: the transaction's cache is signed the same way, under an array key.
+   ('private.tenant_scope()', '004', '067',
+    ARRAY['string_to_array(header, '','')::UUID[]', 'private.allowed_tenant()', 'private.requested_tenant()', 'access.tenant_scope',
+          'jsonb_build_array(current_setting(''request.jwt.claim.sub'', true)', 'SELECT c.secret FROM private.cache_secret c',
+          'IF substr(cached, 65, length(cache_key) + 1) = '':'' || cache_key THEN',
+          'IF left(cached, 64) = encode(extensions.hmac(convert_to(substr(cached, 66), ''UTF8''), secret, ''sha256''), ''hex'') THEN']),
+   -- Not restated: a test sign-in empties 067's permitted_tenants cache.
+   ('private.impersonate_scope(uuid, uuid, uuid[])', '050', '067',
+    ARRAY['request.jwt.claims', '''x-tenant-ids''', 'set_config(''access.permitted_tenants'', '''', true)']),
    -- 067: a re-run of the tenant policies keeps a shared table's shared rows.
    ('private.enable_tenant_level_security(text)', '004', '067',
     ARRAY['restrict_selects_to_current_tenant', 'restrict_inserts_to_allowed_tenants', 'restrict_updates_to_current_tenant',
