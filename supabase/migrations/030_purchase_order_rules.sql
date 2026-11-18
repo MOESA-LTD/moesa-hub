@@ -55,9 +55,14 @@
 -- SECURITY DEFINER function current_setting('role') still reports it, so a user cannot use the
 -- flag. The guards return at once when it holds; the code and immutability triggers ignore it.
 --
--- public.purchase_order_overview: each order with its customer, supplier and project codes, its
--- line count, quantity and products, the lines missing a spec sheet, the recalculated figures,
--- the payment dates and whether an approved PSI report is on file.
+-- public.purchase_order_overview: each order with its client code (the client_code of the pair's
+-- relationship, NULL for an own order), its supplier code and project code (the snapshot), its
+-- line count, quantity and products, the lines missing a spec sheet, the recalculated figures, the
+-- payment dates and whether an approved PSI report is on file.
+--
+-- A line of an order for a client refers to the client's product (product_tenant_id). When the
+-- client deletes it, the line's product link becomes NULL (ON DELETE SET NULL, 029): that update is
+-- not refused by the line rules, even on a locked order, so the client's delete is never blocked.
 
 -- The test fixture bypass (see the header).
 CREATE OR REPLACE FUNCTION private.rules_bypassed () RETURNS BOOLEAN LANGUAGE sql STABLE
@@ -75,8 +80,10 @@ REVOKE ALL ON FUNCTION private.rules_bypassed () FROM PUBLIC, anon, authenticate
 
 -- Whether a line of this product needs a spec sheet: from the company's spec_sheet_required_from
 -- on (a missing or unreadable date counts as reached), and before it for a new SKU (concept,
--- development or approved). SECURITY DEFINER: the setting and the product whatever the caller may
--- read, in the given tenant only. It stays DEFINER: PL/pgSQL resolves private.company_setting when
+-- development or approved). tenant_id is the line's (ordering) tenant: the setting is its company's,
+-- and the product is its own or that of a client it has a relationship with (a provider order's
+-- line on the client's product). SECURITY DEFINER: the setting and the product whatever the caller
+-- may read, only within those tenants. It stays DEFINER: PL/pgSQL resolves private.company_setting when
 -- it runs, and the overview's caller (authenticated) has no USAGE on private.
 CREATE OR REPLACE FUNCTION private.po_line_needs_spec (product_id UUID, tenant_id UUID) RETURNS BOOLEAN LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET
@@ -98,7 +105,11 @@ BEGIN
         SELECT 1
         FROM public.product p
         WHERE p.id = po_line_needs_spec.product_id
-          AND p.tenant_id = po_line_needs_spec.tenant_id
+          AND (p.tenant_id = po_line_needs_spec.tenant_id
+               OR EXISTS (
+                    SELECT 1 FROM public.provider_relationship r
+                    WHERE r.tenant_id = po_line_needs_spec.tenant_id AND r.client_tenant_id = p.tenant_id
+               ))
           AND p.status IN ('concept', 'development', 'approved')
     );
 END;
@@ -339,6 +350,13 @@ BEGIN
         RETURN OLD;
     END IF;
 
+    -- The product link emptied because the product is gone (ON DELETE SET NULL): the client's
+    -- delete of its product is never refused, even on a locked order.
+    IF TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id) THEN
+        RETURN NEW;
+    END IF;
+
     -- FOR SHARE: a concurrent status change (PI approval) waits for this line write to commit, so
     -- its figure check sees the line; the foreign key's FOR KEY SHARE does not block it.
     SELECT po.status INTO order_status
@@ -462,9 +480,8 @@ WITH
    (security_invoker = TRUE) AS
 SELECT
    po.*,
-   c.code::TEXT AS customer_code,
+   r.client_code::TEXT AS client_code,
    s.code AS supplier_code,
-   pr.code AS project_code,
    l.line_count,
    l.total_quantity,
    l.product_ids,
@@ -491,12 +508,10 @@ SELECT
    ) AS has_approved_psi
 FROM
    public.purchase_order po
-   LEFT JOIN public.customer c ON c.id = po.customer_id
-   AND c.tenant_id = po.tenant_id
+   LEFT JOIN public.provider_relationship r ON r.tenant_id = po.tenant_id
+   AND r.client_tenant_id = po.client_tenant_id
    LEFT JOIN public.supplier s ON s.id = po.supplier_id
    AND s.tenant_id = po.tenant_id
-   LEFT JOIN public.project pr ON pr.id = po.project_id
-   AND pr.tenant_id = po.tenant_id
    LEFT JOIN LATERAL (
       SELECT
          count(*)::INT AS line_count,
@@ -544,6 +559,6 @@ FROM
          AND p.tenant_id = po.tenant_id
    ) pay ON TRUE;
 
-COMMENT ON VIEW public.purchase_order_overview IS 'Per purchase order: every column of the order, the customer, supplier and project codes, line_count, total_quantity, product_ids (the lines'' products; filter the list with product_ids, not by embedding through the view), spec_missing_line_ids (lines without a spec sheet that need one, private.po_line_needs_spec), the S09 figures recalculated by private.purchase_order_figures (system_subtotal, system_total, system_deposit, system_balance), the earliest planned date of an unpaid deposit and balance, the latest paid date of each, and whether an approved PSI report is on file.';
+COMMENT ON VIEW public.purchase_order_overview IS 'Per purchase order: every column of the order (project_code is the project''s code when linked), client_code (the relationship''s client_code; NULL for an own order), the supplier code, line_count, total_quantity, product_ids (the lines'' products; filter the list with product_ids, not by embedding through the view), spec_missing_line_ids (lines without a spec sheet that need one, private.po_line_needs_spec), the S09 figures recalculated by private.purchase_order_figures (system_subtotal, system_total, system_deposit, system_balance), the earliest planned date of an unpaid deposit and balance, the latest paid date of each, and whether an approved PSI report is on file.';
 
 GRANT SELECT ON public.purchase_order_overview TO authenticated;

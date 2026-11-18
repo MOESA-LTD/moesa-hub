@@ -1,5 +1,5 @@
 -- A gate rolls back only through an incident (K3, M10): a rollback names an open incident of the
--- project's customer, and the gate remembers it (rolled_back_incident_id), so the incident lists
+-- project's tenant, and the gate remembers it (rolled_back_incident_id), so the incident lists
 -- the gates it rolled back.
 --
 -- project_gate.rolled_back_incident_id  the incident a rollback was made through; an incident is
@@ -9,7 +9,7 @@
 -- Rules, added to private.project_gate_guard's un-passing branch after gate_rollback_order, each a
 -- check_violation whose message is the rule's code:
 --   gate_rollback_incident_required  a rollback without an incident
---   gate_incident_invalid            the incident is not there, not of the project's customer, or
+--   gate_incident_invalid            the incident is not there in the project's tenant, or it is
 --                                    closed
 --   gate_rollback_immutable          the rollback's reason or incident changed other than by
 --                                    un-passing or passing the gate
@@ -70,9 +70,8 @@ BEGIN
 
         IF NOT EXISTS (
             SELECT 1 FROM public.incident i
-            JOIN public.project p ON p.id = NEW.project_id AND p.tenant_id = NEW.tenant_id
             WHERE i.id = NEW.rolled_back_incident_id AND i.tenant_id = NEW.tenant_id
-              AND i.customer_id = p.customer_id AND i.status <> 'closed'
+              AND i.status <> 'closed'
         ) THEN
             RAISE EXCEPTION 'gate_incident_invalid' USING ERRCODE = 'check_violation';
         END IF;
@@ -143,27 +142,29 @@ BEGIN
                    OR (d.entity_type = 'purchase_order' AND EXISTS (
                        SELECT 1 FROM public.purchase_order po
                        WHERE po.id = d.entity_id AND po.tenant_id = NEW.tenant_id
-                         AND po.project_id = NEW.project_id
+                         AND po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
                    ))
                    OR (d.entity_type = 'shipment' AND EXISTS (
                        SELECT 1 FROM public.shipment_purchase_order spo
                        JOIN public.purchase_order po
                          ON po.id = spo.purchase_order_id AND po.tenant_id = spo.tenant_id
                        WHERE spo.shipment_id = d.entity_id AND spo.tenant_id = NEW.tenant_id
-                         AND po.project_id = NEW.project_id
+                         AND po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
                    )))
         )
     ) THEN
         RAISE EXCEPTION 'gate_evidence_invalid' USING ERRCODE = 'check_violation';
     END IF;
 
-    -- G3 needs the PI of one of the project's orders whose PI is approved (K3/M5): one of the
-    -- evidence documents is the pi_document_id of a non-cancelled order at pi_approved or later.
+    -- G3 needs one of the project's orders (in any tenant: an order names the project with
+    -- project_tenant_id) at pi_approved or later and not cancelled (K3/M5). An order of the gate's
+    -- own tenant counts when its PI (pi_document_id) is among the evidence documents; a provider's
+    -- order counts without it: its PI is the provider's, which a client gate may not cite.
     IF NEW.code = 'G3' AND NOT EXISTS (
         SELECT 1 FROM public.purchase_order po
-        WHERE po.tenant_id = NEW.tenant_id AND po.project_id = NEW.project_id
-          AND po.pi_document_id = ANY (NEW.evidence_document_ids)
+        WHERE po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
           AND po.status >= 'pi_approved' AND po.status <> 'cancelled'
+          AND (po.tenant_id <> NEW.tenant_id OR po.pi_document_id = ANY (NEW.evidence_document_ids))
     ) THEN
         RAISE EXCEPTION 'gate_pi_required' USING ERRCODE = 'check_violation';
     END IF;
