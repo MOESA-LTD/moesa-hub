@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(94);
+SELECT plan(96);
 
 SELECT private.create_test_helpers();
 
@@ -850,6 +850,21 @@ END;
 $$;
 SELECT is(pg_temp.cache_follows_access(), '{00000000-0000-4000-8000-000000006701} {}',
           'permitted_tenants: an access change within the statement is not read from the cache');
+
+-- client_select reads a shared row through the select right alone: it ignores a permission's
+-- resource_condition, condition and bypass. Every permission of every shared table keeps them at
+-- their default (empty or TRUE, no bypass), so a row condition added later fails here, not silently.
+SELECT is_empty($$ SELECT p.resource_name::TEXT, p.command::TEXT FROM public.permission p
+                   WHERE private.is_shared_table(split_part(p.resource_name::TEXT, '.', 2))
+                     AND (coalesce(nullif(trim(p.resource_condition), ''), 'TRUE') <> 'TRUE'
+                          OR coalesce(nullif(trim(p.condition), ''), 'TRUE') <> 'TRUE'
+                          OR p.bypass IS TRUE) $$,
+                'every shared table''s permissions keep the default row condition and no bypass (client_select ignores them)');
+SELECT is((SELECT count(DISTINCT p.resource_name)::INT FROM public.permission p
+           WHERE private.is_shared_table(split_part(p.resource_name::TEXT, '.', 2))),
+          (SELECT count(*)::INT FROM pg_catalog.pg_class c
+           WHERE c.relnamespace = 'public'::REGNAMESPACE AND c.relkind = 'r' AND private.is_shared_table(c.relname::TEXT)),
+          'the row-condition check covers every shared table');
 
 SELECT * FROM finish();
 ROLLBACK;
