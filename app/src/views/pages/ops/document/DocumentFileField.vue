@@ -8,12 +8,8 @@ import MediaPickerDialog from '@/components/service-components/media/MediaPicker
 import { useAuthStore } from '@/store/auth';
 
 // A document's file: uploaded here or picked from the media library, for every document type
-// (spec M19). The files offered are the document's customer's and the shared ones (shared only
-// when the record has no customer), in the document's tenant.
-const props = withDefaults(defineProps<{ customerId?: string | null; readonly?: boolean }>(), {
-   customerId: null,
-   readonly: false
-});
+// (spec M19). The files offered are those of the document's tenant.
+const props = withDefaults(defineProps<{ readonly?: boolean }>(), { readonly: false });
 const mediaId = defineModel<string | null>('mediaId', { default: null });
 
 const tenantId = useFormTenant();
@@ -61,14 +57,7 @@ const open = () => {
       />
    </span>
    <span v-else-if="!props.readonly" class="flex flex-wrap items-center gap-2">
-      <MediaDropzone
-         v-if="canUpload"
-         compact
-         :multiple="false"
-         :customerId="props.customerId"
-         :tenantId
-         @uploaded="take"
-      />
+      <MediaDropzone v-if="canUpload" compact :multiple="false" :tenantId @uploaded="take" />
       <Button
          v-if="canPick"
          data-action="pick-from-library"
@@ -80,7 +69,6 @@ const open = () => {
       <MediaPickerDialog
          v-if="canPick"
          v-model:visible="picking"
-         :customerId="props.customerId"
          :tenantId
          :multiple="false"
          @picked="take"

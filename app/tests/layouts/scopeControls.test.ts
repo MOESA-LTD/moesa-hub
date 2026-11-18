@@ -20,13 +20,9 @@ vi.mock('@/store/auth', () => ({
       currentTenant: ref(null)
    })
 }));
-vi.mock('@/store/customerFilter/useCustomerOptions', () => ({
-   useCustomerOptions: () => ({ data: ref([]) })
-}));
 vi.mock('@/router/menu', () => ({ useNavigationMenu: () => ({ menu: ref([]) }) }));
 
 const BranchPicker = defineComponent({ template: '<div data-test="branch" />' });
-const CustomerFilter = defineComponent({ template: '<div data-test="customer" />' });
 const ScopeStub = defineComponent({
    props: { layout: { type: String, default: 'row' } },
    template: '<div data-test="scope" :data-layout="layout" />'
@@ -41,7 +37,6 @@ const global = () => ({
    ] as never,
    stubs: {
       BranchPicker,
-      CustomerFilter,
       teleport: true,
       PanelMenu: true,
       Button: true,
@@ -57,30 +52,24 @@ describe('ScopeControls', () => {
    beforeEach(() => {
       setActivePinia(createPinia());
       signedIn.value = true;
-      ability.update([{ action: 'read', subject: 'customer' }]);
+      ability.update([{ action: 'manage', subject: 'all' }]);
    });
 
    const mountControls = (layout: 'row' | 'column' = 'row') =>
       mount(ScopeControls, { props: { layout }, global: global() });
 
-   it('shows both pickers when signed in and allowed to read customers', () => {
+   it('renders the tenant picker and no customer filter', () => {
       const wrapper = mountControls();
       expect(wrapper.find('[data-test="branch"]').exists()).toBe(true);
-      expect(wrapper.find('[data-test="customer"]').exists()).toBe(true);
-   });
-
-   it('shows only the branch picker without the customer permission', () => {
-      ability.update([]);
-      const wrapper = mountControls();
-      expect(wrapper.find('[data-test="branch"]').exists()).toBe(true);
-      expect(wrapper.find('[data-test="customer"]').exists()).toBe(false);
+      // The tenant picker is the only control: the customer filter is gone.
+      expect(wrapper.element.children).toHaveLength(1);
+      expect(wrapper.findAll('select, [role="combobox"]')).toHaveLength(0);
    });
 
    it('shows nothing when signed out', () => {
       signedIn.value = false;
       const wrapper = mountControls();
       expect(wrapper.find('[data-test="branch"]').exists()).toBe(false);
-      expect(wrapper.find('[data-test="customer"]').exists()).toBe(false);
    });
 
    it('stacks full width in the column layout', () => {

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { withCustomerFilter } from '@/api/customerFilter';
 import {
    INCIDENT_SEVERITIES,
    INCIDENT_SEVERITY_SEVERITY,
@@ -13,13 +12,11 @@ import {
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 import dayjs from 'dayjs';
 
-// Incidents (public.incident_overview) of the customer the lists are filtered by (every
-// customer's when none is), optionally only those linked to one record (a project's Incidents
-// tab). The most severe come first, then the newest. Embedded in another card (with filters), the
-// table keeps its state for the session only.
+// Incidents (public.incident_overview) of the tenants in scope, optionally only those linked to one
+// record (a project's Incidents tab). The most severe come first, then the newest. Embedded in
+// another card (with filters), the table keeps its state for the session only.
 type Props = ResourceTableProps<'incident_overview'>;
 
 const props = defineProps<{
@@ -39,7 +36,6 @@ const enumFilterColumn = {
 
 const columns = computed<Props['columns']>(() => [
    { field: 'code', sortable: true, header: t('ops.incident.fields.code') },
-   { field: 'customer_code', sortable: true, header: t('ops.incident.fields.customer') },
    {
       field: 'severity',
       sortable: true,
@@ -75,19 +71,15 @@ const tableFilters = ref<NonNullable<Props['filters']>>(
       code: 'startsWith',
       severity: equalsFilter(),
       status: equalsFilter(),
-      customer_id: equalsFilter(),
       entity_type: equalsFilter(props.filters?.entityType ?? null),
       entity_id: equalsFilter(props.filters?.entityId ?? null)
    })
 );
 
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer (and the record an embedded table is narrowed to) is written into the existing filters
-// after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
+// The table reads its filters once and then restores its stored state over them, so the record an
+// embedded table is narrowed to is written into the existing filters after mounting and whenever
+// it changes.
 const applyFilters = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   tableFilters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
    if (embedded.value) {
       tableFilters.value.entity_type.constraints = equalsFilter(
          props.filters?.entityType ?? null
@@ -98,7 +90,7 @@ const applyFilters = () => {
    }
 };
 onMounted(applyFilters);
-watch([() => customerFilter.customerId, () => props.filters], applyFilters, { deep: true });
+watch(() => props.filters, applyFilters, { deep: true });
 
 const time = (value: string | null) => (value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '');
 

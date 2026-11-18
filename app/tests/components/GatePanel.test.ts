@@ -40,11 +40,11 @@ vi.mock('@/api/project', async (importOriginal) => ({
    }
 }));
 
-// The open incidents of the project's customer, as the rollback picker offers them.
+// The open incidents of the project's tenant, as the rollback picker offers them.
 vi.mock('@/api/incident', async (importOriginal) => ({
    ...(await importOriginal<typeof import('@/api/incident')>()),
-   useOpenIncidentOptions: (customerId: unknown) => {
-      api.incidentsFor.push(toValue(customerId as string));
+   useOpenIncidentOptions: (tenantId: unknown) => {
+      api.incidentsFor.push(toValue(tenantId as string));
       return computed(() => api.incidents);
    }
 }));
@@ -62,7 +62,7 @@ const gate = {
 const project = {
    id: 'p',
    code: 'THO-2026-001',
-   customer_id: 'c',
+   tenant_id: 'c',
    project_gate: [gate]
 } as unknown as ProjectCard;
 

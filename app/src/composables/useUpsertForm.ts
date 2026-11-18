@@ -128,6 +128,8 @@ export function useUpsertForm<S extends z.ZodType, Row, Payload>(
    return {
       ...form,
       row,
+      /** The row's tenant, or the active one for a new row (see provideFormTenant). */
+      tenantId,
       readonly,
       save,
       ready,

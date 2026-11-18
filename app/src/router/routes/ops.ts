@@ -9,7 +9,6 @@ const documentProps = (route: RouteLocationNormalized) => ({
    ...route.params,
    entity_type: route.query.entity_type ?? null,
    entity_id: route.query.entity_id ?? null,
-   customer_id: route.query.customer_id ?? null,
    code: route.query.code ?? null
 });
 
@@ -19,11 +18,10 @@ const shipmentLineProps = (route: RouteLocationNormalized) => ({
    purchaseOrderLineId: route.query.purchaseOrderLineId ?? null
 });
 
-// A new purchase order opened from a project names its customer and project in the query. A route
+// A new purchase order opened from a project names its project in the query. A route
 // dialog renders the page outside the router, so the page gets them as props, not from useRoute.
 const purchaseOrderProps = (route: RouteLocationNormalized) => ({
    ...route.params,
-   customer_id: route.query.customer_id ?? null,
    project_id: route.query.project_id ?? null
 });
 
@@ -36,36 +34,21 @@ export const marketCellProps = (route: RouteLocationNormalized) => ({
    country: route.query.country ?? null
 });
 
-// A new incident opened from a project (its Incidents tab or a gate's rollback) names its customer
-// and linked record in the query; a route dialog renders the page outside the router, so the
+// A new incident opened from a project (its Incidents tab or a gate's rollback) names its linked
+// record in the query; a route dialog renders the page outside the router, so the
 // card gets them as props.
 export const incidentProps = (route: RouteLocationNormalized) => ({
    ...route.params,
-   customer_id: route.query.customer_id ?? null,
    entity_type: route.query.entity_type ?? null,
    entity_id: route.query.entity_id ?? null
 });
 
-// A new change request opened from a link names its customer and project in the query; a route
+// A new change request opened from a link names its project in the query; a route
 // dialog renders the page outside the router, so the card gets them as props.
 export const changeRequestProps = (route: RouteLocationNormalized) => ({
    ...route.params,
-   customer_id: route.query.customer_id ?? null,
    project_id: route.query.project_id ?? null
 });
-
-// A transfer names its customer, and the products when only some of them go, in the query
-// (`product_ids` comma-separated); a route dialog renders the page outside the router.
-export const transferProps = (route: RouteLocationNormalized) => {
-   const productIds =
-      typeof route.query.product_ids === 'string'
-         ? route.query.product_ids.split(',').filter(Boolean)
-         : [];
-   return {
-      customerId: String(route.query.customer_id ?? ''),
-      productIds: productIds.length ? productIds : null
-   };
-};
 
 const routes: RouteRecordRaw[] = [
    {
@@ -77,7 +60,6 @@ const routes: RouteRecordRaw[] = [
          requiresAuth: true,
          // A section of several modules: shown to anyone who may read one of them.
          anyPermission: [
-            { action: 'select', subject: 'customer' },
             { action: 'select', subject: 'product' },
             { action: 'select', subject: 'project' },
             { action: 'select', subject: 'purchase_order' },
@@ -107,283 +89,6 @@ const routes: RouteRecordRaw[] = [
                default: () => import('@/views/pages/ops/setting/Index.vue'),
                skeleton: () => import('@/views/pages/ops/setting/Index.vue')
             }
-         },
-         {
-            path: 'customers',
-            name: 'ops-customer',
-            meta: {
-               label: 'route.label.ops_customer',
-               icon: PrimeIcons.USERS,
-               requiredPermissions: [{ action: 'select', subject: 'customer' }],
-               contextMenuItems: [
-                  {
-                     label: 'action.add',
-                     route: {
-                        name: 'ops-customer-manage',
-                        query: { showDialog: DIALOG_POSITIONS.CENTER }
-                     }
-                  }
-               ]
-            },
-            component: CustomRouteView,
-            redirect: { name: 'ops-customer-list' },
-            children: [
-               {
-                  path: 'list',
-                  name: 'ops-customer-list',
-                  meta: {
-                     label: 'route.label.ops_customer_list',
-                     icon: PrimeIcons.LIST,
-                     visible: false,
-                     index: -1,
-                     requiredPermissions: [{ action: 'select', subject: 'customer' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/Index.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/Index.vue')
-                  }
-               },
-               {
-                  // The customer card: its tabs open on their own as these child routes.
-                  path: ':id?/manage/:tab?',
-                  name: 'ops-customer-manage',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_manage',
-                     icon: PrimeIcons.USERS,
-                     visible: false,
-                     requiredPermissions: [{ action: 'select', subject: 'customer' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/Manage.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/Manage.vue')
-                  },
-                  children: [
-                     {
-                        path: 'general',
-                        name: 'ops-customer-manage-general',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_general',
-                           icon: PrimeIcons.INFO_CIRCLE,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/General.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/General.vue')
-                        }
-                     },
-                     {
-                        path: 'contacts',
-                        name: 'ops-customer-manage-contacts',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_contacts',
-                           icon: PrimeIcons.USERS,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Contacts.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Contacts.vue')
-                        }
-                     },
-                     {
-                        path: 'warehouses',
-                        name: 'ops-customer-manage-warehouses',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_warehouses',
-                           icon: PrimeIcons.BUILDING,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Warehouses.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Warehouses.vue')
-                        }
-                     },
-                     {
-                        path: 'platforms',
-                        name: 'ops-customer-manage-platforms',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_platforms',
-                           icon: PrimeIcons.SHOP,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Platforms.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Platforms.vue')
-                        }
-                     },
-                     {
-                        path: 'brands',
-                        name: 'ops-customer-manage-brands',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_brands',
-                           icon: PrimeIcons.TAG,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Brands.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Brands.vue')
-                        }
-                     },
-                     {
-                        path: 'documents',
-                        name: 'ops-customer-manage-documents',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_documents',
-                           icon: PrimeIcons.FILE,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Documents.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Documents.vue')
-                        }
-                     },
-                     {
-                        path: 'media',
-                        name: 'ops-customer-manage-media',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_customer_media',
-                           icon: PrimeIcons.IMAGES,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/customer/tabs/Media.vue'),
-                           skeleton: () => import('@/views/pages/ops/customer/tabs/Media.vue')
-                        }
-                     }
-                  ]
-               },
-               {
-                  path: ':customerId/contact/add',
-                  name: 'ops-customer-contact-add',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_contact_add',
-                     icon: PrimeIcons.PLUS,
-                     visible: false,
-                     requiredPermissions: [{ action: 'create', subject: 'customer_contact' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/ContactUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/ContactUpsert.vue')
-                  }
-               },
-               {
-                  path: 'contact/:id/edit',
-                  name: 'ops-customer-contact-edit',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_contact_edit',
-                     icon: PrimeIcons.FILE_EDIT,
-                     visible: false,
-                     requiredPermissions: [{ action: 'modify', subject: 'customer_contact' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/ContactUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/ContactUpsert.vue')
-                  }
-               },
-               {
-                  path: ':customerId/warehouse/add',
-                  name: 'ops-customer-warehouse-add',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_warehouse_add',
-                     icon: PrimeIcons.PLUS,
-                     visible: false,
-                     requiredPermissions: [{ action: 'create', subject: 'customer_warehouse' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/WarehouseUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/WarehouseUpsert.vue')
-                  }
-               },
-               {
-                  path: 'warehouse/:id/edit',
-                  name: 'ops-customer-warehouse-edit',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_warehouse_edit',
-                     icon: PrimeIcons.FILE_EDIT,
-                     visible: false,
-                     requiredPermissions: [{ action: 'modify', subject: 'customer_warehouse' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/WarehouseUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/WarehouseUpsert.vue')
-                  }
-               },
-               {
-                  path: ':customerId/platform-account/add',
-                  name: 'ops-customer-platform-add',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_platform_add',
-                     icon: PrimeIcons.PLUS,
-                     visible: false,
-                     requiredPermissions: [
-                        { action: 'create', subject: 'customer_platform_account' }
-                     ]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/PlatformUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/PlatformUpsert.vue')
-                  }
-               },
-               {
-                  path: 'platform-account/:id/edit',
-                  name: 'ops-customer-platform-edit',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_platform_edit',
-                     icon: PrimeIcons.FILE_EDIT,
-                     visible: false,
-                     requiredPermissions: [
-                        { action: 'modify', subject: 'customer_platform_account' }
-                     ]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/PlatformUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/PlatformUpsert.vue')
-                  }
-               },
-               {
-                  path: ':customerId/brand/add',
-                  name: 'ops-customer-brand-add',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_brand_add',
-                     icon: PrimeIcons.PLUS,
-                     visible: false,
-                     requiredPermissions: [{ action: 'create', subject: 'customer_brand' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/BrandUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/BrandUpsert.vue')
-                  }
-               },
-               {
-                  path: 'brand/:id/edit',
-                  name: 'ops-customer-brand-edit',
-                  props: true,
-                  meta: {
-                     label: 'route.label.ops_customer_brand_edit',
-                     icon: PrimeIcons.FILE_EDIT,
-                     visible: false,
-                     requiredPermissions: [{ action: 'modify', subject: 'customer_brand' }]
-                  },
-                  components: {
-                     default: () => import('@/views/pages/ops/customer/BrandUpsert.vue'),
-                     skeleton: () => import('@/views/pages/ops/customer/BrandUpsert.vue')
-                  }
-               }
-            ]
          },
          {
             path: 'suppliers',
@@ -606,20 +311,6 @@ const routes: RouteRecordRaw[] = [
                         components: {
                            default: () => import('@/views/pages/ops/product/tabs/Dimensions.vue'),
                            skeleton: () => import('@/views/pages/ops/product/tabs/Dimensions.vue')
-                        }
-                     },
-                     {
-                        path: 'cost',
-                        name: 'ops-product-manage-cost',
-                        props: true,
-                        meta: {
-                           label: 'route.label.ops_product_cost',
-                           icon: PrimeIcons.EURO,
-                           visible: false
-                        },
-                        components: {
-                           default: () => import('@/views/pages/ops/product/tabs/Cost.vue'),
-                           skeleton: () => import('@/views/pages/ops/product/tabs/Cost.vue')
                         }
                      },
                      {
@@ -1765,7 +1456,7 @@ const routes: RouteRecordRaw[] = [
             ]
          },
          {
-            // Every document of the tenant, narrowed by type, status, record kind and customer.
+            // Every document of the tenant, narrowed by type, status and record kind.
             path: 'documents',
             name: 'ops-document',
             meta: {
@@ -1794,7 +1485,7 @@ const routes: RouteRecordRaw[] = [
             ]
          },
          {
-            // Every file of the tenant as a grid, narrowed by customer, type, tag and linked record.
+            // Every file of the tenant as a grid, narrowed by type, tag and linked record.
             path: 'media',
             name: 'ops-media',
             meta: {
@@ -1808,7 +1499,7 @@ const routes: RouteRecordRaw[] = [
             }
          },
          {
-            // A file's title, alt text, tags and customer, opened as a dialog from the library.
+            // A file's title, alt text and tags, opened as a dialog from the library.
             path: 'media/:id/edit',
             name: 'ops-media-edit',
             props: true,
@@ -1836,22 +1527,6 @@ const routes: RouteRecordRaw[] = [
             components: {
                default: () => import('@/views/pages/ops/product/Import.vue'),
                skeleton: () => import('@/views/pages/ops/product/Import.vue')
-            }
-         },
-         {
-            // A customer, or some of its products, to another company or branch (M21).
-            path: 'transfer',
-            name: 'ops-transfer',
-            props: { default: transferProps, skeleton: transferProps },
-            meta: {
-               label: 'route.label.ops_transfer',
-               icon: PrimeIcons.ARROW_RIGHT_ARROW_LEFT,
-               visible: false,
-               requiredPermissions: [{ action: 'create', subject: 'transfer' }]
-            },
-            components: {
-               default: () => import('@/views/pages/ops/transfer/Transfer.vue'),
-               skeleton: () => import('@/views/pages/ops/transfer/Transfer.vue')
             }
          },
          {

@@ -31,15 +31,14 @@ export type IncidentRow = Tables['incident']['Row'];
 export type IncidentLogRow = Tables['incident_log']['Row'];
 export type IncidentDeadlineRow = Tables['incident_deadline']['Row'];
 /**
- * An incident with its customer code, the linked record's label (entity_label), its next open
+ * An incident with the linked record's label (entity_label), its next open
  * deadline (next_deadline_at), how many open deadlines are past (overdue_deadline_count) and
- * whether the same Y10 card hit the customer in the 90 days before it opened (is_repeat).
+ * whether the same Y10 card hit the same tenant in the 90 days before it opened (is_repeat).
  */
 export type IncidentOverviewRow = Views['incident_overview']['Row'];
 
 /** An incident as its card loads it (INCIDENT_SELECT): the gates it rolled back too. */
 export type IncidentCard = IncidentRow & {
-   customer: Pick<Tables['customer']['Row'], 'code' | 'display_name'> | null;
    incident_log: IncidentLogRow[];
    incident_deadline: IncidentDeadlineRow[];
    project_gate: Pick<ProjectGateRow, 'id' | 'code' | 'status' | 'project_id'>[];
@@ -251,9 +250,9 @@ export function customerNoticeState(
 
 // --- incident ---
 
-/** The card's incident, its customer, log, deadlines and the gates it rolled back. */
+/** The card's incident, its log, deadlines and the gates it rolled back. */
 export const INCIDENT_SELECT =
-   '*, customer!incident_customer_fkey(code, display_name), incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)';
+   '*, incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)';
 
 export const incidentResource = defineResource<'incident', IncidentCard>('incident', {
    select: INCIDENT_SELECT
@@ -292,7 +291,7 @@ const ENTITY_TABLES = {
 
 const fetchEntityOptions = async (
    entityType: IncidentEntityType,
-   customerId: string,
+   tenantId: string,
    signal: AbortSignal
 ): Promise<IncidentOption[]> => {
    switch (entityType) {
@@ -300,7 +299,7 @@ const fetchEntityOptions = async (
          const { data } = await supabase
             .from('project')
             .select('id, code, display_name')
-            .eq('customer_id', customerId)
+            .eq('tenant_id', tenantId)
             .order('code')
             .abortSignal(signal)
             .throwOnError();
@@ -314,7 +313,7 @@ const fetchEntityOptions = async (
          const { data } = await supabase
             .from(entityType)
             .select('id, code')
-            .eq('customer_id', customerId)
+            .eq('tenant_id', tenantId)
             .order('code')
             .abortSignal(signal)
             .throwOnError();
@@ -324,7 +323,7 @@ const fetchEntityOptions = async (
          const { data } = await supabase
             .from('product')
             .select('id, sku, display_name')
-            .eq('customer_id', customerId)
+            .eq('tenant_id', tenantId)
             .order('sku')
             .abortSignal(signal)
             .throwOnError();
@@ -337,7 +336,7 @@ const fetchEntityOptions = async (
          const { data } = await supabase
             .from('market_cell_overview')
             .select('id, sku, cell_key')
-            .eq('customer_id', customerId)
+            .eq('tenant_id', tenantId)
             .order('sku')
             .abortSignal(signal)
             .throwOnError();
@@ -349,30 +348,30 @@ const fetchEntityOptions = async (
 };
 
 /**
- * The customer's records of one type, as options for the incident's linked record: projects
+ * The tenant's records of one type, as options for the incident's linked record: projects
  * `code — name`, orders and shipments by code, products `sku — name`, market cells `sku · cell`.
  */
 export function useIncidentEntityOptions(
-   params: MaybeRefOrGetter<{ entityType: IncidentEntityType | null; customerId: string | null }>
+   params: MaybeRefOrGetter<{ entityType: IncidentEntityType | null; tenantId: string | null }>
 ) {
    const tenantKey = useTenantKey();
 
    const { data } = useQuery({
       queryKey: computed(() => {
-         const { entityType, customerId } = toValue(params);
+         const { entityType, tenantId } = toValue(params);
          return queryKeys.list(
             tenantKey.value,
             entityType ? ENTITY_TABLES[entityType] : 'incident',
-            { view: 'incident-options', entityType, customerId }
+            { view: 'incident-options', entityType, tenantId }
          );
       }),
       queryFn: ({ signal }) => {
-         const { entityType, customerId } = toValue(params);
-         return fetchEntityOptions(entityType!, customerId!, signal);
+         const { entityType, tenantId } = toValue(params);
+         return fetchEntityOptions(entityType!, tenantId!, signal);
       },
       enabled: computed(() => {
-         const { entityType, customerId } = toValue(params);
-         return !!entityType && !!customerId;
+         const { entityType, tenantId } = toValue(params);
+         return !!entityType && !!tenantId;
       })
    });
 
@@ -380,24 +379,24 @@ export function useIncidentEntityOptions(
 }
 
 /**
- * The customer's incidents that are not closed, newest first, as `code — title` options: what a
+ * The tenant's incidents that are not closed, newest first, as `code — title` options: what a
  * gate rollback (036) may name.
  */
-export function useOpenIncidentOptions(customerId: MaybeRefOrGetter<string | null>) {
+export function useOpenIncidentOptions(tenantId: MaybeRefOrGetter<string | null>) {
    const tenantKey = useTenantKey();
 
    const { data } = useQuery({
       queryKey: computed(() =>
          queryKeys.list(tenantKey.value, 'incident', {
             view: 'open-options',
-            customerId: toValue(customerId)
+            tenantId: toValue(tenantId)
          })
       ),
       queryFn: async ({ signal }) => {
          const { data } = await supabase
             .from('incident')
             .select('id, code, title')
-            .eq('customer_id', toValue(customerId)!)
+            .eq('tenant_id', toValue(tenantId)!)
             .neq('status', 'closed')
             .order('opened_at', { ascending: false })
             .abortSignal(signal)
@@ -407,7 +406,7 @@ export function useOpenIncidentOptions(customerId: MaybeRefOrGetter<string | nul
             label: `${code ?? ''} — ${title}`
          }));
       },
-      enabled: computed(() => !!toValue(customerId))
+      enabled: computed(() => !!toValue(tenantId))
    });
 
    return computed(() => data.value ?? []);
@@ -420,7 +419,6 @@ const toInstant = (value: Date | null | undefined) => value?.toISOString() ?? nu
 export const incidentSchema = z
    .object({
       id: z.string().optional(),
-      customer_id: required(z.uuid()),
       family: required(z.enum(INCIDENT_FAMILIES)),
       severity: required(z.enum(INCIDENT_SEVERITIES)),
       incident_type: optional(z.enum(INCIDENT_TYPES)),
@@ -475,7 +473,6 @@ export const toIncidentFormValues = (
    incident?: Partial<IncidentRow> | null
 ): IncidentFormValues => ({
    id: incident?.id ?? undefined,
-   customer_id: incident?.customer_id ?? null,
    family: incident?.family ?? null,
    severity: incident?.severity ?? null,
    incident_type: (incident?.incident_type ?? null) as IncidentFormValues['incident_type'],
@@ -503,11 +500,11 @@ export const toIncidentFormValues = (
 /**
  * The row to save, every empty field as NULL (the guard's closing rule tests IS NULL). The code,
  * the status (useSetIncidentStatus), the customer notice due time and the closing columns are the
- * database's; the customer and the family never change, so they go with a new incident only. The
+ * database's; the family never changes, so it goes with a new incident only. The
  * opening time goes only when set: the database stamps a new incident's with now().
  */
 export function toIncidentPayload(
-   { id: valuesId, customer_id, family, opened_at, ...values }: IncidentValues,
+   { id: valuesId, family, opened_at, ...values }: IncidentValues,
    id?: string | null
 ): ResourceInput<'incident'> {
    const rowId = id ?? valuesId;
@@ -535,7 +532,7 @@ export function toIncidentPayload(
       customer_closure_notified_on: values.customer_closure_notified_on ?? null
    };
    if (rowId) return { id: rowId, ...editable } as ResourceInput<'incident'>;
-   return { ...editable, customer_id, family };
+   return { ...editable, family };
 }
 
 /** Moves an incident to another status; the database checks the flow and its data (035). */

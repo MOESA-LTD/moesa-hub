@@ -5,7 +5,6 @@ import {
    CHANGE_REQUEST_STATUSES,
    CHANGE_REQUEST_URGENCIES
 } from '@/api/changeRequest';
-import { PACKAGES, CUSTOMER_STATUSES } from '@/api/customer';
 import { DOCUMENT_STATUSES, DOCUMENT_TYPES } from '@/api/document';
 import {
    COST_PAYERS,
@@ -24,7 +23,7 @@ import {
    STOCK_SOURCES
 } from '@/api/marketMatrix';
 import { PRODUCT_STATUSES } from '@/api/product';
-import { GATE_CODES, PROJECT_PATHS, PROJECT_TYPES, TASK_STATUSES } from '@/api/project';
+import { GATE_CODES, PACKAGES, PROJECT_PATHS, PROJECT_TYPES, TASK_STATUSES } from '@/api/project';
 import { PAYMENT_KINDS, PURCHASE_ORDER_STATUSES } from '@/api/purchaseOrder';
 import { SHIPMENT_MODES, SHIPMENT_STATUSES } from '@/api/shipment';
 import { SUPPLIER_STATUSES } from '@/api/supplier';
@@ -38,7 +37,6 @@ export const GLOSSARY_ENUMS = {
    document_type: DOCUMENT_TYPES,
    document_status: DOCUMENT_STATUSES,
    supplier_status: SUPPLIER_STATUSES,
-   customer_status: CUSTOMER_STATUSES,
    product_status: PRODUCT_STATUSES,
    task_status: TASK_STATUSES,
    purchase_order_status: PURCHASE_ORDER_STATUSES,
@@ -78,7 +76,6 @@ export const GLOSSARY_LABELS: Record<GlossaryEnum, string | null> = {
    document_type: 'ops.document.type',
    document_status: 'ops.document.status',
    supplier_status: 'ops.supplier.status',
-   customer_status: 'ops.customer.status',
    product_status: 'ops.product.status',
    task_status: 'ops.project.task_status',
    purchase_order_status: 'ops.purchase_order.status',

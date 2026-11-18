@@ -29,5 +29,6 @@
       "components.d.ts",
       "../supabase/functions/_shared/listingCompleteness.ts"
    ],
-   "exclude": ["src/script/**"]
+   // Unrouted until Task 15 moves their reusable parts into views/pages/ops/company and api/company.
+   "exclude": ["src/script/**", "src/views/pages/ops/customer/**", "src/api/customer/**"]
 }

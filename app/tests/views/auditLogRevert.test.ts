@@ -13,22 +13,16 @@ beforeAll(() => i18n.setLocaleMessage('en', en));
 const row = (table_name: string, reverted = false) => ({ tenant_id: 't', table_name, reverted });
 
 describe('audit log revert', () => {
-   it('says why a transfer entry cannot be reverted, and why a forbidden one is disabled', () => {
+   it('says why a forbidden entry cannot be reverted', () => {
       const allowed = () => true;
       const forbidden = () => false;
 
-      expect(revertDisabledReason(row('transfer'), allowed)).toBe(
-         en.audit_log.revert_transfer_locked
-      );
-      expect(revertDisabledReason(row('transfer'), forbidden)).toBe(
-         en.audit_log.revert_transfer_locked
-      );
       expect(revertDisabledReason(row('product'), forbidden)).toBe(
          en.errors.insufficient_permission
       );
       expect(revertDisabledReason(row('product'), allowed)).toBeNull();
       // An entry reverted already says so in its label.
-      expect(revertDisabledReason(row('transfer', true), allowed)).toBeNull();
+      expect(revertDisabledReason(row('product', true), forbidden)).toBeNull();
    });
 
    it('shows a row action tooltip over the button even while it is disabled', () => {
@@ -39,7 +33,7 @@ describe('audit log revert', () => {
                {
                   label: 'Attempt to revert',
                   disabled: true,
-                  tooltip: () => 'Transfer entries cannot be reverted.',
+                  tooltip: () => 'You may not revert this entry.',
                   icon: 'pi pi-refresh'
                },
                { label: 'Edit', icon: 'pi pi-pencil' }
@@ -57,7 +51,7 @@ describe('audit log revert', () => {
       expect(wrapped.find('button').attributes('disabled')).toBeDefined();
       // PrimeVue's tooltip keeps its value on the element it is bound to: the wrapper.
       expect((wrapped.element as HTMLElement & { $_ptooltipValue?: string }).$_ptooltipValue).toBe(
-         'Transfer entries cannot be reverted.'
+         'You may not revert this entry.'
       );
       expect(wrapper.findAll('button')).toHaveLength(2);
    });

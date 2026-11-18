@@ -23,7 +23,7 @@ const p = (
    kind
 });
 
-// Two groups of three resources each; not every resource has every kind. customer_contact has two
+// Two groups of three resources each; not every resource has every kind. contact has two
 // `modify` permissions (update and delete), and tenant_user has no group.
 const PERMISSIONS: Permission[] = [
    p('pr-r', 'product', 'product', 'read'),
@@ -32,14 +32,14 @@ const PERMISSIONS: Permission[] = [
    p('pm-r', 'product', 'product_media', 'read'),
    p('pm-m', 'product', 'product_media', 'modify'),
    p('pp-r', 'product', 'product_price', 'read'),
-   p('cu-r', 'customer', 'customer', 'read'),
-   p('cu-c', 'customer', 'customer', 'create'),
-   p('cu-m', 'customer', 'customer', 'modify'),
-   p('cc-r', 'customer', 'customer_contact', 'read'),
-   p('cc-c', 'customer', 'customer_contact', 'create'),
-   p('cc-u', 'customer', 'customer_contact', 'modify'),
-   p('cc-d', 'customer', 'customer_contact', 'modify'),
-   p('cn-r', 'customer', 'customer_note', 'read'),
+   p('cu-r', 'client', 'brand', 'read'),
+   p('cu-c', 'client', 'brand', 'create'),
+   p('cu-m', 'client', 'brand', 'modify'),
+   p('cc-r', 'client', 'contact', 'read'),
+   p('cc-c', 'client', 'contact', 'create'),
+   p('cc-u', 'client', 'contact', 'modify'),
+   p('cc-d', 'client', 'contact', 'modify'),
+   p('cn-r', 'client', 'contact_note', 'read'),
    p('tu-r', null, 'tenant_user', 'read')
 ];
 
@@ -110,7 +110,7 @@ describe('SelectPermissions', () => {
    it('shows a group cell as partial when only some of its permissions are selected', async () => {
       const { wrapper } = await mountPicker(byId('pr-r'));
       expect(stateOf(wrapper, 'group:product:read')).toBe('some');
-      expect(stateOf(wrapper, 'group:customer:read')).toBe('none');
+      expect(stateOf(wrapper, 'group:client:read')).toBe('none');
       expect(cell(wrapper, 'group:product:read').text()).toContain(
          i18n.t('component.select_permission.state.some')
       );
@@ -166,16 +166,16 @@ describe('SelectPermissions', () => {
 
    it('toggles every permission of a resource kind together', async () => {
       const { wrapper, model } = await mountPicker(byId('cc-d'));
-      await expandGroup(wrapper, 'customer');
-      expect(stateOf(wrapper, 'resource:customer_contact:modify')).toBe('some');
+      await expandGroup(wrapper, 'client');
+      expect(stateOf(wrapper, 'resource:contact:modify')).toBe('some');
 
-      await click(wrapper, 'resource:customer_contact:modify');
+      await click(wrapper, 'resource:contact:modify');
       expect(ids(model)).toEqual(['cc-d', 'cc-u']);
-      expect(stateOf(wrapper, 'resource:customer_contact:modify')).toBe('all');
+      expect(stateOf(wrapper, 'resource:contact:modify')).toBe('all');
 
-      await click(wrapper, 'resource:customer_contact:modify');
+      await click(wrapper, 'resource:contact:modify');
       expect(ids(model)).toEqual([]);
-      expect(stateOf(wrapper, 'resource:customer_contact:modify')).toBe('none');
+      expect(stateOf(wrapper, 'resource:contact:modify')).toBe('none');
    });
 
    it('lists permissions without a group under Other', async () => {
@@ -210,14 +210,14 @@ describe('SelectPermissions', () => {
    });
 
    it('labels a schema-qualified resource with its field label', async () => {
-      PERMISSIONS.push(p('pc-r', 'customer', 'public.customer', 'read'));
+      PERMISSIONS.push(p('pc-r', 'client', 'public.warehouse', 'read'));
       try {
          const { wrapper } = await mountPicker();
-         await expandGroup(wrapper, 'customer');
-         const row = wrapper.find('[data-permission-resource="public.customer"]');
+         await expandGroup(wrapper, 'client');
+         const row = wrapper.find('[data-permission-resource="public.warehouse"]');
          expect(row.exists()).toBe(true);
-         expect(row.text()).toContain(i18n.t('fields.customer'));
-         expect(row.text()).not.toContain('public.customer');
+         expect(row.text()).toContain(i18n.t('fields.warehouse'));
+         expect(row.text()).not.toContain('public.warehouse');
       } finally {
          PERMISSIONS.pop();
       }

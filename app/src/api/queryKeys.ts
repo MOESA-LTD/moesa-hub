@@ -36,26 +36,17 @@ const DERIVED: Partial<Record<TableName, TableName[]>> = {
       'incident_overview',
       'change_request'
    ],
-   // The shipment, order and incident cards embed their customer (the shipment its warehouse too);
-   // the overviews and the dashboard boxes name it (customer_code).
-   customer: [
-      'shipment',
-      'shipment_overview',
-      'purchase_order',
+   // The order and shipment overviews and their dashboard boxes name the client (client_code).
+   provider_relationship: [
       'purchase_order_overview',
+      'shipment_overview',
       'dashboard_purchase_order',
-      'dashboard_shipment',
-      'market_cell_overview',
-      'incident',
-      'incident_overview',
-      'change_request',
-      'dashboard_market',
-      'dashboard_incident',
-      'dashboard_change_request'
+      'dashboard_shipment'
    ],
    // The order card embeds its supplier (code, terms); the overview and the boxes name it.
    supplier: ['purchase_order', 'purchase_order_overview', 'dashboard_purchase_order'],
-   customer_warehouse: ['shipment', 'shipment_overview'],
+   // The shipment card embeds its warehouse; the overview names it.
+   warehouse: ['shipment', 'shipment_overview'],
    // A document may cite a media file (the library's document_count); an order's overview reads
    // its approved PSI and its lines' spec sheets (has_approved_psi, spec_missing_line_ids), and its
    // card embeds the lines' spec sheets; a shipment's overview the PSI of its orders
@@ -78,10 +69,10 @@ const DERIVED: Partial<Record<TableName, TableName[]>> = {
    project_task: ['dashboard_task_due'],
    // A project put on hold or closed leaves the dashboard; management_gates decides who acts. The
    // order overview names the order's project.
-   // The matrix overview names the product (sku, name, gtin), the customer and the project codes.
-   // The incident overview names the incident's customer and linked record (customer_code,
-   // entity_label: a project, order, shipment, product or market cell); the change request card
-   // embeds its customer, project, products and documents; the cell card embeds its project.
+   // The matrix overview names the product (sku, name, gtin) and the project code. The incident
+   // overview names the incident's linked record (entity_label: a project, order, shipment, product
+   // or market cell); the change request card embeds its project, products and documents; the cell
+   // card embeds its project.
    project: [
       'dashboard_gate_pending',
       'dashboard_task_due',
@@ -135,7 +126,7 @@ const DERIVED: Partial<Record<TableName, TableName[]>> = {
       'incident_overview',
       'dashboard_market'
    ],
-   // The overview names the incident's customer and linked record (codes, entity_label) and
+   // The overview names the incident's linked record (codes, entity_label) and
    // reads its deadlines (next_deadline_at, overdue_deadline_count); the card embeds its log,
    // deadlines and the gates it rolled back. The dashboard box reads the overview.
    incident: ['incident_overview', 'project_gate', 'dashboard_incident'],
@@ -153,14 +144,7 @@ const CASCADES: Partial<Record<TableName, TableName[]>> = {
    permission: ['role_permission'],
    role: ['role_permission', 'user_role'],
    supplier: ['supplier_contact'],
-   customer: [
-      'customer_contact',
-      'customer_warehouse',
-      'customer_platform_account',
-      'customer_brand'
-   ],
-   // Orders and shipments are never deleted (only cancelled), as customers; the keys mirror the
-   // foreign keys.
+   // Orders and shipments are never deleted (only cancelled); the keys mirror the foreign keys.
    purchase_order: ['purchase_order_line', 'purchase_order_payment', 'purchase_order_update'],
    shipment: ['shipment_purchase_order', 'shipment_line', 'shipment_event'],
    // Incidents and change requests are never deleted either; the keys mirror the foreign keys.

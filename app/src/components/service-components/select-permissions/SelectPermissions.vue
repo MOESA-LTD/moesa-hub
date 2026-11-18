@@ -82,7 +82,7 @@ const toggle = (items = []) => {
    modelValue.value = stateOf(items) === 'all' ? others : [...others, ..._cloneDeep(items)];
 };
 
-// Resource names carry their schema ("public.customer"); the field labels are keyed by table.
+// Resource names carry their schema ("public.supplier"); the field labels are keyed by table.
 const fieldKey = (key) => String(key).replace(/^[a-z_]+\./, '');
 const label = (key) =>
    te(`fields.${fieldKey(key)}`) ? t(`fields.${fieldKey(key)}`) : fieldKey(key);

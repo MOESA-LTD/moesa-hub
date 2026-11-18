@@ -2,7 +2,6 @@
 import type { ProductRow } from '@/api/product';
 import { useAbility } from '@casl/vue';
 import Amazon from './tabs/Amazon.vue';
-import Cost from './tabs/Cost.vue';
 import Dimensions from './tabs/Dimensions.vue';
 import Documents from './tabs/Documents.vue';
 import General from './tabs/General.vue';
@@ -16,7 +15,7 @@ import {
    type ProductCardTab
 } from './useProductForm';
 
-// The product card's tabs around its one form, which the general, dimensions and cost tabs share.
+// The product card's tabs around its one form, which the general and dimensions tabs share.
 // The orders tab (its purchase orders and shipments) is read-only and has no form of its own; the
 // Amazon tab has its own (the Amazon columns), read-only without the right to update products.
 // Manage re-creates the card when a new product is saved, so the form goes on under its id.
@@ -64,9 +63,6 @@ const tabs = computed(() =>
          </TabPanel>
          <TabPanel value="dimensions">
             <Dimensions v-if="id" />
-         </TabPanel>
-         <TabPanel value="cost">
-            <Cost v-if="id" />
          </TabPanel>
          <TabPanel v-if="tabs.includes('orders')" value="orders">
             <Orders v-if="id && activeTab === 'orders'" :id />

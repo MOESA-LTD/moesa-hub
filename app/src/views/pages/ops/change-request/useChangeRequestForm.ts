@@ -13,7 +13,6 @@ import { GATE_CODES } from '@/api/project';
 import { useLookup } from '@/api/useLookup';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import { appErrorHandler } from '@/lib/appErrorHandler';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { useMutation } from '@tanstack/vue-query';
 import { computed, inject, type InjectionKey } from 'vue';
 
@@ -109,25 +108,20 @@ function useSaveChangeRequest() {
 
 /**
  * The change request card's one form: the request, impact and decision tabs each show their part
- * of it. A new request starts with the customer the lists are filtered by, or the one a link names
- * (the route's query, as props: a route dialog renders the page outside the router). Once a new
- * request is saved, its "new" draft is dropped: the card goes on under its id.
+ * of it. A new request starts with the project a link names (the route's query, as props: a route
+ * dialog renders the page outside the router). Once a new request is saved, its "new" draft is
+ * dropped: the card goes on under its id.
  */
 export function useChangeRequestForm(
    id: () => string | null | undefined,
    onSaved?: (cr: ChangeRequestCard) => void,
    prefill: ChangeRequestPrefill = {}
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const initial = () => {
-      const customerId = queryValue(prefill.customer_id) ?? customerFilter.customerId;
       const projectId = queryValue(prefill.project_id);
-      return {
-         ...(customerId ? { customer_id: customerId } : {}),
-         ...(customerId && projectId ? { project_id: projectId } : {})
-      };
+      return projectId ? { project_id: projectId } : {};
    };
 
    const form = useUpsertForm({
@@ -150,8 +144,8 @@ export function useChangeRequestForm(
    return form;
 }
 
-/** A new request's customer and project, when a link names them. */
-export type ChangeRequestPrefill = { customer_id?: string | null; project_id?: string | null };
+/** A new request's project, when a link names it. */
+export type ChangeRequestPrefill = { project_id?: string | null };
 
 const queryValue = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 

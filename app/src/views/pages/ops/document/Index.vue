@@ -14,10 +14,9 @@ import {
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import DocumentFileLink from '@/components/service-components/entity-documents/DocumentFileLink.vue';
-import { useCustomerFilter, withCustomerFilter } from '@/store/customerFilter';
 
-// Every document of the tenant (of the customer the lists are filtered by, when one is). Opened
-// and edited in the same dialog as a record's document list; documents are never deleted.
+// Every document of the tenants in scope. Opened and edited in the same dialog as a record's
+// document list; documents are never deleted.
 type Props = ResourceTableProps<'document'>;
 
 defineOptions({
@@ -35,7 +34,6 @@ const FILTER_COLUMN = {
 };
 
 const columns = computed<Props['columns']>(() => [
-   { field: 'customer.code', header: t('ops.document.fields.customer') },
    { field: 'type', header: t('ops.document.fields.type'), ...FILTER_COLUMN },
    { field: 'version', sortable: true, header: t('ops.document.fields.version') },
    { field: 'status', header: t('ops.document.fields.status'), ...FILTER_COLUMN },
@@ -57,22 +55,11 @@ const filters = ref<NonNullable<Props['filters']>>(
          type: equalsFilter(),
          status: equalsFilter(),
          entity_type: equalsFilter(),
-         file_name: 'text',
-         customer_id: equalsFilter()
+         file_name: 'text'
       },
       attrs.filters as Props['filters']
    )
 );
-
-// The selected customer is written into the customer filter after mounting and whenever it
-// changes, as the table restores its stored state over its initial filters (see the product list).
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const SEVERITY: Record<DocumentStatus, string> = {
    draft: 'secondary',
@@ -96,8 +83,7 @@ const rowActions = computed<Props['rowActions']>(() => [
                query: {
                   showDialog: DIALOG_POSITIONS.CENTER,
                   entity_type: data.entity_type,
-                  entity_id: data.entity_id,
-                  ...(data.customer_id ? { customer_id: data.customer_id } : {})
+                  entity_id: data.entity_id
                }
             })
    }
@@ -109,7 +95,7 @@ const rowActions = computed<Props['rowActions']>(() => [
       v-bind="attrs"
       stateKey="document"
       from="document"
-      :select="`*, customer!document_customer_fkey(code), ${DOCUMENT_MEDIA_SELECT}`"
+      :select="`*, ${DOCUMENT_MEDIA_SELECT}`"
       :columns
       :rowActions
       :enableExpansion="false"

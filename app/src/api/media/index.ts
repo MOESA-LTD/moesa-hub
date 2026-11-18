@@ -122,8 +122,7 @@ export const mediaSchema = z.object({
    id: z.string().optional(),
    title: optional(z.string().max(200)),
    alt_text: optional(z.string().max(300)),
-   tags: z.array(z.string().trim().toLowerCase().min(1).max(40)).max(20),
-   customer_id: z.string().nullish()
+   tags: z.array(z.string().trim().toLowerCase().min(1).max(40)).max(20)
 });
 
 export type MediaFormValues = z.input<typeof mediaSchema>;
@@ -132,27 +131,19 @@ export const toMediaFormValues = (media?: Partial<MediaRow> | null): MediaFormVa
    id: media?.id ?? undefined,
    title: media?.title ?? '',
    alt_text: media?.alt_text ?? '',
-   tags: media?.tags ?? [],
-   customer_id: media?.customer_id ?? null
+   tags: media?.tags ?? []
 });
 
 /**
  * The changes to save: the form's fields only, never the stored file's. A file is only ever
  * edited here (saved as an update by id); uploadMedia creates it.
  */
-export const toMediaPayload = ({
-   id,
-   title,
-   alt_text,
-   tags,
-   customer_id
-}: z.output<typeof mediaSchema>) =>
+export const toMediaPayload = ({ id, title, alt_text, tags }: z.output<typeof mediaSchema>) =>
    ({
       ...(id ? { id } : {}),
       title,
       alt_text,
-      tags,
-      customer_id: customer_id ?? null
+      tags
    }) as ResourceInput<'media'>;
 
 /**

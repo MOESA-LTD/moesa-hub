@@ -11,5 +11,13 @@
       "auto-imports.d.ts",
       "components.d.ts",
       "../supabase/functions/_shared/listingCompleteness.ts"
+   ],
+   // As in tsconfig.app.json, plus the test of the unrouted customer platforms tab (Task 15 moves
+   // it with AmazonConnection.vue into the company pages).
+   "exclude": [
+      "src/script/**",
+      "src/views/pages/ops/customer/**",
+      "src/api/customer/**",
+      "tests/views/platformConnect.test.ts"
    ]
 }

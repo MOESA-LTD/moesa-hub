@@ -31,7 +31,7 @@ import {
 // the form goes on under its id.
 const props = defineProps<{
    id: string | null;
-   /** A new incident's customer and linked record, when a link names them. */
+   /** A new incident's linked record, when a link names it. */
    prefill?: IncidentPrefill;
 }>();
 const emit = defineEmits<{ saved: [incident: IncidentCard] }>();

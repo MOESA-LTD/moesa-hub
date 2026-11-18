@@ -8,7 +8,6 @@ import {
    type IncidentOverviewRow
 } from '@/api/incident';
 import { useUpsertForm } from '@/composables/useUpsertForm';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { computed, inject, ref, type InjectionKey, type Ref } from 'vue';
 
 /**
@@ -40,9 +39,8 @@ export const INCIDENT_CLOSURE_FIELDS = [
 export const tabForField = (field: string): 'general' | 'closure' =>
    (INCIDENT_CLOSURE_FIELDS as readonly string[]).includes(field) ? 'closure' : 'general';
 
-/** A new incident's customer and linked record, when a link names them (the route's query). */
+/** A new incident's linked record, when a link names it (the route's query). */
 export type IncidentPrefill = {
-   customer_id?: string | null;
    entity_type?: string | null;
    entity_id?: string | null;
 };
@@ -51,25 +49,22 @@ const queryValue = (value: unknown) => (typeof value === 'string' && value ? val
 
 /**
  * The incident card's one form: the general and closure tabs each show their part of it. A new
- * incident starts with the customer and linked record a link names (a project's Incidents tab, a
- * gate's rollback), else with the customer the lists are filtered by. The route passes those as
- * props: a route dialog renders the page outside the router. Once a new incident is saved, its
- * "new" draft is dropped: the card goes on under the incident's id (see IncidentCard).
+ * incident starts with the linked record a link names (a project's Incidents tab, a gate's
+ * rollback). The route passes it as props: a route dialog renders the page outside the router. Once
+ * a new incident is saved, its "new" draft is dropped: the card goes on under the incident's id
+ * (see IncidentCard).
  */
 export function useIncidentForm(
    id: () => string | null | undefined,
    onSaved?: (incident: IncidentCard) => void,
    prefill: IncidentPrefill = {}
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const initial = () => {
-      const customerId = queryValue(prefill.customer_id) ?? customerFilter.customerId;
       const entityType = queryValue(prefill.entity_type) as IncidentEntityType | undefined;
       const entityId = queryValue(prefill.entity_id);
       return {
-         ...(customerId ? { customer_id: customerId } : {}),
          ...(entityType && entityId ? { entity_type: entityType, entity_id: entityId } : {})
       };
    };

@@ -11,27 +11,14 @@ import ProductMultiSelect from '@/components/service-components/product-multi-se
 import ProjectSelect from '@/views/pages/ops/purchase-order/ProjectSelect.vue';
 import { injectChangeRequestForm, useChangeRequestGates } from '../useChangeRequestForm';
 
-// S08 A–C in the card's shared form: the customer (on a new request only), the project and the
-// SKUs it touches, the title, the source and the urgency (the decision date follows), the kinds of
-// change, the old and new values word for word and why, then the gate and the one document it
-// touches: the document is picked on its record (the project or one of the chosen products).
+// S08 A–C in the card's shared form: the project and the SKUs it touches, the title, the source and
+// the urgency (the decision date follows), the kinds of change, the old and new values word for
+// word and why, then the gate and the one document it touches: the document is picked on its record
+// (the project or one of the chosen products).
 const form = injectChangeRequestForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
 
 const { t } = useI18n();
-
-const id = computed(() => values.value.id ?? null);
-const customerId = computed(() => values.value.customer_id ?? null);
-
-/** Another customer drops the project, the products and what they named. */
-const setCustomer = (customer: string | null | undefined) => {
-   if ((customer ?? null) === customerId.value) return;
-   values.value.customer_id = customer ?? null;
-   values.value.project_id = null;
-   values.value.product_ids = [];
-   values.value.affected_gate_code = null;
-   values.value.affected_document_id = null;
-};
 
 /** Another project drops the gate of the old one. */
 const setProject = (project: string | null | undefined) => {
@@ -56,19 +43,15 @@ const { data: projects } = useLookup<Pick<Tables['project']['Row'], 'id' | 'code
    'project',
    () => ({
       select: 'id, code, display_name',
-      order: 'code',
-      in: { column: 'customer_id', values: [customerId.value] }
-   }),
-   () => !!customerId.value
+      order: 'code'
+   })
 );
 const { data: products } = useLookup<Pick<ProductRow, 'id' | 'sku' | 'display_name'>>(
    'product',
    () => ({
       select: 'id, sku, display_name, status',
-      order: 'sku',
-      in: { column: 'customer_id', values: [customerId.value] }
-   }),
-   () => !!customerId.value
+      order: 'sku'
+   })
 );
 
 type AffectedEntity = { entityType: 'project' | 'product'; entityId: string };
@@ -141,21 +124,6 @@ const documentOptions = useEntityDocumentOptions(() => ({
    >
       <FormField
          fluid
-         :label="$t('ops.change_request.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <SelectCustomer
-            v-bind="slotProps"
-            :model-value="values.customer_id"
-            @update:model-value="setCustomer"
-            :disabled="!!id"
-            hideClosed
-         />
-      </FormField>
-      <FormField
-         fluid
          :label="$t('ops.change_request.fields.project')"
          :error="errors.project_id"
          :readonly
@@ -165,8 +133,6 @@ const documentOptions = useEntityDocumentOptions(() => ({
             v-bind="slotProps"
             :model-value="values.project_id ?? null"
             @update:model-value="setProject"
-            :customerId
-            :disabled="!customerId"
             data-field="project_id"
          />
       </FormField>
@@ -181,8 +147,6 @@ const documentOptions = useEntityDocumentOptions(() => ({
          <ProductMultiSelect
             v-bind="slotProps"
             v-model="values.product_ids"
-            :customerId
-            :disabled="!customerId"
             data-field="product_ids"
          />
       </FormField>

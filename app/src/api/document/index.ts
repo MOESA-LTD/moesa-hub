@@ -55,9 +55,10 @@ export const DOCUMENT_STATUSES = Object.keys(DOCUMENT_STATUS_SUFFIX) as [
 ];
 
 export const DOCUMENT_ENTITIES = [
-   'customer',
+   'provider_relationship',
    'supplier',
    'product',
+   'sourcing',
    'project',
    'project_gate',
    'purchase_order',
@@ -96,7 +97,6 @@ export const documentSchema = z
       id: z.string().optional(),
       entity_type: z.enum(DOCUMENT_ENTITIES),
       entity_id: z.string(),
-      customer_id: z.string().nullish(),
       type: required(z.enum(DOCUMENT_TYPES)),
       version: z.number().int().min(1),
       issued_on: optional(dateOnly()),
@@ -144,7 +144,6 @@ export const toDocumentFormValues = (
    id: document?.id ?? undefined,
    entity_type: document?.entity_type ?? 'product',
    entity_id: document?.entity_id ?? '',
-   customer_id: document?.customer_id ?? null,
    type: document?.type ?? null,
    version: document?.version ?? 1,
    issued_on: parseDateOnly(document?.issued_on),
@@ -158,7 +157,7 @@ export const toDocumentFormValues = (
 });
 
 /**
- * The row to save. With the record's code (SKU, customer, supplier or project code) the file name
+ * The row to save. With the record's code (SKU, supplier or project code) the file name
  * is set from it; without one the stored name is kept.
  */
 export const toDocumentPayload = (
@@ -182,15 +181,12 @@ export const toDocumentPayload = (
 export type DocumentRouteContext = {
    entity_type?: DocumentEntity | null;
    entity_id?: string | null;
-   customer_id?: string | null;
 };
 
 /**
  * A new document belongs to the record its dialog was opened from (the route's query), whatever
  * the form holds: every add dialog shares one draft, so a restored draft may carry another
- * record's context. Its customer is the record's (none for a supplier or a tenant-level record),
- * which decides the customer files it may cite (document_check_media). A saved document keeps its
- * own.
+ * record's context. A saved document keeps its own.
  */
 export const withRouteContext = <V extends DocumentRouteContext & { id?: string | null }>(
    values: V,
@@ -201,10 +197,7 @@ export const withRouteContext = <V extends DocumentRouteContext & { id?: string 
       : {
            ...values,
            entity_type: context.entity_type ?? values.entity_type,
-           entity_id: context.entity_id ?? values.entity_id,
-           customer_id: context.entity_id
-              ? (context.customer_id ?? null)
-              : (context.customer_id ?? values.customer_id)
+           entity_id: context.entity_id ?? values.entity_id
         };
 
 /**

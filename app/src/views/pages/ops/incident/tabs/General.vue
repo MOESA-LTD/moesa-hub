@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFormTenant } from '@/api/formTenant';
 import { provideFieldAccess } from '@/composables/useFieldAccess';
 import {
    INCIDENT_ENTITY_TYPES,
@@ -21,8 +22,8 @@ import { injectIncidentForm } from '../useIncidentForm';
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('incident');
 
-// S17 A and B in the card's shared form. Opening (the first 15 minutes): the customer and the
-// family (on a new incident only), the Y10 card, severity, what happened and what was done at
+// S17 A and B in the card's shared form. Opening (the first 15 minutes): the family (on a new
+// incident only), the Y10 card, severity, what happened and what was done at
 // once, and the linked record. Classification: the owner, the parties, when management and the
 // customer were told. Below, the gates this incident rolled back.
 const form = injectIncidentForm();
@@ -67,10 +68,11 @@ const severityHint = computed(() => {
 
 const TEXT_FIELDS = ['current_state', 'immediate_action'] as const;
 
-// The linked record is one of the customer's; its kind comes first.
+// The linked record is one of the incident's tenant; its kind comes first.
+const formTenant = useFormTenant();
 const entityOptions = useIncidentEntityOptions(() => ({
    entityType: (values.value.entity_type ?? null) as IncidentEntityType | null,
-   customerId: values.value.customer_id ?? null
+   tenantId: formTenant?.value ?? null
 }));
 
 const setEntityType = (entityType: string | string[] | null | undefined) => {
@@ -110,20 +112,6 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
       <h3 class="m-0 w-full text-base font-semibold">
          {{ $t('ops.incident.sections.opening') }}
       </h3>
-      <FormField
-         fluid
-         :label="$t('ops.incident.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="values.customer_id"
-            :disabled="!!id"
-            hideClosed
-         />
-      </FormField>
       <FormField
          fluid
          :label="$t('ops.incident.fields.family')"

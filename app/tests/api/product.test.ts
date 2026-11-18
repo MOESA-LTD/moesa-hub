@@ -8,8 +8,6 @@ import { gtinValid } from '@/lib/gtin';
 import i18n from '@plugins/i18n';
 import { describe, expect, it } from 'vitest';
 
-const CUSTOMER = '6f1c2b0e-8f4a-4d6e-9a51-2b7c3d4e5f60';
-
 describe('gtinValid', () => {
    it('checks the GS1 check digit of GTIN-8, -12, -13 and -14', () => {
       expect(gtinValid('4260696025800')).toBe(true);
@@ -27,7 +25,7 @@ describe('gtinValid', () => {
 describe('product form', () => {
    const parse = (values: Partial<ReturnType<typeof toProductFormValues>>) =>
       productSchema.safeParse({
-         ...toProductFormValues({ customer_id: CUSTOMER, sku: 'THO-1', display_name: 'Mop' }),
+         ...toProductFormValues({ sku: 'THO-1', display_name: 'Mop' }),
          ...values
       });
 
@@ -47,20 +45,18 @@ describe('product form', () => {
       expect(parse({ gtin: '4260696025800' }).success).toBe(true);
    });
 
-   it('needs a customer and a name', () => {
-      expect(parse({ customer_id: null }).success).toBe(false);
+   it('needs a name', () => {
       expect(parse({ display_name: '' }).success).toBe(false);
    });
 
    it('takes no negative amounts and whole quantities', () => {
-      expect(parse({ purchase_price: -1 }).success).toBe(false);
+      expect(parse({ unit_net_g: -1 }).success).toBe(false);
       expect(parse({ pack_qty: 1.5 }).success).toBe(false);
-      expect(parse({ pack_qty: 12, purchase_price: 1.25 }).success).toBe(true);
+      expect(parse({ pack_qty: 12, unit_net_g: 1.25 }).success).toBe(true);
    });
 
    it('starts as a concept without compliance and sends empty fields as null', () => {
       const values = toProductFormValues({
-         customer_id: CUSTOMER,
          sku: 'tho-1',
          display_name: 'Mop'
       });
@@ -71,7 +67,6 @@ describe('product form', () => {
          productSchema.parse({ ...values, notes: ' ', golden_sample_on: new Date(2026, 10, 3) })
       );
       expect(payload).toMatchObject({
-         customer_id: CUSTOMER,
          sku: 'THO-1',
          display_name: 'Mop',
          status: 'concept',
@@ -81,10 +76,10 @@ describe('product form', () => {
       });
       expect(payload.gtin).toBeNull();
       expect(payload.notes).toBeNull();
-      expect(payload.supplier_id).toBeNull();
       expect(payload.parent_id).toBeNull();
-      expect(payload.purchase_price).toBeNull();
-      expect(payload.purchase_currency).toBeNull();
+      // The cost, prices and supplier are the sourcing's, not the product's.
+      for (const key of ['supplier_id', 'purchase_price', 'purchase_currency'])
+         expect(payload).not.toHaveProperty(key);
       expect(payload).not.toHaveProperty('id');
    });
 });

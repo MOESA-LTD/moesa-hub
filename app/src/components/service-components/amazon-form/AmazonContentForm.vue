@@ -25,7 +25,6 @@ const {
    attributes,
    resetKey,
    productId,
-   customerId,
    tenantId,
    productType,
    typeInput,
@@ -87,7 +86,6 @@ const search = (text: string) => (query.value = text);
             :productId
             :readonly
             :issues
-            :customerId
             :tenantId
             :focusField
          />

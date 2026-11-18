@@ -141,13 +141,13 @@ const submitPass = async () => {
 
 // --- roll back ---
 
-// A gate is rolled back through an open incident of the project's customer (036), which then
+// A gate is rolled back through an open incident of the project's tenant (036), which then
 // lists the gates it rolled back. Without one, the dialog offers to open one for the project.
 const rollingBack = ref(false);
 const reason = ref('');
 const incidentId = ref<string | null>(null);
 const { mutateAsync: rollbackGate, isPending: isRollingBack } = useRollbackGate();
-const incidentOptions = useOpenIncidentOptions(() => props.project.customer_id);
+const incidentOptions = useOpenIncidentOptions(() => props.project.tenant_id);
 const canSubmitRollback = computed(() => !!reason.value.trim() && !!incidentId.value);
 
 const openRollback = () => {
@@ -244,7 +244,6 @@ const formatDate = (value: string | null, format = 'YYYY-MM-DD') =>
          entityType="project_gate"
          :entityId="gate.id"
          :code="`${project.code}-${gateLabel}`"
-         :customerId="project.customer_id"
       />
 
       <Dialog
@@ -350,7 +349,6 @@ const formatDate = (value: string | null, format = 'YYYY-MM-DD') =>
                   :to="{
                      name: 'ops-incident-manage',
                      query: {
-                        customer_id: project.customer_id,
                         entity_type: 'project',
                         entity_id: project.id,
                         showDialog: DIALOG_POSITIONS.CENTER

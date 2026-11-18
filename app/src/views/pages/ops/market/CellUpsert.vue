@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { provideFieldAccess } from '@/composables/useFieldAccess';
-import { usePlatformOptions } from '@/api/customer';
-import type { ProductRow } from '@/api/product';
+import { usePlatformOptions } from '@/api/platform';
 import {
    CONTENT_STATUSES,
    liveMissing,
@@ -19,13 +18,11 @@ import {
    type MarketCellStatus,
    type LiveField
 } from '@/api/marketMatrix';
-import { useLookup } from '@/api/useLookup';
 import { useDialogRef } from '@/composables/useDialogRef';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import { defaultCurrencyFor } from '@/constants/currency';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { isTermCode } from '@/constants/terms';
-import { useCustomerFilter } from '@/store/customerFilter';
 import ProductSelect from '../purchase-order/ProductSelect.vue';
 import CellAmazonDrawer from './CellAmazonDrawer.vue';
 import ProjectSelect from '../purchase-order/ProjectSelect.vue';
@@ -78,32 +75,7 @@ await ready;
 
 const cell = computed(() => row.value ?? null);
 
-// --- a new cell: its customer's products, the platform's countries ---
-
-const customerFilter = useCustomerFilter();
-const customerId = ref<string | null>(customerFilter.customerId);
-
-// Opened from the matrix without a customer filter: the product's customer.
-const { data: prefilledProduct } = useLookup<Pick<ProductRow, 'id' | 'customer_id'>>(
-   'product',
-   () => ({
-      select: 'id, customer_id',
-      in: { column: 'id', values: [props.product_id] }
-   }),
-   () => !props.id && !!props.product_id && !customerId.value
-);
-watch(
-   prefilledProduct,
-   (products) => {
-      customerId.value ??= products?.[0]?.customer_id ?? null;
-   },
-   { immediate: true }
-);
-
-const onCustomerPick = () => {
-   values.value.product_id = null;
-   values.value.project_id = null;
-};
+// --- a new cell: the tenant's products, the platform's countries ---
 
 const { data: platforms } = usePlatformOptions();
 const countryOptions = computed(
@@ -223,14 +195,6 @@ const DATES = ['target_launch_on', 'launched_on', 'last_checked_on'] as const;
       :class="{ card: !id }"
    >
       <template v-if="!id">
-         <FormField fluid :label="$t('ops.market.fields.customer')" :readonly v-slot="slotProps">
-            <SelectCustomer
-               v-bind="slotProps"
-               v-model="customerId"
-               hide-closed
-               @update:model-value="onCustomerPick"
-            />
-         </FormField>
          <FormField
             fluid
             :label="$t('ops.market.fields.product')"
@@ -238,7 +202,7 @@ const DATES = ['target_launch_on', 'launched_on', 'last_checked_on'] as const;
             :readonly
             v-slot="slotProps"
          >
-            <ProductSelect v-bind="slotProps" v-model="values.product_id" :customerId />
+            <ProductSelect v-bind="slotProps" v-model="values.product_id" />
          </FormField>
          <FormField
             fluid
@@ -286,11 +250,7 @@ const DATES = ['target_launch_on', 'launched_on', 'last_checked_on'] as const;
          :readonly
          v-slot="slotProps"
       >
-         <ProjectSelect
-            v-bind="slotProps"
-            v-model="values.project_id"
-            :customerId="cell?.customer_id ?? customerId"
-         />
+         <ProjectSelect v-bind="slotProps" v-model="values.project_id" />
       </FormField>
 
       <template v-if="cell">

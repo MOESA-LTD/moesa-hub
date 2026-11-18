@@ -10,7 +10,6 @@ import {
    toPurchaseOrderFormValues,
    toPurchaseOrderPaymentFormValues
 } from '@/api/purchaseOrder';
-import { customerContactSchema } from '@/api/customer';
 import { supplierContactSchema } from '@/api/supplier';
 import { incidentLogSchema, toIncidentLogFormValues } from '@/api/incident';
 
@@ -111,7 +110,7 @@ describe('masked fields in forms', () => {
    it('accepts an order whose supplier and terms are masked', () => {
       masking('purchase_order', 'supplier_id', 'incoterm', 'deposit_rate', 'pi_extra_amount');
       const order = {
-         ...toPurchaseOrderFormValues({ customer_id: P, currency: 'EUR' }),
+         ...toPurchaseOrderFormValues({ currency: 'EUR' }),
          pi_extra_amount: null
       };
       expect(purchaseOrderSchema.safeParse(order).success).toBe(true);
@@ -124,10 +123,6 @@ describe('masked fields in forms', () => {
    });
 
    it('accepts contacts and a log entry whose personal or internal fields are masked', () => {
-      masking('customer_contact', 'name');
-      expect(
-         customerContactSchema.safeParse({ customer_id: P, name: null, can_approve: false }).success
-      ).toBe(true);
       masking('supplier_contact', 'name');
       expect(
          supplierContactSchema.safeParse({ supplier_id: P, name: null, is_primary: false }).success

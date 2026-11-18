@@ -7,14 +7,13 @@ import { injectProductForm } from '../useProductForm';
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('product');
 
-// Identity, supplier and compliance of the product, in the card's shared form.
+// Identity and compliance of the product, in the card's shared form.
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } =
    injectProductForm();
 
 const id = computed(() => values.value.id);
 
 const IDENTITY = ['variant_label', 'category', 'brand', 'gs1_prefix_owner'] as const;
-const SUPPLIER = ['supplier_product_code', 'manufacturer_art_no'] as const;
 const COMPLIANCE = ['hs_code', 'eu_responsible_person', 'golden_sample_locations'] as const;
 </script>
 
@@ -29,22 +28,7 @@ const COMPLIANCE = ['hs_code', 'eu_responsible_person', 'golden_sample_locations
       :draft
    >
       <FormBox :legend="$t('ops.product.sections.identity')" class="!flex-auto">
-         <!-- The SKU is unique within its customer, and the parent and documents belong to it. -->
-         <FormField
-            fluid
-            :label="$t('ops.product.fields.customer_id')"
-            :error="errors.customer_id"
-            :readonly="readonly || !!id"
-            v-slot="slotProps"
-         >
-            <!-- The parent is one of the customer's products. -->
-            <SelectCustomer
-               v-bind="slotProps"
-               v-model="values.customer_id"
-               :disabled="!!id"
-               @change="values.parent_id = null"
-            />
-         </FormField>
+         <!-- The SKU is unique within its tenant; the parent is one of the tenant's products. -->
          <FormField
             fluid
             :label="$t('ops.product.fields.sku')"
@@ -101,40 +85,10 @@ const COMPLIANCE = ['hs_code', 'eu_responsible_person', 'golden_sample_locations
             :readonly
             v-slot="slotProps"
          >
-            <ParentSelect
-               v-bind="slotProps"
-               v-model="values.parent_id"
-               :customerId="values.customer_id"
-               :productId="id"
-            />
+            <ParentSelect v-bind="slotProps" v-model="values.parent_id" :productId="id" />
          </FormField>
          <FormField
             v-for="field in IDENTITY"
-            :field="field"
-            :key="field"
-            fluid
-            :label="$t(`ops.product.fields.${field}`)"
-            :error="errors[field]"
-            :readonly
-            v-slot="slotProps"
-         >
-            <InputText v-bind="slotProps" v-model="values[field]" />
-         </FormField>
-      </FormBox>
-
-      <FormBox :legend="$t('ops.product.sections.supplier')" class="!flex-auto">
-         <FormField
-            field="supplier_id"
-            fluid
-            :label="$t('ops.product.fields.supplier_id')"
-            :error="errors.supplier_id"
-            :readonly
-            v-slot="slotProps"
-         >
-            <SelectSupplier v-bind="slotProps" v-model="values.supplier_id" />
-         </FormField>
-         <FormField
-            v-for="field in SUPPLIER"
             :field="field"
             :key="field"
             fluid

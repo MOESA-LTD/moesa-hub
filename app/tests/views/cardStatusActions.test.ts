@@ -103,7 +103,6 @@ const shipment = {
    id: 's1',
    code: 'SHP-THO-2026-001',
    status: 'booked',
-   customer: { code: 'THO' },
    shipment_purchase_order: [],
    shipment_line: []
 } as unknown as ShipmentRow;

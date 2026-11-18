@@ -56,7 +56,7 @@ describe('field rights', () => {
             [
                {
                   resource_name: 'public.product',
-                  field: 'purchase_price',
+                  field: 'notes',
                   can_read: false,
                   can_write: false
                }
@@ -66,19 +66,19 @@ describe('field rights', () => {
 
    it('drops fields the user may not write', async () => {
       restrict('update');
-      await saveRow('product', { id: 'p1', display_name: 'A', purchase_price: null });
+      await saveRow('product', { id: 'p1', display_name: 'A', notes: null });
       expect(calls[0]).toEqual({ method: 'update', args: [{ display_name: 'A' }] });
    });
 
    it('drops them from a new row too', async () => {
       restrict('insert');
-      await saveRow('product', { display_name: 'A', purchase_price: 3 });
+      await saveRow('product', { display_name: 'A', notes: 'x' });
       expect(calls[0]).toEqual({ method: 'insert', args: [{ display_name: 'A' }] });
    });
 
    it('drops them from a patch', async () => {
       restrict('update');
-      await updateRow('product', 'p1', { display_name: 'A', purchase_price: 3 });
+      await updateRow('product', 'p1', { display_name: 'A', notes: 'x' });
       expect(calls[0]).toEqual({ method: 'update', args: [{ display_name: 'A' }] });
    });
 });

@@ -6,16 +6,14 @@ import {
    type ProductRow
 } from '@/api/product';
 import { useUpsertForm } from '@/composables/useUpsertForm';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { inject, type InjectionKey } from 'vue';
 
-export type ProductFormTab = 'general' | 'dimensions' | 'cost';
+export type ProductFormTab = 'general' | 'dimensions';
 
 /** The product card's tabs: the form's, then the documents, the media and the Amazon content. */
 export const PRODUCT_CARD_TABS = [
    'general',
    'dimensions',
-   'cost',
    'orders',
    'documents',
    'media',
@@ -38,36 +36,23 @@ const DIMENSION_FIELDS = new Set([
    'lot_rule'
 ]);
 
-const COST_FIELDS = new Set([
-   'purchase_price',
-   'purchase_currency',
-   'purchase_incoterm',
-   'landed_cost_eur',
-   'landed_cost_on',
-   'target_price_eur',
-   'company_price_eur',
-   'price_list_version'
-]);
-
 /** The card tab that shows a field (a top-level column name). */
 export const tabForField = (field: string): ProductFormTab =>
-   DIMENSION_FIELDS.has(field) ? 'dimensions' : COST_FIELDS.has(field) ? 'cost' : 'general';
+   DIMENSION_FIELDS.has(field) ? 'dimensions' : 'general';
 
 /**
- * The product card's one form: the general, dimensions and cost tabs each show their part of it.
- * A new product starts with the customer the lists are filtered by. Once a new product is saved,
- * its "new" draft is dropped: the card goes on under the product's id (see ProductCard).
+ * The product card's one form: the general and dimensions tabs each show their part of it. Once a
+ * new product is saved, its "new" draft is dropped: the card goes on under the product's id (see
+ * ProductCard).
  */
 export function useProductForm(
    id: () => string | null | undefined,
    onSaved?: (product: ProductRow) => void
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const form = useUpsertForm({
       id,
-      prefill: () => ({ customer_id: customerFilter.customerId ?? undefined }),
       useRow: productResource.useOne,
       useSaveRow: productResource.useSave,
       subject: 'product',

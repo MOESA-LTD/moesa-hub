@@ -19,7 +19,6 @@ const formValues = (overrides: object = {}) => ({
    ...toDocumentFormValues({
       entity_type: 'product',
       entity_id: 'p1',
-      customer_id: 'c1',
       type: 'spec_sheet',
       version: 3,
       status: 'draft'
@@ -31,6 +30,11 @@ const formValues = (overrides: object = {}) => ({
 describe('DOCUMENT_ENTITIES', () => {
    it('names every record a document may belong to, market cells and change requests included', () => {
       expect(DOCUMENT_ENTITIES).toEqual(expect.arrayContaining(['market_cell', 'change_request']));
+      // A relationship's contract and a sourcing row's documents (the customer is gone).
+      expect(DOCUMENT_ENTITIES).toEqual(
+         expect.arrayContaining(['provider_relationship', 'sourcing'])
+      );
+      expect(DOCUMENT_ENTITIES).not.toContain('customer');
       for (const entity of DOCUMENT_ENTITIES)
          expect(i18n.t(`ops.document.entity.${entity}`)).not.toBe(`ops.document.entity.${entity}`);
    });
@@ -193,7 +197,6 @@ describe('document mappers', () => {
       expect(toDocumentFormValues({ entity_type: 'supplier', entity_id: 's1' })).toMatchObject({
          entity_type: 'supplier',
          entity_id: 's1',
-         customer_id: null,
          type: null,
          version: 1,
          status: 'draft',
@@ -207,7 +210,6 @@ describe('document mappers', () => {
       expect(toDocumentPayload(data, 'THO-MOP40-2P')).toMatchObject({
          entity_type: 'product',
          entity_id: 'p1',
-         customer_id: 'c1',
          file_name: 'THO-MOP40-2P_SPEC_v03_20261102_taslak'
       });
    });
@@ -233,7 +235,7 @@ describe('document mappers', () => {
 });
 
 describe('withRouteContext', () => {
-   const context = { entity_type: 'supplier' as const, entity_id: 's2', customer_id: 'c2' };
+   const context = { entity_type: 'supplier' as const, entity_id: 's2' };
 
    it('files a new document under the record its dialog was opened from', () => {
       // E.g. a draft restored from adding to another record.
@@ -245,30 +247,19 @@ describe('withRouteContext', () => {
       });
    });
 
-   it("drops a restored draft's customer for a record without one (a supplier)", () => {
-      // The document's customer decides which customer's files it may cite (document_check_media).
-      const data = documentSchema.parse(formValues());
-      expect(
-         withRouteContext(data, { entity_type: 'supplier', entity_id: 's2', customer_id: null })
-      ).toMatchObject({ entity_type: 'supplier', entity_id: 's2', customer_id: null });
-      expect(
-         withRouteContext(data, { entity_type: 'supplier', entity_id: 's2' }).customer_id
-      ).toBeNull();
-   });
-
    it('keeps the form values where the route gives no context', () => {
       const data = documentSchema.parse(formValues());
-      expect(
-         withRouteContext(data, { entity_type: null, entity_id: null, customer_id: null })
-      ).toMatchObject({ entity_type: 'product', entity_id: 'p1', customer_id: 'c1' });
+      expect(withRouteContext(data, { entity_type: null, entity_id: null })).toMatchObject({
+         entity_type: 'product',
+         entity_id: 'p1'
+      });
    });
 
    it('leaves a saved document where it is', () => {
       const data = documentSchema.parse(formValues({ id: 'd1' }));
       expect(withRouteContext(data, context)).toMatchObject({
          entity_type: 'product',
-         entity_id: 'p1',
-         customer_id: 'c1'
+         entity_id: 'p1'
       });
    });
 });

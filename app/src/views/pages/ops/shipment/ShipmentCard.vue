@@ -26,7 +26,7 @@ import {
    type ShipmentCardTab
 } from './useShipmentForm';
 
-// The shipment card: a header (code, customer, status, the status actions) and the tabs around its
+// The shipment card: a header (code, status, the status actions) and the tabs around its
 // one form, which the general, dates and acceptance tabs share. The other tabs belong to a saved
 // shipment. Manage re-creates the card when a new shipment is saved, so the form goes on under its
 // id.
@@ -87,11 +87,7 @@ const statusWarnings = computed(() =>
 
 const changeStatus = (status: string) =>
    setStatus({ id: shipment.value!.id, status: status as ShipmentStatus });
-const title = computed(() =>
-   shipment.value
-      ? [shipment.value.code, shipment.value.customer?.code].filter(Boolean).join(' — ')
-      : null
-);
+const title = computed(() => (shipment.value ? (shipment.value.code ?? null) : null));
 </script>
 
 <template>

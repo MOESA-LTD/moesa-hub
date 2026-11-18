@@ -16,7 +16,7 @@ import ProductSelect from './ProductSelect.vue';
 provideFieldAccess('purchase_order_line');
 
 // Opened as a dialog from an order's lines: a new line belongs to the route's order and goes last.
-// The product is one of the order's customer's, and its spec sheet one of its signed or approved
+// The product is one of the order's tenant's, and its spec sheet one of its signed or approved
 // versions, the newest preselected.
 const props = defineProps<{
    id?: string | null;
@@ -41,14 +41,14 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
          )
    });
 
-// The order: its customer's products, its currency and its lines (the card's cached query).
+// The order: its currency and its lines (the card's cached query).
 const orderId = computed(() => props.purchaseOrderId ?? row.value?.purchase_order_id ?? null);
 const { data: order, suspense } = purchaseOrderResource.useOne(orderId);
 
 await ready;
 
 // Every add dialog shares one draft. A draft restored from another order keeps nothing of that
-// order's customer (product, its spec sheet, its price); the line goes to the route's order.
+// order (product, its spec sheet, its price); the line goes to the route's order.
 if (!props.id && props.purchaseOrderId) {
    if (values.value.purchase_order_id && values.value.purchase_order_id !== props.purchaseOrderId) {
       values.value.product_id = null;
@@ -111,12 +111,7 @@ watch(
             :readonly
             v-slot="slotProps"
          >
-            <ProductSelect
-               v-bind="slotProps"
-               v-model="values.product_id"
-               :customerId="order?.customer_id"
-               @pick="onProductPicked"
-            />
+            <ProductSelect v-bind="slotProps" v-model="values.product_id" @pick="onProductPicked" />
          </FormField>
          <FormField
             fluid

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { provideFieldAccess } from '@/composables/useFieldAccess';
-import { PACKAGES } from '@/api/customer';
 import {
+   PACKAGES,
    PROJECT_PATHS,
    PROJECT_STATUSES,
    PROJECT_TYPES,
@@ -15,18 +15,16 @@ import {
 import { useDialogRef } from '@/composables/useDialogRef';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('project');
 
 // A project's own fields: opened alone to create one, and in the card's overview to edit it. The
-// customer, type, path and packages decide the gates, so they are fixed once saved.
+// type, path and packages decide the gates, so they are fixed once saved.
 const props = defineProps<{ id?: string | null }>();
 
 const router = useRouter();
 const dialogRef = useDialogRef();
-const customerFilter = useCustomerFilter();
 const members = useMemberOptions();
 
 /** A new project opens in its card: this dialog closes and the card's opens. */
@@ -40,7 +38,6 @@ const openCard = (project: ProjectCard) => {
 const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, draft } =
    useUpsertForm({
       id: () => props.id,
-      prefill: () => ({ customer_id: customerFilter.customerId ?? undefined }),
       useRow: projectResource.useOne,
       useSaveRow: projectResource.useSave,
       subject: 'project',
@@ -68,20 +65,6 @@ const DATES = ['target_delivery_on', 'target_live_on'] as const;
       :class="{ card: !id }"
    >
       <FormBox :legend="$t('ops.project.sections.general')" class="!flex-auto">
-         <FormField
-            fluid
-            :label="$t('ops.project.fields.customer_id')"
-            :error="errors.customer_id"
-            :readonly="readonly || !!id"
-            v-slot="slotProps"
-         >
-            <SelectCustomer
-               v-bind="slotProps"
-               v-model="values.customer_id"
-               :disabled="!!id"
-               hide-closed
-            />
-         </FormField>
          <FormField
             fluid
             :label="$t('ops.project.fields.display_name')"

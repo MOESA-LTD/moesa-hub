@@ -117,8 +117,11 @@ export const DEFERRED_COLUMNS: readonly string[] = [
    'son_cr'
 ];
 
-/** Columns read and dropped without a warning: the database checks the GTIN itself. */
-const IGNORED_COLUMNS: readonly string[] = ['gtin_kontrol'];
+/**
+ * Columns read and dropped without a warning: the database checks the GTIN itself, and a product
+ * belongs to the tenant it is imported into (the file's company code is not needed).
+ */
+const IGNORED_COLUMNS: readonly string[] = ['gtin_kontrol', 'musteri_kodu'];
 
 // Cells
 
@@ -130,7 +133,6 @@ export type ImportErrorCode =
    | 'required'
    | 'invalid_value'
    | 'gtin_invalid'
-   | 'customer_unknown'
    | 'supplier_unknown'
    | 'parent_unknown'
    | 'gtin_in_use'
@@ -312,7 +314,6 @@ const APPROXIMATED: Partial<Record<ImportField, Record<string, ImportWarningCode
 
 /** One row of the import, under the product's own column names (see public.import_products). */
 export const productImportRowSchema = z.object({
-   customer_code: requiredCell(matching(/^[A-Z]{3}$/, upper)),
    sku: requiredCell(matching(PRODUCT_SKU, upper)),
    display_name: requiredCell((value) => value),
    parent_sku: cell(matching(PRODUCT_SKU, upper)),
@@ -351,7 +352,7 @@ export const productImportRowSchema = z.object({
    landed_cost_eur: decimal(),
    landed_cost_on: date(),
    target_price_eur: decimal(),
-   company_price_eur: decimal(),
+   sell_price_eur: decimal(),
    price_list_version: text(),
    status: list(STATUS),
    notes: text()
@@ -369,7 +370,6 @@ export const S10_TO_PRODUCT: Record<string, ImportField> = {
    urun_adi: 'display_name',
    varyant: 'variant_label',
    kategori: 'category',
-   musteri_kodu: 'customer_code',
    marka: 'brand',
    art_no: 'manufacturer_art_no',
    tedarikci_kodu: 'supplier_code',
@@ -399,7 +399,7 @@ export const S10_TO_PRODUCT: Record<string, ImportField> = {
    landed_cost_eur: 'landed_cost_eur',
    landed_cost_tarihi: 'landed_cost_on',
    satis_fiyati_hedef_eur: 'target_price_eur',
-   moesa_fiyat_eur: 'company_price_eur',
+   moesa_fiyat_eur: 'sell_price_eur',
    fiyat_listesi_surumu: 'price_list_version',
    durum: 'status',
    not: 'notes'
@@ -412,10 +412,7 @@ export const S10_TO_PRODUCT: Record<string, ImportField> = {
 export const S10_FIELD_OF: Record<(typeof S10_COLUMNS)[number], string | null> = Object.fromEntries(
    S10_COLUMNS.map((column) => {
       const field = S10_TO_PRODUCT[column] as string | undefined;
-      const named =
-         { customer_code: 'customer_id', supplier_code: 'supplier_id', parent_sku: 'parent_id' }[
-            field ?? ''
-         ] ?? field;
+      const named = { supplier_code: 'supplier_id', parent_sku: 'parent_id' }[field ?? ''] ?? field;
       return [column, named ?? null];
    })
 ) as Record<(typeof S10_COLUMNS)[number], string | null>;
@@ -494,7 +491,8 @@ export function mapS10Rows(
    const mapped: ProductImportRow[] = [];
    const errors: ImportError[] = [];
 
-   // A column the user may not write must stay empty; the server refuses it as well (row 0 = the header).
+   // A column the user may not write must stay empty; the server refuses it as well (row 0 = the
+   // header).
    columns.forEach((column, index) => {
       const field = S10_FIELD_OF[column as (typeof S10_COLUMNS)[number]];
       if (field && !canWrite(field) && rows.some((row) => row[index]?.trim())) {
@@ -545,7 +543,6 @@ export function mapS10Rows(
 
 /** A product with the codes the export writes in place of its ids. */
 export type ProductExportRow = ProductRow & {
-   customer?: { code: string } | null;
    supplier?: { code: string } | null;
 };
 
@@ -556,9 +553,9 @@ const formatCell = (value: unknown) => {
 };
 
 /**
- * The products as an S10 file: the template's columns in order, the customer and supplier as their
- * codes and the parent as its SKU (among the products given). Deferred columns stay empty; the
- * columns of fields the user may not read are left out.
+ * The products as an S10 file: the template's columns in order, the supplier as its code and the
+ * parent as its SKU (among the products given). Deferred columns stay empty; the columns of fields
+ * the user may not read are left out.
  */
 export function toS10Csv(
    products: readonly ProductExportRow[],
@@ -570,8 +567,6 @@ export function toS10Csv(
       switch (S10_TO_PRODUCT[column]) {
          case undefined:
             return null;
-         case 'customer_code':
-            return product.customer?.code;
          case 'supplier_code':
             return product.supplier?.code;
          case 'parent_sku':

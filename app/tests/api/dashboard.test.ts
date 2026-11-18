@@ -73,34 +73,27 @@ describe('groupShipments', () => {
 });
 
 describe('marketSummary', () => {
-   it('sums the live cells and keeps the customers with a target', () => {
+   it('sums the live cells and keeps the tenants with a target', () => {
       const { live, items } = marketSummary([
-         { customer_code: 'THO', live_count: 1, target_count: 3 },
-         { customer_code: 'ZZZ', live_count: 4, target_count: 4 },
-         { customer_code: 'NIL', live_count: 0, target_count: 0 }
+         { tenant_id: 'THO', live_count: 1, target_count: 3 },
+         { tenant_id: 'ZZZ', live_count: 4, target_count: 4 },
+         { tenant_id: 'NIL', live_count: 0, target_count: 0 }
       ] as DashboardMarketRow[]);
       expect(live).toBe(5);
-      expect(items.map((row) => row.customer_code)).toEqual(['ZZZ', 'THO']);
+      expect(items.map((row) => row.tenant_id)).toEqual(['ZZZ', 'THO']);
    });
 });
 
 describe('evidenceTarget', () => {
-   it("opens the product list narrowed to the row's customer", () => {
-      expect(evidenceTarget({ customer_id: 'c1' })).toEqual({
-         customerId: 'c1',
-         route: { name: 'ops-product-list' }
-      });
+   it('opens the product list', () => {
+      expect(evidenceTarget()).toEqual({ name: 'ops-product-list' });
    });
 
    it('opens the unsigned SKU card on the products without a signed spec sheet', () => {
-      expect(evidenceTarget({ customer_id: 'c1' }, 'unsigned_spec')).toEqual({
-         customerId: 'c1',
-         route: { name: 'ops-product-list', query: { spec: 'false' } }
+      expect(evidenceTarget('unsigned_spec')).toEqual({
+         name: 'ops-product-list',
+         query: { spec: 'false' }
       });
-   });
-
-   it('clears the customer filter for a row without a customer', () => {
-      expect(evidenceTarget({ customer_id: null }).customerId).toBeNull();
    });
 });
 

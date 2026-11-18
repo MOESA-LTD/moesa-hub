@@ -7,13 +7,11 @@ import { injectShipmentForm } from '../useShipmentForm';
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('shipment');
 
-// The shipment's customer, warehouse, mode, parties, terms, transport and packed quantities, in
-// the card's shared form. The customer is chosen on a new shipment only; the warehouse is one of
-// the customer's, with its S14 receiving rules (dock hours, appointment) shown under it.
+// The shipment's warehouse, mode, parties, terms, transport and packed quantities, in the card's
+// shared form. The warehouse is one of the shipment's tenant, with its S14 receiving rules (dock
+// hours, appointment) shown under it.
 const form = injectShipmentForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, warehouses } = form;
-
-const id = computed(() => values.value.id ?? null);
 
 const warehouseOptions = computed(() =>
    warehouses.value.map((warehouse) => ({
@@ -29,7 +27,7 @@ const warehouse = computed(() => {
    const listed = warehouses.value.find((option) => option.id === chosen);
    if (listed) return listed;
    return form.row.value?.delivery_warehouse_id === chosen
-      ? (form.row.value.customer_warehouse ?? null)
+      ? (form.row.value.warehouse ?? null)
       : null;
 });
 
@@ -59,21 +57,6 @@ const PACKED_AMOUNTS = [
    >
       <FormField
          fluid
-         :label="$t('ops.shipment.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <!-- The warehouse and the orders are the customer's. -->
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="values.customer_id"
-            :disabled="!!id"
-            hideClosed
-         />
-      </FormField>
-      <FormField
-         fluid
          :label="$t('ops.shipment.fields.delivery_warehouse')"
          :error="errors.delivery_warehouse_id"
          :readonly
@@ -86,15 +69,14 @@ const PACKED_AMOUNTS = [
             option-value="value"
             option-label="label"
             data-field="delivery_warehouse_id"
-            :disabled="!values.customer_id"
          />
          <dl v-if="warehouse" class="m-0 mt-2 grid grid-cols-[auto_1fr] gap-x-2 text-sm">
-            <dt class="text-muted-color">{{ $t('ops.customer.warehouse.fields.dock_hours') }}</dt>
+            <dt class="text-muted-color">{{ $t('ops.shipment.fields.dock_hours') }}</dt>
             <dd class="m-0 whitespace-pre-line" data-test="dock-hours">
                {{ warehouse.dock_hours || '—' }}
             </dd>
             <dt class="text-muted-color">
-               {{ $t('ops.customer.warehouse.fields.appointment_rule') }}
+               {{ $t('ops.shipment.fields.appointment_rule') }}
             </dt>
             <dd class="m-0 whitespace-pre-line" data-test="appointment-rule">
                {{ warehouse.appointment_rule || '—' }}

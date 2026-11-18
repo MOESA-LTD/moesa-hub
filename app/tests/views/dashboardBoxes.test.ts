@@ -26,7 +26,6 @@ const gate = (project_code: string, needs_management: boolean, needs_customer_ap
    ({
       project_code,
       gate_code: 'G2',
-      customer_code: 'THO',
       waiting_days: 4,
       project_id: 'p',
       needs_management,
@@ -40,10 +39,9 @@ const task = (project_code: string, days_left: number) =>
       overdue: days_left < 0,
       project_id: 'p'
    }) as DashboardTaskRow;
-const evidence = (customer_id: string, unsigned_sku_count: number) =>
+const evidence = (tenant_id: string, unsigned_sku_count: number) =>
    ({
-      customer_id,
-      customer_code: customer_id.toUpperCase(),
+      tenant_id,
       unsigned_sku_count,
       active_sku_count: 0,
       compliance_complete_count: 0
@@ -58,7 +56,7 @@ it('picks the management gates and counts them all', () => {
    expect(v.count).toBe(2);
    expect(v.rows.map((r) => r.code)).toEqual(['A', 'C']);
    expect(v.rows[0]).toMatchObject({
-      context: `${i18n.t('ops.project.gate.G2')} · THO`,
+      context: i18n.t('ops.project.gate.G2'),
       tag: i18n.t('dashboard.ops.waiting_days', { days: 4 })
    });
 });
@@ -71,9 +69,8 @@ it('marks overdue tasks urgent with their days late', () => {
    });
    expect(tasksView([task('A', -3), task('B', 2)], 'tasks_due_soon').rows[0].urgent).toBeFalsy();
 });
-it('sums the SKUs per customer, most first, and sets the customer filter before opening the list', () => {
-   const setCustomer = vi.fn();
-   const v = evidenceView(setCustomer)(
+it('sums the SKUs per tenant, most first, and opens the list', () => {
+   const v = evidenceView((id) => (id ?? '').toUpperCase())(
       [evidence('a', 1), evidence('b', 0), evidence('c', 5)],
       'unsigned_skus'
    );
@@ -82,13 +79,12 @@ it('sums the SKUs per customer, most first, and sets the customer filter before 
       ['C', '5'],
       ['A', '1']
    ]);
-   expect(v.rows[0].to).toEqual(evidenceTarget({ customer_id: 'c' }, 'unsigned_spec').route);
-   v.rows[0].onSelect!();
-   expect(setCustomer).toHaveBeenCalledWith('c');
+   expect(v.rows[0].to).toEqual(evidenceTarget('unsigned_spec'));
+   expect(v.rows[0].onSelect).toBeUndefined();
 });
 it('counts live market cells and is empty without targets', () => {
    const v = marketView(vi.fn())([
-      { customer_id: 'a', live_count: 3, target_count: 0 } as DashboardMarketRow
+      { tenant_id: 'a', live_count: 3, target_count: 0 } as DashboardMarketRow
    ]);
    expect(v).toMatchObject({ count: 3, empty: true, rows: [] });
 });

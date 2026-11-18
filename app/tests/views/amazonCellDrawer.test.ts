@@ -142,7 +142,7 @@ const NOW = new Date().toISOString();
 
 const CELL = {
    id: 'c1',
-   customer_id: 'k1',
+   tenant_id: 'k1',
    product_id: 'p1',
    platform_id: 'amazon',
    country: 'DE',
@@ -162,7 +162,6 @@ const CELL = {
 
 const PRODUCT = {
    id: 'p1',
-   customer_id: 'k1',
    tenant_id: 't1',
    gtin: '4260696025909',
    amazon_product_type: 'LUGGAGE',
@@ -172,7 +171,7 @@ const PRODUCT = {
 
 const ACCOUNT = {
    id: 'a1',
-   customer_id: 'k1',
+   tenant_id: 'k1',
    platform_id: 'amazon',
    api_connection: 'connected',
    authorized_at: NOW,
@@ -230,9 +229,6 @@ type Wrapper = Awaited<ReturnType<typeof mountDrawer>>;
 const action = (wrapper: Wrapper, name: string) => wrapper.find(`[data-action="${name}"]`);
 const isDisabled = (wrapper: Wrapper, name: string) =>
    action(wrapper, name).attributes('disabled') !== undefined;
-const links = (wrapper: Wrapper) =>
-   wrapper.findAllComponents(RouterLinkStub).map((link) => link.props('to'));
-
 enableAutoUnmount(afterEach);
 beforeAll(() => i18n.setLocaleMessage('en', en));
 beforeEach(() => {
@@ -382,10 +378,6 @@ describe('CellAmazonDrawer', () => {
       expect(wrapper.get('[data-blocked]').text()).toBe(
          en.ops.amazon.cell.publish_blocked.not_connected
       );
-      expect(links(wrapper)).toContainEqual({
-         name: 'ops-customer-manage-platforms',
-         params: { id: 'k1' }
-      });
 
       // Connected, but not checked ready yet.
       cellRef.value = { ...CELL, listing_state: 'draft' };
@@ -896,7 +888,7 @@ describe('CellAmazonDrawer content tab', () => {
          productType: 'LUGGAGE',
          country: 'DE',
          locale: 'en_GB',
-         customerId: 'k1'
+         tenantId: 't1'
       });
       expect(content(wrapper).getComponent(AutoComplete).props('modelValue')).toBe('LUGGAGE');
       expect(content(wrapper).get('[data-content-notice]').text()).toBe(

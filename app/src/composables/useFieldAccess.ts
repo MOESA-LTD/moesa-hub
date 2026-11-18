@@ -72,7 +72,7 @@ export const readableColumns = <C extends { field?: unknown }>(table: string, co
  * user.email is left out: users are invited through the user Edge Function, not saveRow.
  */
 export const REQUIRED_MASKED_FIELDS: Readonly<Record<string, readonly string[]>> = {
-   customer_contact: ['name'],
+   contact: ['name'],
    incident_log: ['note'],
    purchase_order: ['supplier_id'],
    purchase_order_line: ['unit_price'],

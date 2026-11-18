@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ChangeRequestTable from '@/components/service-components/change-request-table/ChangeRequestTable.vue';
 
-// Every change request of the customer the lists are filtered by (every customer's when none is).
+// Every change request of the tenants in scope.
 // A new request is added from the menu's context menu.
 </script>
 

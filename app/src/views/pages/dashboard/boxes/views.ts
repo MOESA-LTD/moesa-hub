@@ -22,8 +22,8 @@ import dayjs from 'dayjs';
 /** What a box shows: its badge count, its rows and, when the count is not the test, its emptiness. */
 export type BoxView = { count: number; rows: DashboardRow[]; empty?: boolean };
 
-/** Sets the global customer filter (see useCustomerFilter), which the target list pages read. */
-export type SetCustomer = (id: string | null) => void;
+/** The name of one of the user's tenants (a per-tenant row is labelled with it). */
+export type TenantName = (id: string | null) => string;
 
 /** A box over a group's rows: the count is their number. */
 const listView = <Row>(rows: readonly Row[], toRow: (row: Row) => DashboardRow): BoxView => ({
@@ -71,7 +71,7 @@ const GATE_GROUPS = {
 
 const gateRow = (row: DashboardGateRow): DashboardRow => ({
    code: row.project_code ?? '',
-   context: joined(i18n.t(`ops.project.gate.${row.gate_code}`), row.customer_code),
+   context: i18n.t(`ops.project.gate.${row.gate_code}`),
    tag: i18n.t('dashboard.ops.waiting_days', { days: row.waiting_days ?? 0 }),
    to: projectTab(row.project_id, 'overview')
 });
@@ -105,7 +105,7 @@ export const tasksView = (rows: readonly DashboardTaskRow[], id: DashboardBoxId)
 
 type EvidenceCard = {
    skuCountOf: (row: DashboardEvidenceRow) => number;
-   card: Parameters<typeof evidenceTarget>[1];
+   card: Parameters<typeof evidenceTarget>[0];
 };
 
 const EVIDENCE_CARDS: Partial<Record<DashboardBoxId, EvidenceCard>> = {
@@ -117,12 +117,11 @@ const EVIDENCE_CARDS: Partial<Record<DashboardBoxId, EvidenceCard>> = {
 };
 
 /**
- * Per customer, how many SKUs the box counts, most first, as rows opening the product list
- * narrowed to that customer (through the global customer filter) and to what the box counts (see
- * evidenceTarget). The count is the SKUs' sum.
+ * Per tenant, how many SKUs the box counts, most first, as rows opening the product list narrowed
+ * to what the box counts (see evidenceTarget). The count is the SKUs' sum.
  */
 export const evidenceView =
-   (setCustomer: SetCustomer) =>
+   (tenantName: TenantName) =>
    (rows: readonly DashboardEvidenceRow[], id: DashboardBoxId): BoxView => {
       const evidence = EVIDENCE_CARDS[id];
       if (!evidence) return { count: 0, rows: [] };
@@ -133,12 +132,10 @@ export const evidenceView =
       return {
          count: _sumBy(counted, 'n'),
          rows: counted.map(({ row, n }): DashboardRow => {
-            const { customerId, route } = evidenceTarget(row, evidence.card);
             return {
-               code: row.customer_code ?? '',
+               code: tenantName(row.tenant_id),
                tag: String(n),
-               to: route,
-               onSelect: () => setCustomer(customerId)
+               to: evidenceTarget(evidence.card)
             };
          })
       };
@@ -166,7 +163,7 @@ export const ordersView = (
 ): BoxView =>
    listView(pick(groupPurchaseOrders(rows), ORDER_GROUPS, id), (row) => ({
       code: row.code ?? '',
-      context: joined(row.supplier_code, row.customer_code),
+      context: joined(row.supplier_code, row.client_code),
       tag: orderTag(row, id),
       to: manage('ops-purchase-order-manage', row.purchase_order_id)
    }));
@@ -187,7 +184,7 @@ export const shipmentsView = (
    const late = id === 'shipments_late';
    return listView(pick(groupShipments(rows), SHIPMENT_GROUPS, id), (row) => ({
       code: row.code ?? '',
-      context: joined(row.customer_code),
+      context: joined(row.client_code),
       tag: shipmentTag(row, late),
       urgent: late,
       to: manage('ops-shipment-manage', row.shipment_id)
@@ -203,7 +200,7 @@ export const shipmentsView = (
 export const incidentsView = (rows: readonly DashboardIncidentRow[]): BoxView =>
    listView(rows, (row) => ({
       code: row.code ?? '',
-      context: joined(row.title, row.customer_code),
+      context: row.title ?? '',
       tag: joined(
          row.severity && i18n.t(`ops.incident.severity.${row.severity}`),
          row.management_notice_missing
@@ -219,7 +216,7 @@ export const incidentsView = (rows: readonly DashboardIncidentRow[]): BoxView =>
 export const changeRequestsView = (rows: readonly DashboardChangeRequestRow[]): BoxView =>
    listView(rows, (row) => ({
       code: row.code ?? '',
-      context: joined(row.title, row.customer_code),
+      context: row.title ?? '',
       tag: joined(
          row.status && i18n.t(`ops.change_request.status.${row.status}`),
          row.decision_due_on &&
@@ -229,25 +226,24 @@ export const changeRequestsView = (rows: readonly DashboardChangeRequestRow[]): 
    }));
 
 /**
- * The live market cells of every customer, and the customers with a target as rows opening the
- * matrix narrowed to that customer (the customer filter). Empty when no customer has a target.
+ * The live market cells of every tenant, and the tenants with a target as rows opening the matrix.
+ * Empty when no tenant has a target.
  */
 export const marketView =
-   (setCustomer: SetCustomer) =>
+   (tenantName: TenantName) =>
    (rows: readonly DashboardMarketRow[]): BoxView => {
       const { live, items } = marketSummary(rows);
       return {
          count: live,
          empty: items.length === 0,
          rows: items.map((row) => ({
-            code: row.customer_code ?? '',
+            code: tenantName(row.tenant_id),
             tag: i18n.t('dashboard.ops.meta.market', {
                live: row.live_count ?? 0,
                preparing: row.preparing_count ?? 0,
                suppressed: row.suppressed_count ?? 0
             }),
-            to: { name: 'ops-market-list' },
-            onSelect: () => setCustomer(row.customer_id ?? null)
+            to: { name: 'ops-market-list' }
          }))
       };
    };

@@ -49,7 +49,6 @@ vi.mock('@/lib/supabase', () => ({
 }));
 vi.mock('@/api/useTenantKey', () => ({ useTenantKey: () => computed(() => 't1') }));
 
-const C = '00000000-0000-4000-8000-000000000001';
 const R = '00000000-0000-4000-8000-000000000002';
 const P1 = '00000000-0000-4000-8000-000000000011';
 const P2 = '00000000-0000-4000-8000-000000000012';
@@ -168,7 +167,6 @@ describe('change request status flow', () => {
 });
 
 const filled = {
-   customer_id: C,
    title: 't',
    source: 'company',
    current_value: 'a',
@@ -180,7 +178,6 @@ describe('changeRequestSchema', () => {
    it('starts a new request', () => {
       expect(toChangeRequestFormValues()).toMatchObject({
          id: undefined,
-         customer_id: null,
          project_id: null,
          source: null,
          urgency: 'normal',
@@ -218,7 +215,7 @@ describe('changeRequestSchema', () => {
 describe('toChangeRequestPayload', () => {
    const values = toChangeRequestFormValues();
 
-   it('never sends the server-set columns or the products; the customer only when new', () => {
+   it('never sends the server-set columns or the products', () => {
       const payload = toChangeRequestPayload(
          changeRequestSchema.parse({
             ...values,
@@ -229,7 +226,6 @@ describe('toChangeRequestPayload', () => {
          'r1'
       );
       for (const key of [
-         'customer_id',
          'code',
          'status',
          'decision_due_on',
@@ -244,7 +240,7 @@ describe('toChangeRequestPayload', () => {
       const insert = toChangeRequestPayload(
          changeRequestSchema.parse({ ...values, ...filled, change_kinds: ['spec'] })
       );
-      expect(insert).toMatchObject({ customer_id: C, source: 'company' });
+      expect(insert).toMatchObject({ source: 'company' });
       expect(insert).not.toHaveProperty('id');
       expect(insert).not.toHaveProperty('product_ids');
    });
@@ -279,7 +275,6 @@ describe('toChangeRequestPayload', () => {
    it('loads the products from the card', () => {
       const card = {
          id: R,
-         customer_id: C,
          title: 't',
          source: 'customer',
          urgency: 'urgent',
@@ -304,9 +299,9 @@ describe('toChangeRequestPayload', () => {
 });
 
 describe('CHANGE_REQUEST_SELECT', () => {
-   it('embeds the customer, project gates, products and documents by their foreign keys', () => {
+   it('embeds the project gates, products and documents by their foreign keys', () => {
       expect(CHANGE_REQUEST_SELECT).toBe(
-         '*, customer!change_request_customer_fkey(code, display_name), project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)'
+         '*, project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)'
       );
    });
 });

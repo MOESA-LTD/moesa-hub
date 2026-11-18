@@ -330,12 +330,12 @@ describe('edge calls', () => {
          data: { redirect: 'https://amazon.test/c' },
          error: null
       });
-      expect(await connectAmazon('a1', '/ops/customer/1')).toEqual({
+      expect(await connectAmazon('a1', '/ops/company/platforms')).toEqual({
          redirect: 'https://amazon.test/c'
       });
       expect(mock.invoke).toHaveBeenCalledWith('amazon-auth', {
          method: 'POST',
-         body: { action: 'connect', account_id: 'a1', return_to: '/ops/customer/1' },
+         body: { action: 'connect', account_id: 'a1', return_to: '/ops/company/platforms' },
          headers: HEADERS
       });
       mock.invoke.mockResolvedValueOnce({
@@ -354,16 +354,16 @@ describe('edge calls', () => {
       });
    });
 
-   it('searchProductTypes asks the schema function with the tenant header', async () => {
+   it("searchProductTypes asks the schema function with the product tenant's header", async () => {
       mock.invoke.mockResolvedValue({
          data: { productTypes: [{ name: 'LUGGAGE', displayName: 'Luggage' }] },
          error: null
       });
-      const found = await searchProductTypes({ keywords: 'bag', country: 'DE', customerId: 'cu1' });
+      const found = await searchProductTypes({ keywords: 'bag', country: 'DE', tenantId: 't2' });
       expect(found).toEqual([{ name: 'LUGGAGE', displayName: 'Luggage' }]);
       const [name, init] = mock.invoke.mock.calls[0]!;
-      expect(name).toBe('amazon-schema?action=search&keywords=bag&country=DE&customer_id=cu1');
-      expect(init).toEqual({ method: 'GET', headers: HEADERS });
+      expect(name).toBe('amazon-schema?action=search&keywords=bag&country=DE');
+      expect(init).toEqual({ method: 'GET', headers: { 'x-tenant-id': 't2' } });
    });
 
    it('throws the error code of a failed call with its details', async () => {
@@ -447,7 +447,7 @@ describe('marketplaceIdFor', () => {
 });
 
 describe('fetchDefinition', () => {
-   const args = { productType: 'LUGGAGE', country: 'DE', locale: 'de_DE', customerId: 'cu1' };
+   const args = { productType: 'LUGGAGE', country: 'DE', locale: 'de_DE', tenantId: 't1' };
    const row = {
       marketplace_id: 'A1PA6795UKMFR9',
       product_type: 'LUGGAGE',
@@ -476,7 +476,7 @@ describe('fetchDefinition', () => {
       expect(definition.product_type).toBe('LUGGAGE');
       const [name, init] = mock.invoke.mock.calls[0]!;
       expect(name).toBe(
-         'amazon-schema?action=definition&product_type=LUGGAGE&country=DE&locale=de_DE&customer_id=cu1'
+         'amazon-schema?action=definition&product_type=LUGGAGE&country=DE&locale=de_DE'
       );
       expect(init).toEqual({ method: 'GET', headers: HEADERS });
    });
@@ -556,7 +556,7 @@ describe('hooks', () => {
             productType: 'LUGGAGE',
             country: 'DE',
             locale: 'en_GB',
-            customerId: 'cu1'
+            tenantId: 't1'
          })
       );
       const [query] = queryClient.getQueryCache().getAll();

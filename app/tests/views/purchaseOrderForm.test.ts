@@ -27,7 +27,6 @@ import { defineComponent, h, ref } from 'vue';
 
 const api = vi.hoisted(() => ({
    query: {} as Record<string, string>,
-   customerId: null as string | null,
    options: undefined as
       | undefined
       | {
@@ -43,9 +42,6 @@ vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRoute: () => ({ query: api.query }),
    useRouter: () => ({ push: vi.fn() })
-}));
-vi.mock('@/store/customerFilter', () => ({
-   useCustomerFilter: () => ({ customerId: api.customerId })
 }));
 // The card's form is useUpsertForm; what usePurchaseOrderForm adds is checked against a stand-in.
 vi.mock('@/composables/useUpsertForm', () => ({
@@ -84,7 +80,6 @@ const CustomLink = defineComponent({
          h('span', { 'data-link': props.to.name }, slots.default?.({ navigate: () => {} }))
 });
 
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
 const SUPPLIER = '00000000-0000-4000-8000-000000000002';
 
 const line = (id: string, position: number): PurchaseOrderCardLine =>
@@ -104,7 +99,6 @@ const order = (status: PurchaseOrderStatus, lines: PurchaseOrderCardLine[] = [])
       code: 'PO-THO-2026-001',
       status,
       currency: 'USD',
-      customer_id: CUSTOMER,
       supplier_id: SUPPLIER,
       incoterm: 'EXW',
       deposit_rate: 30,
@@ -142,7 +136,6 @@ const mountTab = (
          stubs: {
             FormBox: Slot,
             FormField: Slot,
-            SelectCustomer: Stub('SelectCustomer'),
             SelectSupplier,
             ProjectSelect: Stub('ProjectSelect'),
             CustomLink
@@ -156,7 +149,6 @@ beforeEach(() => {
    setActivePinia(createPinia());
    ability.update([{ action: 'manage', subject: 'all' }]);
    api.query = {};
-   api.customerId = null;
    api.row.value = null;
 });
 
@@ -170,20 +162,18 @@ describe('tabForField', () => {
 });
 
 describe('usePurchaseOrderForm', () => {
-   it('starts a new order on the filtered customer', () => {
-      api.customerId = 'c-filter';
+   it('starts a new order empty', () => {
       usePurchaseOrderForm(() => null);
-      expect(api.options!.prefill()).toEqual({ customer_id: 'c-filter' });
+      expect(api.options!.prefill()).toEqual({});
    });
 
-   it("takes the customer and project from the link's props over the filter", () => {
-      api.customerId = 'c-filter';
-      usePurchaseOrderForm(() => null, undefined, { customerId: 'c-link', projectId: 'pr1' });
-      expect(api.options!.prefill()).toEqual({ customer_id: 'c-link', project_id: 'pr1' });
+   it("takes the project from the link's props", () => {
+      usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      expect(api.options!.prefill()).toEqual({ project_id: 'pr1' });
    });
 
    it('ignores the query of the page under a route dialog', () => {
-      api.query = { customer_id: 'c-under', project_id: 'pr-under' };
+      api.query = { project_id: 'pr-under' };
       usePurchaseOrderForm(() => null);
       expect(api.options!.prefill()).toEqual({});
    });
@@ -278,7 +268,6 @@ describe('general tab for a coordinator', () => {
             stubs: {
                FormBox: Slot,
                BlockUI: Slot,
-               SelectCustomer: Stub('SelectCustomer'),
                SelectSupplier,
                ProjectSelect: Stub('ProjectSelect'),
                CustomLink

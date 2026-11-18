@@ -15,6 +15,5 @@ const { data: incident } = incidentResource.useOne(() => props.id);
       entityType="incident"
       :entityId="id"
       :code="incident.code"
-      :customerId="incident.customer_id"
    />
 </template>

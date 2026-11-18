@@ -32,7 +32,7 @@ import {
 // Manage re-creates the card when a new order is saved, so the form goes on under its id.
 const props = defineProps<{
    id: string | null;
-   /** A new order's customer and project, when a project's link names them. */
+   /** A new order's project, when a project's link names it. */
    link?: PurchaseOrderLink;
 }>();
 const emit = defineEmits<{ saved: [order: PurchaseOrderCard] }>();

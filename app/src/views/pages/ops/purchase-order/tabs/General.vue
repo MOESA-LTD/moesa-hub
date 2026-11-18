@@ -12,8 +12,8 @@ import { injectPurchaseOrderForm, useOrderLocked } from '../usePurchaseOrderForm
 // Hides the fields the user may not read, makes read-only those they may not write.
 const fieldAccess = provideFieldAccess('purchase_order');
 
-// The order's parties and terms, in the card's shared form. The customer and the supplier are
-// chosen on a new order only; the terms are fixed from pi_approved on (PO_LOCKED_FIELDS).
+// The order's parties and terms, in the card's shared form. The supplier is chosen on a new order
+// only; the terms are fixed from pi_approved on (PO_LOCKED_FIELDS).
 const form = injectPurchaseOrderForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
 
@@ -63,22 +63,6 @@ const applySupplier = (
       :draft
    >
       <FormField
-         fluid
-         :label="$t('ops.purchase_order.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <!-- The project and the lines' products are the customer's. -->
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="values.customer_id"
-            :disabled="!!id"
-            hideClosed
-            @change="values.project_id = null"
-         />
-      </FormField>
-      <FormField
          field="supplier_id"
          fluid
          :label="$t('ops.purchase_order.fields.supplier')"
@@ -100,11 +84,7 @@ const applySupplier = (
          :readonly
          v-slot="slotProps"
       >
-         <ProjectSelect
-            v-bind="slotProps"
-            v-model="values.project_id"
-            :customerId="values.customer_id"
-         />
+         <ProjectSelect v-bind="slotProps" v-model="values.project_id" />
       </FormField>
       <FormField
          fluid

@@ -145,27 +145,7 @@
    "errors": {
       "audit_already_reverted": "Bu değişiklik zaten geri alınmış.",
       "audit_conflict": "Bu değişiklik geri alınamıyor: kayıt sonradan değiştirildi. Önce sonraki değişiklikleri geri alın.",
-      "audit_transfer_not_revertable": "Aktarım kayıttan geri alınamaz. Kayıtları geri aktarın.",
       "audit_revert_field_forbidden": "Bu değişiklik geri alınamaz: değiştirme yetkiniz olmayan bir alanı içeriyor.",
-      "transfer_invalid_mode": "Kopyala ya da Taşı'yı seçin.",
-      "transfer_same_tenant": "Hedef, kaynaktan farklı olmalı.",
-      "transfer_owner_required": "İki ayrı şirket arasında yalnız ikisinin de sahibi aktarabilir.",
-      "transfer_target_read_only": "Hedef salt okunur (aboneliği sona ermiş); içine aktarım yapılamaz.",
-      "transfer_target_plan": "Hedefin planı iş modüllerini içermiyor.",
-      "transfer_forbidden": "Her iki yerde de aktarma yetkisi gerekir: kaynakta kayıtları okuma, hedefte oluşturma.",
-      "transfer_source_read_only": "Kaynak salt okunur: kayıtları kopyalanabilir, taşınamaz.",
-      "transfer_customer_missing": "Bu müşteri kaynakta yok.",
-      "transfer_products_invalid": "Kaynaktaki tek bir müşterinin ürünlerini seçin.",
-      "transfer_gate_invalid": "Bir projenin kapıları sırasız (bir kapı öncekinden önce geçilmiş ya da kapı seti projeye uymuyor). Önce projeyi düzeltin.",
-      "transfer_report_required": "Önce aktarımın provasını yapın.",
-      "transfer_report_stale": "Provadan bu yana kayıtlar değişti. Provayı yineleyip raporu kontrol edin.",
-      "transfer_decision_required": "Her çakışma için bir karar gerekir.",
-      "transfer_decision_invalid": "Bir karar çakışmasına uymuyor: işlemi ve bağlandığı kaydı kontrol edin.",
-      "transfer_code_invalid": "Yeni kodun biçimi hatalı ya da hedefte kullanılıyor.",
-      "transfer_product_in_use": "Geride kalan kayıtlar bu ürünleri kullanıyor (proje, sipariş, pazar hücresi ya da değişiklik talebi). Kopyalayın ya da müşterinin tamamını aktarın.",
-      "transfer_not_found": "Aktarım bulunamadı.",
-      "transfer_files_pending": "Bu müşteriye yapılan önceki bir aktarımın dosyaları henüz tamamen kopyalanmadı. Önce o aktarımı tamamlayın: müşteri sayfasında \"Dosyaları yeniden kopyala\".",
-      "transfer_field_rights_required": "Bu aktarım, kopyalanan kayıtların iç notlar dahil tüm alanlarını taşır. Kaynak ve hedef şubede bu alanların hepsini görme ve değiştirme yetkiniz olmalı.",
       "avatar_type": "Fotoğraf PNG, JPEG ya da WebP olmalı.",
       "avatar_size": "Fotoğraf en fazla 1 MB olmalı.",
       "access_denied": "Erişim reddedildi",
@@ -300,7 +280,7 @@
       "document_entity_missing": "Belgenin ait olduğu kayıt bulunamadı",
       "invalid_gtin": "Geçerli bir GTIN girin: kontrol hanesi doğru 8, 12, 13 veya 14 hane",
       "gtin_in_use": "Bu GTIN başka bir aktif üründe kullanılıyor",
-      "sku_in_use": "Bu SKU müşteride zaten var",
+      "sku_in_use": "Bu SKU bu şirkette zaten var",
       "gate_not_pending": "Bu kapı zaten geçti; geçmiş kapı değiştirilemez.",
       "gate_order": "Önce önceki kapıları geçirin.",
       "gate_customer_approval_required": "Bu kapı için müşteri onay tarihi ve onay belgesi gerekir.",
@@ -314,14 +294,10 @@
       "gate_not_passed": "Yalnızca geçmiş bir kapı geri alınabilir.",
       "gate_pi_required": "G3 için onaylı PI gerekir: projenin PI'ı onaylanmış bir siparişinin PI belgesini kanıt olarak ekleyin.",
       "project_not_active": "Proje beklemede, kapalı ya da iptal.",
-      "project_immutable_field": "Projenin müşterisi, tipi, yolu ve paketleri değiştirilemez.",
+      "project_immutable_field": "Projenin tipi, yolu ve paketleri değiştirilemez.",
       "project_code_immutable": "Proje kodu değiştirilemez.",
       "document_superseded_sticky": "Eskimiş bir belge eski kalır; bunun yerine yeni bir sürüm ekleyin.",
       "document_identity_immutable": "Kaydedilmiş bir belgenin kaydı, türü ve sürümü değiştirilemez; bunun yerine yeni bir sürüm ekleyin.",
-      "customer_closed": "Müşteri kapalı: yeni proje açılamaz.",
-      "customer_contract_restricted": "Müşterinin sözleşme koşullarını yalnızca yönetim değiştirebilir.",
-      "project_customer_missing": "Projenin müşterisi bulunamadı.",
-      "customer_code_immutable": "Müşteri kodu değiştirilemez.",
       "tenant_required": "Önce bir şube seçin.",
       "invalid_code_kind_or_scope": "Bu tür kod bu kapsam için üretilemez.",
       "rows_must_be_an_array": "İçe aktarma dosyası satır listesi olarak okunamadı.",
@@ -340,18 +316,15 @@
       "media_link_entity_missing": "Bağlanacak kayıt bulunamadı.",
       "media_link_forbidden": "Bu kaydı değiştirme yetkiniz yok; ortamını da değiştiremezsiniz.",
       "media_link_identity_immutable": "Bağlantı başka bir dosyaya ya da kayda taşınamaz.",
-      "media_customer_mismatch": "Bu dosya başka bir müşteriye ait.",
       "media_primary_not_image": "Birincil görsel yalnızca bir resim olabilir.",
-      "media_customer_locked": "Dosya bağlıyken müşterisi değiştirilemez.",
       "media_missing": "Ortam dosyası bulunamadı.",
       "media_already_linked": "Dosya bu kayda zaten bağlı.",
       "media_primary_exists": "Kaydın zaten bir birincil görseli var.",
       "document_file_required": "Drive bağlantısı ya da dosya ekleyin.",
-      "purchase_order_customer_missing": "Siparişin müşterisi bulunamadı.",
-      "purchase_order_immutable_field": "Siparişin kodu, müşterisi ve tedarikçisi değiştirilemez.",
+      "purchase_order_immutable_field": "Siparişin kodu ve tedarikçisi değiştirilemez.",
       "incoterm_invalid": "Bir Incoterms 2020 terimi seçin.",
-      "po_project_customer": "Proje başka bir müşteriye ait.",
-      "po_line_product_customer": "Ürün başka bir müşteriye ait.",
+      "po_project_scope": "Proje başka bir şirkete ait.",
+      "po_line_product_scope": "Ürün başka bir şirkete ait.",
       "po_line_product_duplicate": "Ürün bu siparişte zaten var.",
       "pi_check_invalid": "PI kontrol listesinde bilinmeyen bir madde ya da cevap var.",
       "po_status_order": "Sipariş bu duruma mevcut durumundan geçemez.",
@@ -367,9 +340,8 @@
       "po_locked": "PI onaylandı; satırlar ve şartlar artık değişmez.",
       "po_closed": "Sipariş kapandı ya da iptal edildi; artık değişmez.",
       "po_line_identity_immutable": "Satır başka bir siparişe taşınamaz.",
-      "shipment_customer_missing": "Sevkiyatın müşterisi bulunamadı.",
-      "shipment_immutable_field": "Sevkiyatın kodu ve müşterisi değiştirilemez.",
-      "shipment_warehouse_customer": "Bu müşterinin depolarından birini seçin.",
+      "shipment_immutable_field": "Sevkiyatın kodu değiştirilemez.",
+      "shipment_warehouse_scope": "Bu şirketin depolarından birini seçin.",
       "shipment_status_order": "Sevkiyat bu duruma mevcut durumundan geçemez.",
       "shipment_po_required": "Önce sevkiyata bir PO ekleyin.",
       "shipment_booking_date_required": "Booking teyit tarihini girin.",
@@ -379,7 +351,7 @@
       "shipment_delivery_receipt_required": "Önce imzalı teslim tutanağını (G5 kanıtı) ekleyin.",
       "shipment_acceptance_issue": "Adet farkı ya da hasar var: sevkiyatı itirazlı işaretleyin.",
       "shipment_po_not_open": "Yalnızca PI'ı onaylı ve kapanmamış siparişler sevk edilebilir.",
-      "shipment_po_customer": "Sipariş başka bir müşteriye ait.",
+      "shipment_po_scope": "Sipariş başka bir şirkete ait.",
       "shipment_po_has_lines": "Önce siparişin satırlarını sevkiyattan kaldırın.",
       "shipment_line_po_not_linked": "Önce satırın siparişini sevkiyata ekleyin.",
       "shipment_line_duplicate": "Bu sipariş satırı sevkiyatta zaten var.",
@@ -392,11 +364,10 @@
       "market_cell_status_order": "Hücre mevcut durumundan bu duruma geçemez (S05).",
       "market_cell_listing_server_only": "İlan durumunu yalnız Amazon bağlantısı günceller.",
       "platform_account_api_server_only": "Amazon bağlantısı, hesap bağlanarak kurulur.",
-      "incident_customer_missing": "Olayın müşterisi bulunamadı.",
-      "incident_immutable_field": "Olayın kodu, müşterisi ve ailesi değiştirilemez.",
+      "incident_immutable_field": "Olayın kodu ve ailesi değiştirilemez.",
       "incident_type_invalid": "Bir Y10 kart kodu seçin (ör. OL-09).",
       "incident_type_family": "Y10 kartı başka bir aileye ait.",
-      "incident_entity_invalid": "Bu müşterinin bir projesini, siparişini, sevkiyatını, ürününü ya da pazar hücresini seçin.",
+      "incident_entity_invalid": "Bu şirketin bir projesini, siparişini, sevkiyatını, ürününü ya da pazar hücresini seçin.",
       "incident_status_order": "Olay mevcut durumundan bu duruma geçemez.",
       "incident_management_notice_required": "S1 ve S2 olaylarda önce yönetime bildirim zamanı girilmeli.",
       "incident_closure_incomplete": "Kapatmadan önce sonucu, kök nedeni ve önlemi doldurun.",
@@ -406,14 +377,13 @@
       "incident_log_cost_incomplete": "Maliyetin tutarı, para birimi ve ödeyeni olmalı.",
       "incident_deadline_due_required": "Son zamanı girin; yalnızca 48 saat, 7 gün ve belge talebi süreleri hesaplanır.",
       "gate_rollback_incident_required": "Kapı yalnızca olay üzerinden geri alınır (K3); bir olay seçin ya da açın.",
-      "gate_incident_invalid": "Bu projenin müşterisinin açık bir olayını seçin.",
+      "gate_incident_invalid": "Bu projenin şirketine ait açık bir olay seçin.",
       "gate_rollback_immutable": "Geri almanın gerekçesi ve olayı, kapı yeniden geçilene kadar değişmez.",
-      "change_request_customer_missing": "Talebin müşterisi bulunamadı.",
-      "change_request_immutable_field": "Değişiklik talebinin kodu, müşterisi ve oluşturulma zamanı değişmez; onaylandıktan sonra müşteri onayı da değişmez.",
-      "cr_project_customer": "Proje başka bir müşteriye ait.",
-      "cr_product_customer": "Ürünlerden biri başka bir müşteriye ait.",
+      "change_request_immutable_field": "Değişiklik talebinin kodu ve oluşturulma zamanı değişmez; onaylandıktan sonra müşteri onayı da değişmez.",
+      "cr_project_scope": "Proje başka bir şirkete ait.",
+      "cr_product_scope": "Ürünlerden biri başka bir şirkete ait.",
       "change_request_kinds_required": "En az bir değişiklik türü seçin.",
-      "change_request_document_invalid": "Bu müşterinin kayıtlarından bir belge seçin.",
+      "change_request_document_invalid": "Bu şirketin kayıtlarından bir belge seçin.",
       "change_request_approval_document_invalid": "Müşteri onayı bu talebin imzalı ya da onaylı bir belgesi olmalı.",
       "change_request_status_order": "Talep mevcut durumundan bu duruma geçemez.",
       "change_request_customer_approval_required": "Geçmiş bir (M) kapıyı etkiliyor: önce müşterinin yazılı onay tarihini ve belgesini ekleyin (S08).",
@@ -423,10 +393,10 @@
       "market_cell_immutable_field": "Hücrenin ürünü, platformu ve ülkesi değişmez; yeni hücre açın.",
       "market_cell_delete_candidate_only": "Yalnızca aday hücre silinebilir; diğerlerini çıkarın ya da kapatın.",
       "market_cell_duplicate": "Bu ürünün bu platform ve ülke için zaten bir hücresi var.",
-      "market_cell_product_customer": "Ürün başka bir müşteriye ait.",
-      "market_cell_project_customer": "Proje başka bir müşteriye ait.",
+      "market_cell_product_scope": "Ürün başka bir şirkete ait.",
+      "market_cell_project_scope": "Proje başka bir şirkete ait.",
       "market_cell_price_currency": "Fiyatın para birimi olmalı.",
-      "amazon_not_connected": "Müşteri bir Amazon hesabı bağlamamış.",
+      "amazon_not_connected": "Bağlı bir Amazon hesabı yok.",
       "amazon_connection_revoked": "Amazon bağlantısı geri çekildi. Hesabı yeniden bağlayın.",
       "amazon_auth_failed": "Amazon yetkilendirmeyi reddetti. Hesabı yeniden bağlayın.",
       "amazon_unavailable": "Amazon şu an erişilemiyor. Daha sonra tekrar deneyin.",
@@ -459,7 +429,24 @@
       "listing_in_progress": "Amazon bu ilanın son gönderimini hâlâ işliyor.",
       "listing_forbidden": "Bu ilanı yönetme yetkiniz yok.",
       "platform_account_forbidden": "Bu Amazon hesabının bağlantısını değiştirme yetkiniz yok.",
-      "platform_account_connected": "Bu hesabı başka bir müşteriye taşımadan önce Amazon bağlantısını kesin."
+      "platform_account_connected": "Bu hesabı başka bir şirkete ya da platforma taşımadan önce Amazon bağlantısını kesin.",
+      "relationship_immutable": "İlişkinin şirketleri değiştirilemez.",
+      "relationship_ended_final": "Sona eren bir ilişki yeniden açılamaz.",
+      "client_code_immutable": "Müşteri kodu değiştirilemez.",
+      "relationship_contract_restricted": "İlişkinin sözleşme koşullarını yalnız yönetim değiştirebilir.",
+      "relationship_end_forbidden": "Bu ilişkiyi sonlandırma yetkiniz yok.",
+      "relationship_inactive": "Bu müşteriyle etkin bir ilişki yok.",
+      "client_link_forbidden": "Bu şirketin bir kaydına bağlantı kurma yetkiniz yok.",
+      "client_tenant_immutable": "Kaydın müşterisi değiştirilemez.",
+      "client_mismatch": "Sipariş, sevkiyattan farklı bir müşteri için.",
+      "purchase_order_scope_missing": "Sipariş kod alamadı: şirketin ya da müşterinin kodu yok.",
+      "po_project_locked": "Siparişin projesi yalnız taslakken değiştirilebilir.",
+      "po_line_product_required": "Satırın ürününü seçin.",
+      "shipment_warehouse_required": "Teslimat deposunu seçin.",
+      "shipment_scope_missing": "Sevkiyat kod alamadı: şirketin ya da müşterinin kodu yok.",
+      "shipment_po_link_immutable": "Sevkiyattaki sipariş değiştirilemez: çıkarıp diğerini ekleyin.",
+      "incident_scope_missing": "Olay kod alamadı: şirketin kodu yok.",
+      "change_request_scope_missing": "Değişiklik talebi kod alamadı: şirketin kodu yok."
    },
    "account": {
       "logout": "Çıkış yap",
@@ -565,30 +552,11 @@
          "ops_supplier_purchase_orders": "PO geçmişi",
          "ops_supplier_contact_add": "Kişi ekle",
          "ops_supplier_contact_edit": "Kişiyi düzenle",
-         "ops_customer": "Müşteriler",
-         "ops_customer_list": "Müşteri listesi",
-         "ops_customer_manage": "Müşteri kartı",
-         "ops_customer_general": "Genel",
-         "ops_customer_contacts": "Kişiler",
-         "ops_customer_warehouses": "Depolar",
-         "ops_customer_platforms": "Platformlar",
-         "ops_customer_brands": "Markalar",
-         "ops_customer_documents": "Belgeler",
-         "ops_customer_media": "Ortam",
-         "ops_customer_contact_add": "Kişi ekle",
-         "ops_customer_contact_edit": "Kişiyi düzenle",
-         "ops_customer_warehouse_add": "Depo ekle",
-         "ops_customer_warehouse_edit": "Depoyu düzenle",
-         "ops_customer_platform_add": "Platform hesabı ekle",
-         "ops_customer_platform_edit": "Platform hesabını düzenle",
-         "ops_customer_brand_add": "Marka ekle",
-         "ops_customer_brand_edit": "Markayı düzenle",
          "ops_product": "Ürünler",
          "ops_product_list": "Ürün listesi",
          "ops_product_manage": "Ürün kartı",
          "ops_product_general": "Genel",
          "ops_product_dimensions": "Ölçüler",
-         "ops_product_cost": "Maliyet",
          "ops_product_orders": "PO/sevkiyat geçmişi",
          "ops_product_documents": "Belgeler",
          "ops_product_media": "Ortam",
@@ -669,8 +637,7 @@
          "ops_change_request_impact": "Etki",
          "ops_change_request_decision": "Karar",
          "ops_change_request_documents": "Belgeler",
-         "guide": "Sistem rehberi",
-         "ops_transfer": "Aktarım"
+         "guide": "Sistem rehberi"
       }
    },
    "fields": {
@@ -733,11 +700,13 @@
       "document": "Belge",
       "supplier": "Tedarikçi",
       "supplier_contact": "Tedarikçi kişisi",
-      "customer": "Müşteri",
-      "customer_contact": "Müşteri kişisi",
-      "customer_warehouse": "Müşteri deposu",
-      "customer_platform_account": "Müşteri platform hesabı",
-      "customer_brand": "Müşteri markası",
+      "brand": "Marka",
+      "contact": "Kişi",
+      "warehouse": "Depo",
+      "platform_account": "Platform hesabı",
+      "provider_relationship": "Müşteri ilişkisi",
+      "client": "Müşteri",
+      "sourcing": "Tedarik",
       "product": "Ürün",
       "project": "Proje",
       "project_product": "Proje ürünü",
@@ -760,7 +729,6 @@
       "incident_deadline": "Olay süre sınırı",
       "change_request": "Değişiklik talebi",
       "change_request_product": "Değişiklik talebi ürünü",
-      "transfer": "Aktarım",
       "listing": "İlan",
       "listing_submission": "İlan gönderimi"
    },
@@ -856,7 +824,6 @@
       },
       "already_reverted": "Zaten iptal edildi",
       "attempt_to_revert": "İptal işlemi denendi",
-      "revert_transfer_locked": "Aktarım kayıtları geri alınamaz. Bunun yerine kayıtları geri aktarın.",
       "masked": "değişti",
       "added": "Eklendi",
       "updated": "Güncellendi",
@@ -1070,9 +1037,6 @@
             "media_max_mb": "En büyük yükleme (MB)"
          }
       },
-      "customer_filter": {
-         "all": "Tüm müşteriler"
-      },
       "document": {
          "title": "Belgeler",
          "open_link": "Bağlantıyı aç",
@@ -1090,7 +1054,6 @@
             "is_stamped": "Kaşeli",
             "sent_from_official_email": "Resmi e-postadan gönderildi",
             "notes": "Notlar",
-            "customer": "Müşteri",
             "entity_type": "Kayıt"
          },
          "type": {
@@ -1123,9 +1086,10 @@
             "superseded": "Eski"
          },
          "entity": {
-            "customer": "Müşteri",
+            "provider_relationship": "Müşteri ilişkisi",
             "supplier": "Tedarikçi",
             "product": "Ürün",
+            "sourcing": "Tedarik",
             "project": "Proje",
             "project_gate": "Proje kapısı",
             "purchase_order": "Satın alma siparişi",
@@ -1294,7 +1258,6 @@
          "tabs": {
             "general": "Genel",
             "dimensions": "Ölçüler",
-            "cost": "Maliyet",
             "orders": "PO/sevkiyat geçmişi",
             "documents": "Belgeler",
             "media": "Ortam",
@@ -1312,7 +1275,6 @@
             "prices": "Fiyatlar"
          },
          "fields": {
-            "customer_id": "Müşteri",
             "parent_id": "Ana ürün",
             "sku": "SKU",
             "display_name": "Ad",
@@ -1353,7 +1315,6 @@
             "company_price_eur": "Şirket fiyatı (EUR)",
             "price_list_version": "Fiyat listesi sürümü",
             "notes": "Notlar",
-            "customer": "Müşteri",
             "supplier": "Tedarikçi",
             "spec": "Spec"
          },
@@ -1392,12 +1353,11 @@
                "required": "zorunlu",
                "invalid_value": "geçersiz değer",
                "gtin_invalid": "geçersiz GTIN (kontrol hanesi)",
-               "customer_unknown": "bu kodla müşteri yok",
                "supplier_unknown": "bu kodla tedarikçi yok",
-               "parent_unknown": "müşterinin bu SKU ile ana ürünü yok",
+               "parent_unknown": "şirkette bu SKU ile ana ürün yok",
                "gtin_in_use": "GTIN, aktif {sku} ürününde kullanılıyor",
                "gtin_duplicate": "GTIN dosyada birden fazla kez geçiyor",
-               "sku_duplicate": "SKU bu müşteri için dosyada birden fazla kez geçiyor",
+               "sku_duplicate": "SKU dosyada birden fazla kez geçiyor",
                "csv_column_not_writable": "bu sütundaki alanı yazma yetkiniz yok, sütunu boş bırakın"
             },
             "warnings": {
@@ -1430,8 +1390,6 @@
          },
          "fields": {
             "code": "Kod",
-            "customer_id": "Müşteri",
-            "customer": "Müşteri",
             "display_name": "Ad",
             "type": "Tip",
             "path": "Yol",
@@ -1445,7 +1403,7 @@
             "coordinator": "Koordinatör",
             "notes": "Notlar"
          },
-         "fixed_hint": "Müşteri, tip, yol ve paketler kapıları belirler; sonradan değiştirilemez.",
+         "fixed_hint": "Tip, yol ve paketler kapıları belirler; sonradan değiştirilemez.",
          "type": {
             "npi": "Yeni ürün",
             "variant": "Varyant",
@@ -1498,7 +1456,7 @@
             "passed": "Kapı geçti",
             "rolled_back": "Kapı geri alındı",
             "incident": "Olay",
-            "no_incident": "Bu müşterinin açık olayı yok; önce bir olay açın."
+            "no_incident": "Bu şirkette açık olay yok; önce bir olay açın."
          },
          "task": {
             "fields": {
@@ -1594,7 +1552,6 @@
             "title": "Başlık",
             "alt_text": "Alternatif metin",
             "tags": "Etiketler",
-            "customer": "Müşteri",
             "file_name": "Dosya"
          }
       },
@@ -1615,7 +1572,7 @@
          },
          "fields": {
             "code": "Kod",
-            "customer": "Müşteri",
+            "client": "Müşteri",
             "supplier": "Tedarikçi",
             "project": "Proje",
             "status": "Durum",
@@ -1792,13 +1749,15 @@
             "note": "Not",
             "step": "Olay",
             "code": "Kod",
-            "customer": "Müşteri",
+            "client": "Müşteri",
             "status": "Durum",
             "purchase_orders": "Siparişler",
             "ordered": "Sipariş edilen",
             "on_shipment": "Bu sevkiyatta",
             "happened_at": "Zaman",
-            "notes": "Notlar"
+            "notes": "Notlar",
+            "dock_hours": "Rampa saatleri",
+            "appointment_rule": "Teslimat randevusu"
          },
          "mode": {
             "fcl20": "FCL 20'",
@@ -1850,7 +1809,7 @@
          "remove_order": "Siparişi çıkar",
          "no_rows": "Sevkiyat yok.",
          "no_orders": "Bu sevkiyatta henüz sipariş yok.",
-         "no_open_orders": "Bu müşterinin başka açık siparişi yok.",
+         "no_open_orders": "Eklenecek başka açık sipariş yok.",
          "no_events": "Olay yok.",
          "document_missing": "Eksik",
          "psi_missing": "Onaylı PSI yok",
@@ -1910,7 +1869,6 @@
             "approved": "Onaylandı (L-G1)"
          },
          "fields": {
-            "customer": "Müşteri",
             "sku": "SKU",
             "product": "Ürün",
             "products": "Ürünler",
@@ -1940,7 +1898,8 @@
             "3": "Yeni bölge"
          },
          "live_missing": "Yayın için eksik: {fields}",
-         "load_error": "Pazar hücreleri yüklenemedi."
+         "load_error": "Pazar hücreleri yüklenemedi.",
+         "platform_select": "Platform seçin"
       },
       "incident": {
          "title": "Olaylar",
@@ -2055,7 +2014,6 @@
          },
          "fields": {
             "code": "Olay no",
-            "customer": "Müşteri",
             "family": "Aile",
             "incident_type": "Olay tipi (Y10)",
             "severity": "Şiddet",
@@ -2156,7 +2114,6 @@
          },
          "fields": {
             "code": "Değişiklik talebi no",
-            "customer": "Müşteri",
             "project": "Proje",
             "products": "SKU'lar",
             "title": "Başlık",
@@ -2187,113 +2144,6 @@
          "customer_approval_hint": "Geçmiş bir [[(M)]] kapıyı etkiliyor: müşterinin yazılı onayı şart ([[S08]]).",
          "overdue": "Karar gecikti",
          "no_rows": "Değişiklik talebi yok."
-      },
-      "transfer": {
-         "title_customer": "{code} müşterisini aktar",
-         "title_products": "{code} müşterisinin {count} ürününü aktar",
-         "steps": {
-            "target": "Hedef",
-            "report": "Prova",
-            "result": "Sonuç"
-         },
-         "target": {
-            "label": "Hedef şirket ya da şube",
-            "same_company": "Aynı şirket",
-            "other_company": "Başka şirket"
-         },
-         "mode": {
-            "label": "Mod",
-            "copy_label": "Kopyala",
-            "move_label": "Taşı",
-            "copy": "Kopyala: kaynak olduğu gibi kalır.",
-            "move": "Taşı: hedefe yazılır, sonra kaynaktan silinir. Tedarikçiler kaynakta kalır.",
-            "move_read_only": "Kaynak salt okunur; yalnız Kopyala mümkün."
-         },
-         "rehearse": "Prova yap",
-         "rehearse_again": "Provayı yinele",
-         "report": {
-            "path_cheap": "Yerinde taşınır: kayıtlar kimliklerini korur.",
-            "path_copy": "Yeni kimliklerle yeni kayıt olarak yazılır.",
-            "counts": "Tablo başına kayıt",
-            "conflicts": "Çakışmalar",
-            "no_conflicts": "Çakışma yok.",
-            "users": "Hedefte üye olmayan kullanıcılar",
-            "users_hint": "Kayıtları size yazılır, atamaları boşaltılır.",
-            "left_behind": "Kaynakta kalan bağlantılar",
-            "left_behind_item": "{table} {label}: {column} alanı aktarım dışındaki {refers_to} {ref} kaydına bağlı",
-            "settings_gaps": "Hedefin ayarlarına göre eksik kalacaklar",
-            "spec_sheet_required": "{label}: hedef spec sheet istiyor",
-            "files": "Kopyalanacak dosya: {count}"
-         },
-         "conflict_kind": {
-            "customer_code": "Müşteri kodu",
-            "supplier_code": "Tedarikçi kodu",
-            "code": "Kod",
-            "sku": "SKU",
-            "gtin": "GTIN",
-            "customer_contact": "Müşteri kişisi",
-            "customer_warehouse": "Müşteri deposu",
-            "customer_brand": "Müşteri markası",
-            "platform_account": "Platform hesabı",
-            "market_cell": "Pazar hücresi",
-            "document_version": "Belge sürümü",
-            "media_link": "Ana görsel",
-            "unknown": "Diğer çakışma"
-         },
-         "conflict": {
-            "customer_code": "{code} müşteri kodu hedefte var",
-            "supplier_code": "{code} tedarikçi kodu hedefte var",
-            "code": "{code} kodu hedefte var",
-            "sku": "{code} SKU'su hedefte bu müşteride var",
-            "gtin": "{code} GTIN'i aktif",
-            "document_version": "Bu belgenin {code} sürümü hedefte var",
-            "customer_contact": "Hedefteki müşteride {code} kişisi zaten var",
-            "customer_warehouse": "Hedefteki müşteride {code} deposu zaten var",
-            "customer_brand": "Hedefteki müşteride {code} markası zaten var",
-            "platform_account": "Hedefteki müşterinin {code} üzerinde zaten hesabı var",
-            "market_cell": "Hedefteki üründe {code} pazar hücresi zaten var",
-            "media_link": "{code} hedefte zaten bir ana görsele sahip",
-            "unknown": "{code} hedefteki bir kayıtla çakışıyor",
-            "duplicate_code": "Bu tablodaki başka bir çakışmaya da aynı kod verildi.",
-            "code_taken": "Bu kod hedefte kullanılıyor.",
-            "code_format": "Kodun biçimi hatalı."
-         },
-         "action": {
-            "map": "Hedefteki kayda bağla",
-            "new_code": "Yeni kod ver",
-            "clear_gtin": "GTIN'i boş bırak",
-            "skip": "Atla",
-            "demote": "Galeri görseli olarak tut"
-         },
-         "skip_drops": "Bununla birlikte atlananlar: {list}",
-         "skip_drops_item": "{table} ({count})",
-         "decision": {
-            "target": "Hedefteki kayıt",
-            "code": "Yeni kod"
-         },
-         "unresolved": "{count} çakışma karar bekliyor.",
-         "move_blocked": "Taşıma kaynakta bağlantı bırakamaz. Bu kayıtları da aktarın ya da kopyalayın.",
-         "confirm": {
-            "copy": "{count} kayıt {target} hedefine kopyalansın mı?",
-            "move_copy": "{count} kayıt {target} hedefine taşınsın mı? Oraya kopyalanır ve kaynaktan silinirler.",
-            "move_in_place": "{count} kayıt {target} hedefine taşınsın mı? Kimliklerini korurlar ve kaynaktan çıkarlar."
-         },
-         "run": "Aktar",
-         "open": "Aktar…",
-         "open_count": "{count} ürünü aktar…",
-         "open_disabled_empty": "Önce ürün seçin.",
-         "open_disabled_mixed": "Aktarmak için tek müşterinin ürünlerini seçin.",
-         "result": {
-            "done": "Aktarıldı: {count} kayıt.",
-            "id_map": "Kimlik eşlemesini indir (CSV)"
-         },
-         "files": {
-            "pending": "Dosyalar kopyalanıyor.",
-            "done": "Tüm dosyalar kopyalandı.",
-            "partial": "{count} dosya kopyalanamadı.",
-            "retry": "Dosyaları yeniden kopyala",
-            "notice": "Bu müşteriye yapılan bir aktarımın dosyaları eksik."
-         }
       },
       "amazon": {
          "state": {
@@ -2348,7 +2198,7 @@
             "title": "Amazon ilanı",
             "open": "Amazon ilanını aç",
             "connection": "Amazon bağlantısı",
-            "not_connected": "Müşteri bir Amazon hesabı bağlamamış.",
+            "not_connected": "Bağlı bir Amazon hesabı yok.",
             "completeness": "Doluluk",
             "missing_none": "Eksik alan yok.",
             "attributes_save": "Amazon alanlarını kaydet",
@@ -2386,14 +2236,14 @@
             "checked_at": "Kontrol: {date}",
             "state": "İlan durumu",
             "state_unknown": "Bilinmeyen durum",
-            "open_platforms": "Müşterinin platform hesaplarını aç",
+            "open_platforms": "Platform hesaplarını aç",
             "product_type_missing": "Ürünün henüz bir Amazon ürün tipi yok.",
             "open_tab": "Amazon sekmesini aç",
             "catalogue": "Katalog eşleşmesi",
             "fields_save": "Pazaryeri alanlarını kaydet",
             "published": "Amazon’a gönderildi: {status}",
             "publish_blocked": {
-               "not_connected": "Önce müşterinin Amazon hesabını bağlayın.",
+               "not_connected": "Önce Amazon hesabını bağlayın.",
                "product_type": "Önce ürünün Amazon ürün tipini seçin.",
                "missing": "Önce eksik alanları doldurun.",
                "unsaved_attributes": "Önce Amazon alanlarını kaydedin.",
@@ -2443,7 +2293,7 @@
                "error": "Başarısız"
             },
             "open_disabled_empty": "Önce ürün seçin.",
-            "open_disabled_mixed": "Yayınlamak için tek bir müşterinin ürünlerini seçin.",
+            "open_disabled_mixed": "Yayınlamak için tek bir şirketin ürünlerini seçin.",
             "summary": "{total} üründen {submitted} tanesi gönderildi"
          },
          "submission": {
@@ -2530,13 +2380,6 @@
          "candidate": "Değerlendiriliyor; henüz sipariş yok.",
          "approved": "Değerlendirildi, siparişe onaylı.",
          "suspended": "Sorun çözülene kadar yeni sipariş verilmez."
-      },
-      "customer_status": {
-         "lead": "Potansiyel müşteri, henüz sözleşme yok (C1–C2).",
-         "onboarding": "Sözleşme imzalandı, onboarding sürüyor (C3).",
-         "active": "Projeleri yürüyor.",
-         "paused": "İş şimdilik beklemede.",
-         "closed": "İlişki sona erdi; yeni proje açılamaz."
       },
       "product_status": {
          "concept": "Fikir ya da konsept; henüz geliştirilmedi.",
@@ -2704,9 +2547,9 @@
          "issues": "Amazon düzeltilmesi gereken sorunlar bildirdi."
       },
       "api_connection": {
-         "none": "Müşteri bir Amazon hesabı bağlamamış.",
-         "connected": "Müşterinin Amazon hesabı bağlı.",
-         "revoked": "Müşteri yetkiyi geri çekti; devam etmek için yeniden bağlayın."
+         "none": "Bağlı bir Amazon hesabı yok.",
+         "connected": "Amazon hesabı bağlı.",
+         "revoked": "Yetki geri çekildi; devam etmek için yeniden bağlayın."
       }
    },
    "status_actions": {
@@ -2756,7 +2599,7 @@
                "sign_spec": {
                   "title": "[[SKU]]'nun spec sheet'ini imzalat",
                   "steps": {
-                     "1": "Müşteri satırını açın; ürün listesi imzalı spec sheet'i olmayan [[SKU]]'ları gösterir.",
+                     "1": "Şirket satırını açın; ürün listesi imzalı spec sheet'i olmayan [[SKU]]'ları gösterir.",
                      "2": "Ürünün Belgeler sekmesinde spec sheet'i sürümü ve tarihiyle ekleyin.",
                      "3": "İmzalı, kaşeli ve resmî e-postadan geldiyse imzalı yapın."
                   }
@@ -2764,7 +2607,7 @@
                "complete_compliance": {
                   "title": "[[SKU]]'nun uyumunu tamamla",
                   "steps": {
-                     "1": "Müşteri satırını açın; ürün listesi açılır.",
+                     "1": "Şirket satırını açın; ürün listesi açılır.",
                      "2": "Ürünün Genel sekmesinde Uyum bölümünü doldurun ve [[S12]]'nin istediği belgeleri ekleyin.",
                      "3": "Uyum durumunu tamamlandı yapın; [[SKU]] kutudan çıkar."
                   }
@@ -2804,7 +2647,7 @@
                "update_market": {
                   "title": "Pazar hücrelerini yayına taşı",
                   "steps": {
-                     "1": "Müşteri satırını açın; pazar matrisi o müşteri için açılır.",
+                     "1": "Şirket satırını açın; pazar matrisi açılır.",
                      "2": "Hücreyi açın ve yayının istediklerini doldurun: platform kimliği, platform [[SKU]], fiyat, para birimi, stok kaynağı.",
                      "3": "İçerik onaylıyken ([[L-G1]]) hücreyi yayına alın."
                   }
@@ -2836,51 +2679,6 @@
                      "1": "Mesajın andığı ayarı okuyun, ör. spec sheet tarihi.",
                      "2": "Kaydın tarihi ya da tutarıyla karşılaştırın.",
                      "3": "Değerin kendisi değişmeliyse yönetime sorun."
-                  }
-               }
-            }
-         },
-         "customer": {
-            "purpose": "Şirketinizin her müşterisi; sözleşme şartları, depoları, pazar yeri hesapları ve markalarıyla. Üstteki filtreden müşteri seçmek tüm operasyon listelerini o müşteriye daraltır.",
-            "tasks": {
-               "add_customer": {
-                  "title": "Müşteri ekle",
-                  "steps": {
-                     "1": "Menüden Ekle'yi kullanın; üç harfli kod müşterinin tüm kodlarına girer.",
-                     "2": "Ticari modeli, paketleri ve durumu doldurun (C1–C4).",
-                     "3": "Kaydedin; diğer sekmeler açılır."
-                  }
-               },
-               "add_warehouse": {
-                  "title": "Teslim deposu ekle",
-                  "steps": {
-                     "1": "Müşteriyi, sonra Depolar sekmesini açın.",
-                     "2": "Adresi, rampa saatlerini ve randevu kuralını [[S14]] kartındaki gibi girin.",
-                     "3": "Sevkiyatlar adresi buradan alır; sevkiyatta elle yazılmaz."
-                  }
-               },
-               "add_platform": {
-                  "title": "Pazar yeri hesabı kaydet",
-                  "steps": {
-                     "1": "Müşteriyi, sonra Platformlar sekmesini açın.",
-                     "2": "Platformu ve müşterinin sattığı ülkeleri seçin.",
-                     "3": "Erişimimizi not edin; hesap kimliği ve şifre saklanmaz ([[K8]])."
-                  }
-               },
-               "transfer_customer": {
-                  "title": "Müşteriyi başka bir şirkete ya da şubeye aktar",
-                  "steps": {
-                     "1": "Müşteriyi açıp Aktar…'ı kullanın; hedefi ve Kopyala ya da Taşı'yı seçin.",
-                     "2": "Prova yapın, sonra her çakışmaya karar verin: bağla, yeni kod, boş [[GTIN]] ya da atla.",
-                     "3": "Onaylayın; kimlik eşlemesini indirin, eksik dosya varsa kopyayı yineleyin."
-                  }
-               },
-               "connect_amazon": {
-                  "title": "Amazon hesabını bağla",
-                  "steps": {
-                     "1": "Müşteriyi, sonra Platformlar sekmesini açın.",
-                     "2": "Amazon hesabında Amazon'u bağla'ya basıp satıcı olarak izin verin.",
-                     "3": "Sekme satıcı kimliğiyle Bağlı gösterir; bundan sonra yayınlama yapılabilir."
                   }
                }
             }
@@ -2957,7 +2755,7 @@
                "open_project": {
                   "title": "Proje aç",
                   "steps": {
-                     "1": "Menüden Ekle'yi kullanın; müşteriyi, tipi, yolu ve paketleri seçin.",
+                     "1": "Menüden Ekle'yi kullanın; tipi, yolu ve paketleri seçin.",
                      "2": "Kaydedin; kod ve kapı seti oluşur.",
                      "3": "Ürünleri Ürünler sekmesinde ekleyin."
                   }
@@ -3025,7 +2823,7 @@
                   "steps": {
                      "1": "O kaydın Ortam sekmesini açın.",
                      "2": "Kütüphaneden seç'i kullanın.",
-                     "3": "Müşteriye ait dosya yalnız o müşterinin kayıtlarına bağlanır."
+                     "3": "Dosya yalnız kendi şirketinin kayıtlarına bağlanır."
                   }
                },
                "delete_media": {
@@ -3044,7 +2842,7 @@
                "create_po": {
                   "title": "Sipariş aç",
                   "steps": {
-                     "1": "Ekle'yi (ya da projede Yeni sipariş'i) kullanın; müşteriyi ve tedarikçiyi seçin.",
+                     "1": "Ekle'yi (ya da projede Yeni sipariş'i) kullanın; tedarikçiyi seçin.",
                      "2": "Tedarikçiden gelen Incoterm ve depozitoyu kontrol edip kaydedin.",
                      "3": "Satırları her biri imzalı ya da onaylı spec sheet'le ekleyin, sonra Gönder."
                   }
@@ -3068,12 +2866,12 @@
             }
          },
          "shipment": {
-            "purpose": "Müşterinin siparişlerinin depolarından birine sevkiyatı, planlanandan kabule: tarihler, [[S15]] olay zinciri, [[S16]] teslim kabulü ve belge kontrol listesi.",
+            "purpose": "Siparişlerin bir depoya sevkiyatı, planlanandan kabule: tarihler, [[S15]] olay zinciri, [[S16]] teslim kabulü ve belge kontrol listesi.",
             "tasks": {
                "plan_shipment": {
                   "title": "Sevkiyat planla",
                   "steps": {
-                     "1": "Ekle'yi kullanın; müşteriyi, depoyu ve modu seçin.",
+                     "1": "Ekle'yi kullanın; depoyu ve modu seçin.",
                      "2": "Siparişler sekmesinde siparişleri ve satır adetlerini bağlayın.",
                      "3": "Booking teyit tarihiyle booked durumuna alın."
                   }
@@ -3102,7 +2900,7 @@
                "add_cells": {
                   "title": "Ürün ailesi için hücre aç",
                   "steps": {
-                     "1": "Hücre ekle'yi seçin; müşterinin ürünlerini, bir platformu ve ülkelerini seçin.",
+                     "1": "Hücre ekle'yi seçin; ürünleri, bir platformu ve ülkelerini seçin.",
                      "2": "Önceliği girin: 1 aynı hesapta yeni ülke, 2 yeni platform, 3 yeni bölge.",
                      "3": "Kaydedin; var olan hücreler atlanır, yeniler aday olarak başlar."
                   }
@@ -3139,7 +2937,7 @@
                "open_incident": {
                   "title": "Olayı 15 dakikada kaydet",
                   "steps": {
-                     "1": "Ekle'yi kullanın; müşteriyi, aileyi ve şiddeti seçin ([[Y10]] §4).",
+                     "1": "Ekle'yi kullanın; aileyi ve şiddeti seçin ([[Y10]] §4).",
                      "2": "Ne olduğunu üç cümleyle, şu an durumun ne olduğunu ve hemen ne yapıldığını yazın; tahmin yerine \"bilinmiyor\" yazın.",
                      "3": "Kaydı bağlayın (sevkiyat, sipariş, ürün, hücre ya da proje) ve ilk kanıtı Ortam'a ekleyin."
                   }
@@ -3168,7 +2966,7 @@
                "open_cr": {
                   "title": "Değişiklik talebi aç",
                   "steps": {
-                     "1": "Ekle'yi kullanın; müşteriyi, projeyi ve etkilenen ürünleri seçin.",
+                     "1": "Ekle'yi kullanın; projeyi ve etkilenen ürünleri seçin.",
                      "2": "Eski ve yeni değeri birebir, nedeni ve etkilenen kapıyı yazın.",
                      "3": "Değişiklik türlerini ve aciliyeti seçin; karar tarihi buna göre gelir."
                   }
@@ -3232,10 +3030,6 @@
          }
       },
       "topics": {
-         "customer_filter": {
-            "title": "Müşteri filtresi",
-            "text": "Üst çubukta seçilen müşteri tüm operasyon listelerini ve dashboard'u o müşteriye daraltır; 'Tüm müşteriler' rolünüzün görebildiği her şeyi gösterir. Seçim sayfalar arasında geçerken korunur."
-         },
          "cards_tabs": {
             "title": "Kartlar ve sekmeler",
             "text": "Satır, kaydı listenin üstünde sekmeli bir kart olarak açar: genel bilgiler, satırlar, belgeler, ortam, geçmiş. Yeni kayıtta yalnızca ilk sekme görünür; diğerleri kaydedince açılır. Kartın ve sekmenin adresi bağlantı olarak paylaşılabilir."

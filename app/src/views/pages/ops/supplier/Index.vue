@@ -5,7 +5,7 @@ import { createFilters } from '@/components/service-components/resource-table/cr
 import { DIALOG_POSITIONS } from '@/constants/router';
 import type { SupplierStatus } from '@/api/supplier';
 
-// Suppliers are shared by every customer of the tenant, so the customer filter does not apply.
+// The suppliers of the tenants in scope.
 type Props = ResourceTableProps<'supplier'>;
 
 defineOptions({

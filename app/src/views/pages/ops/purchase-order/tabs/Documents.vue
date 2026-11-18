@@ -14,6 +14,5 @@ const { data: order } = purchaseOrderResource.useOne(() => props.id);
       entityType="purchase_order"
       :entityId="id"
       :code="order.code"
-      :customerId="order.customer_id"
    />
 </template>

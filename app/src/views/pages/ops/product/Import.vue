@@ -145,7 +145,6 @@ const columnOf = (field: string) => PRODUCT_TO_S10[field as keyof typeof PRODUCT
          <template #header>
             {{ $t('ops.product.import.preview', { shown: preview.length, count: rows.length }) }}
          </template>
-         <Column field="customer_code" :header="$t('ops.product.fields.customer')" />
          <Column field="sku" :header="$t('ops.product.fields.sku')" />
          <Column field="display_name" :header="$t('ops.product.fields.display_name')" />
          <Column field="variant_label" :header="$t('ops.product.fields.variant_label')" />

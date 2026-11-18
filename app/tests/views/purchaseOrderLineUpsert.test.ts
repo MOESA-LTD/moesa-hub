@@ -69,7 +69,6 @@ const tips = { id: TIPS, purchase_price: 0.5, purchase_currency: 'EUR' };
 
 const order = (positions: number[]) => ({
    id: ORDER,
-   customer_id: 'c1',
    currency: 'USD',
    purchase_order_line: positions.map((position, i) => ({ id: `l${i}`, position }))
 });
@@ -82,7 +81,7 @@ const Slot = defineComponent({
 });
 const ProductSelect = defineComponent({
    name: 'ProductSelect',
-   props: ['modelValue', 'customerId'],
+   props: ['modelValue'],
    emits: ['update:modelValue', 'pick'],
    setup: () => () => h('span')
 });

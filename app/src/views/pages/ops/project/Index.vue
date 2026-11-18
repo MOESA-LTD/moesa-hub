@@ -6,7 +6,6 @@ import {
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter, withCustomerFilter } from '@/store/customerFilter';
 import {
    PROJECT_STATUSES,
    PROJECT_TYPES,
@@ -16,8 +15,7 @@ import {
    type ProjectStatus
 } from '@/api/project';
 
-// The projects of the customer the lists are filtered by (every customer's when none is), with
-// the phase each is in and the gate it waits for.
+// The projects of the tenants in scope, with the phase each is in and the gate it waits for.
 type Props = ResourceTableProps<'project'>;
 
 defineOptions({
@@ -41,7 +39,6 @@ const columns = computed<Props['columns']>(() => [
       sortOrder: { value: -1 },
       header: t('ops.project.fields.code')
    },
-   { field: 'customer.code', header: t('ops.project.fields.customer') },
    { field: 'display_name', sortable: true, header: t('ops.project.fields.display_name') },
    { field: 'type', sortable: true, header: t('ops.project.fields.type'), ...enumFilterColumn },
    { field: 'current_phase', sortable: true, header: t('ops.project.fields.current_phase') },
@@ -58,22 +55,11 @@ const filters = ref<NonNullable<Props['filters']>>(
          code: 'startsWith',
          display_name: 'text',
          type: equalsFilter(),
-         status: equalsFilter(),
-         customer_id: equalsFilter()
+         status: equalsFilter()
       },
       attrs.filters as Props['filters']
    )
 );
-
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const members = useMemberOptions();
 const memberName = computed(() => new Map(members.value.map(({ value, label }) => [value, label])));
@@ -110,7 +96,7 @@ const dialogRef = useDialogRef();
       v-bind="attrs"
       stateKey="project"
       from="project"
-      select="*, customer(code, display_name), project_gate(id, code, position, status)"
+      select="*, project_gate(id, code, position, status)"
       :columns
       :rowActions
       :enableExpansion="false"

@@ -21,7 +21,8 @@ describe('S10 columns', () => {
       const ignored = S10_COLUMNS.filter(
          (column) => !(column in S10_TO_PRODUCT) && !DEFERRED_COLUMNS.includes(column)
       );
-      expect(ignored).toEqual(['gtin_kontrol']);
+      // The file's company code is read and dropped: a product belongs to the tenant it goes to.
+      expect(ignored).toEqual(['gtin_kontrol', 'musteri_kodu']);
       expect(S10_COLUMNS).toHaveLength(69);
    });
 });
@@ -38,7 +39,6 @@ describe('mapS10Rows', () => {
          {
             display_name: 'Mop 40 cm',
             sku: 'THO-MOP40',
-            customer_code: 'THO',
             supplier_code: 'CN1',
             unit_dims_mm: '400x120x30'
          }
@@ -173,7 +173,6 @@ describe('mapS10Rows', () => {
          [['THO', 'THO-1', 'Mop', '', '']]
       );
       expect(rows[0]).toEqual({
-         customer_code: 'THO',
          sku: 'THO-1',
          display_name: 'Mop',
          brand: null,
@@ -218,7 +217,7 @@ describe('mapS10Rows', () => {
          ]
       );
       expect(warnings).toEqual([{ column: 'asin_de', code: 'deferred_column' }]);
-      expect(rows[0]).toEqual({ customer_code: 'THO', sku: 'THO-1', display_name: 'Mop' });
+      expect(rows[0]).toEqual({ sku: 'THO-1', display_name: 'Mop' });
    });
 
    it('reports a missing required value on its row and field', () => {
@@ -235,12 +234,9 @@ describe('mapS10Rows', () => {
       expect(errors).toEqual([{ row: 1, field: 'display_name', code: 'required' }]);
    });
 
-   it('checks the customer code and the SKU', () => {
+   it('checks the SKU and drops the company code', () => {
       const { errors } = mapAll(HEADER, [['THOR', 'THO 1', 'Mop']]);
-      expect(errors).toEqual([
-         { row: 1, field: 'customer_code', code: 'invalid_value' },
-         { row: 1, field: 'sku', code: 'invalid_value' }
-      ]);
+      expect(errors).toEqual([{ row: 1, field: 'sku', code: 'invalid_value' }]);
    });
 });
 
@@ -256,7 +252,6 @@ describe('toS10Csv', () => {
       status: 'on_sale',
       compliance_status: 'complete',
       golden_sample_on: '2026-11-03',
-      customer: { code: 'THO' },
       supplier: { code: 'CN1' }
    } as unknown as ProductExportRow;
    const variant = {
@@ -273,7 +268,7 @@ describe('toS10Csv', () => {
       expect(header).toEqual([...S10_COLUMNS]);
       const cell = (row: string[], column: string) =>
          row[(S10_COLUMNS as readonly string[]).indexOf(column)];
-      expect(cell(rows[0], 'musteri_kodu')).toBe('THO');
+      expect(cell(rows[0], 'musteri_kodu')).toBe('');
       expect(cell(rows[0], 'urun_adi')).toBe('Mop, 40 cm');
       expect(cell(rows[0], 'tedarikci_kodu')).toBe('CN1');
       expect(cell(rows[0], 'alis_fiyati')).toBe('1.9');
@@ -287,7 +282,6 @@ describe('toS10Csv', () => {
       const mapped = mapAll(header, rows);
       expect(mapped.errors).toEqual([]);
       expect(mapped.rows[0]).toMatchObject({
-         customer_code: 'THO',
          sku: 'THO-MOP40',
          display_name: 'Mop, 40 cm',
          supplier_code: 'CN1',

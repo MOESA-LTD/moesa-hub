@@ -1,21 +1,15 @@
 <script setup lang="ts">
 import { useLookup } from '@/api/useLookup';
 
-/** Picks one of the customer's projects for an order (an order stays inside its customer). */
+/** Picks one of the form tenant's projects (see provideFormTenant). */
 type ProjectOption = Pick<Tables['project']['Row'], 'id' | 'code' | 'display_name'>;
 
-const props = defineProps<{ customerId?: string | null }>();
 const model = defineModel<string | null>();
 
-const { data: projects } = useLookup<ProjectOption>(
-   'project',
-   () => ({
-      select: 'id, code, display_name',
-      order: 'code',
-      in: { column: 'customer_id', values: [props.customerId] }
-   }),
-   () => !!props.customerId
-);
+const { data: projects } = useLookup<ProjectOption>('project', () => ({
+   select: 'id, code, display_name',
+   order: 'code'
+}));
 
 const options = computed(() =>
    (projects.value ?? []).map((project) => ({

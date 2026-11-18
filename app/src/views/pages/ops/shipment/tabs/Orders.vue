@@ -18,10 +18,10 @@ import { appErrorHandler } from '@/lib/appErrorHandler';
 import { injectShipmentForm, injectShipmentOverview, useShipmentLocked } from '../useShipmentForm';
 
 // The orders on the shipment with their lines, and what of each line goes on it. Orders are put on
-// it from the customer's open ones (pi_approved … balance_paid, shipment_po_not_open) and taken off
-// while none of their lines is on it (shipment_po_has_lines); lines are added and edited in a
-// dialog. From loaded on nothing here changes (shipment_locked). An order without an approved PSI
-// is marked; it is a warning only (K3).
+// it from the open ones of the same tenant and client (pi_approved … balance_paid,
+// shipment_po_not_open) and taken off while none of their lines is on it (shipment_po_has_lines);
+// lines are added and edited in a dialog. From loaded on nothing here changes (shipment_locked). An
+// order without an approved PSI is marked; it is a warning only (K3).
 const form = injectShipmentForm();
 const overview = injectShipmentOverview();
 const locked = useShipmentLocked(form);
@@ -78,20 +78,34 @@ const SHIPPABLE = PURCHASE_ORDER_STATUSES.slice(
    PURCHASE_ORDER_STATUSES.indexOf('balance_paid') + 1
 );
 
-type OrderOption = { id: string; code: string; status: PurchaseOrderStatus; customer_id: string };
+type OrderOption = {
+   id: string;
+   code: string;
+   status: PurchaseOrderStatus;
+   tenant_id: string;
+   client_tenant_id: string | null;
+};
 
 const picking = ref(false);
 const { data: openOrders } = useLookup<OrderOption>(
    'purchase_order_overview',
-   { select: 'id, code, status, customer_id', in: { column: 'status', values: SHIPPABLE } },
+   {
+      select: 'id, code, status, tenant_id, client_tenant_id',
+      in: { column: 'status', values: SHIPPABLE }
+   },
    picking
 );
 
-/** The customer's open orders that are not on the shipment yet. */
+/** The open orders of the shipment's tenant and client (client_mismatch) not on it yet. */
 const offered = computed(() => {
    const linked = new Set(orders.value.map(({ id }) => id));
    return (openOrders.value ?? [])
-      .filter((order) => order.customer_id === shipment.value?.customer_id && !linked.has(order.id))
+      .filter(
+         (order) =>
+            order.tenant_id === shipment.value?.tenant_id &&
+            order.client_tenant_id === shipment.value?.client_tenant_id &&
+            !linked.has(order.id)
+      )
       .sort((a, b) => a.code.localeCompare(b.code));
 });
 

@@ -17,10 +17,9 @@ import { useConfirmDelete } from '@/composables/useConfirmDelete';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { appErrorHandler } from '@/lib/appErrorHandler';
 import { useAuthStore } from '@/store/auth';
-import { useCustomerFilter } from '@/store/customerFilter';
 
-// Every file of the tenant as a grid, narrowed by customer, type, tag and the record it is linked
-// to. A file in use (linked, or cited by a document) is not deleted; unlink it first.
+// Every file of the tenant as a grid, narrowed by type, tag and the record it is linked to. A file
+// in use (linked, or cited by a document) is not deleted; unlink it first.
 type Linked = DocumentEntity | 'none';
 
 const route = useRoute();
@@ -39,7 +38,6 @@ const isLinked = (value: string | null): value is Linked =>
 const presetType = queryValue('entity_type');
 const presetId = queryValue('entity_id');
 
-const customerId = ref<string | null>(useCustomerFilter().customerId);
 const kind = ref<MediaKind | null>(null);
 const tagInput = ref('');
 const tag = ref<string | null>(null);
@@ -60,7 +58,6 @@ const LINKED_OPTIONS = computed(() => [
 ]);
 
 const filters = computed<MediaLibraryFilters>(() => ({
-   customerId: customerId.value,
    kind: kind.value ? [kind.value] : null,
    tag: tag.value,
    linkedType: linked.value,
@@ -102,7 +99,6 @@ const remove = async (row: MediaLibraryRow) => {
       <h2 class="m-0 text-xl font-semibold">{{ $t('ops.media.library') }}</h2>
 
       <div data-filters class="flex flex-wrap items-center gap-2">
-         <SelectCustomer v-model="customerId" data-filter="customer" class="w-64" />
          <SelectEnum
             v-model="kind"
             data-filter="kind"
@@ -132,7 +128,7 @@ const remove = async (row: MediaLibraryRow) => {
          />
       </div>
 
-      <MediaDropzone v-if="$can('create', 'media')" :customerId />
+      <MediaDropzone v-if="$can('create', 'media')" />
 
       <p v-if="!rows.length && !library.isFetching.value" class="text-surface-500">
          {{ $t('ops.media.empty_library') }}

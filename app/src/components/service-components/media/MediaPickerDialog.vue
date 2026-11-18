@@ -3,11 +3,10 @@ import { thumbPath, type MediaKind, type MediaLibraryRow, type MediaRow } from '
 import { useMediaLibrary } from '@/api/media/library';
 import MediaThumb from './MediaThumb.vue';
 
-// Picks files of the media library: a customer's and the shared ones. A plain dialog, so it can
+// Picks files of the media library. A plain dialog, so it can
 // open inside a route dialog (a card) without stacking a route.
 const props = withDefaults(
    defineProps<{
-      customerId?: string | null;
       /** Only this tenant's files (those a record of it can link); every tenant shown by default. */
       tenantId?: string | null;
       multiple?: boolean;
@@ -16,7 +15,7 @@ const props = withDefaults(
       /** Only these kinds; every kind by default. */
       kinds?: MediaKind[];
    }>(),
-   { customerId: null, tenantId: null, multiple: true, excludeIds: () => [], kinds: () => [] }
+   { tenantId: null, multiple: true, excludeIds: () => [], kinds: () => [] }
 );
 const visible = defineModel<boolean>('visible', { default: false });
 const emit = defineEmits<{ picked: [media: MediaLibraryRow[]] }>();
@@ -25,8 +24,6 @@ const emit = defineEmits<{ picked: [media: MediaLibraryRow[]] }>();
 const library = useMediaLibrary(
    () => ({
       tenantId: props.tenantId,
-      customerId: props.customerId,
-      includeShared: true,
       kind: props.kinds
    }),
    { enabled: () => visible.value }

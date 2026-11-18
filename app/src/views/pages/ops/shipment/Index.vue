@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ShipmentTable from '@/components/service-components/shipment-table/ShipmentTable.vue';
 
-// Every shipment of the customer the lists are filtered by (every customer's when none is).
+// Every shipment of the tenants in scope.
 // A new shipment is added from the menu's context menu.
 </script>
 

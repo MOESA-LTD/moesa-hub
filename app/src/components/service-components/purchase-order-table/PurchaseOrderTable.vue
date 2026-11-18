@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { withCustomerFilter } from '@/api/customerFilter';
 import {
    formatAmount,
    PURCHASE_ORDER_STATUS_SEVERITY,
@@ -14,10 +13,9 @@ import {
    type FilterSpec
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 
-// Purchase orders (public.purchase_order_overview) of the customer the lists are filtered by
-// (every customer's when none is), optionally of one supplier, project or product. Embedded in
+// Purchase orders (public.purchase_order_overview) of the tenants in scope, optionally of one
+// supplier, project or product. Embedded in
 // another card (with filters), the table keeps its state for the session only.
 type Props = ResourceTableProps<'purchase_order_overview'>;
 
@@ -49,7 +47,7 @@ const columns = computed<Props['columns']>(() => [
       sortOrder: { value: -1 },
       header: t('ops.purchase_order.fields.code')
    },
-   { field: 'customer_code', sortable: true, header: t('ops.purchase_order.fields.customer') },
+   { field: 'client_code', sortable: true, header: t('ops.purchase_order.fields.client') },
    {
       field: 'supplier_id',
       sortField: 'supplier_code',
@@ -88,7 +86,6 @@ const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
       status: equalsFilter(),
-      customer_id: equalsFilter(),
       supplier_id: equalsFilter(props.filters?.supplierId ?? null),
       project_id: equalsFilter(props.filters?.projectId ?? null),
       ...(productId.value ? { id: idFilter([]) as FilterSpec } : {})
@@ -103,16 +100,6 @@ watch(
    },
    { immediate: true }
 );
-
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const rowActions: Props['rowActions'] = [
    {

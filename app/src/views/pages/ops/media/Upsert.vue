@@ -6,7 +6,6 @@ import {
    toMediaFormValues,
    toMediaPayload
 } from '@/api/media';
-import { isMediaInUse, useMediaUsage } from '@/api/media/library';
 import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
@@ -25,11 +24,7 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
       toPayload: toMediaPayload
    });
 
-// A file linked to a record or cited by a document keeps its customer (media_customer_locked).
-const usage = useMediaUsage(() => props.id);
-const customerLocked = computed(() => isMediaInUse(usage.data.value));
-
-await Promise.all([ready, usage.suspense()]);
+await ready;
 </script>
 
 <template>
@@ -55,23 +50,6 @@ await Promise.all([ready, usage.suspense()]);
             v-slot="slotProps"
          >
             <InputText v-bind="slotProps" v-model="values.title" />
-         </FormField>
-         <FormField
-            fluid
-            :label="$t('ops.media.fields.customer')"
-            :error="errors.customer_id"
-            :readonly="readonly || customerLocked"
-            v-slot="slotProps"
-         >
-            <SelectCustomer
-               v-bind="slotProps"
-               v-model="values.customer_id"
-               data-field="customer_id"
-               :disabled="customerLocked"
-            />
-            <small v-if="customerLocked" data-customer-locked class="text-surface-500">
-               {{ $t('errors.media_customer_locked') }}
-            </small>
          </FormField>
          <FormField
             class="!flex-auto !max-w-none w-full"

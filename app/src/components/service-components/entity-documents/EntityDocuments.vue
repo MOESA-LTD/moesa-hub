@@ -9,14 +9,13 @@ import type { ResourceTableProps } from '@/components/service-components/resourc
 import { DIALOG_POSITIONS } from '@/constants/router';
 import DocumentFileLink from './DocumentFileLink.vue';
 
-// The documents of one record (customer, supplier, product, project, gate...), embedded in its
+// The documents of one record (supplier, product, project, gate...), embedded in its
 // card. Documents are opened, added and edited in a dialog; they are never deleted.
 const props = defineProps<{
    entityType: DocumentEntity;
    entityId: string;
    /** The record's code the files are named after (see documentFileName). */
    code: string;
-   customerId?: string | null;
 }>();
 
 type Props = ResourceTableProps<'document'>;
@@ -48,8 +47,7 @@ const context = computed(() => ({
    showDialog: DIALOG_POSITIONS.CENTER,
    entity_type: props.entityType,
    entity_id: props.entityId,
-   code: props.code,
-   ...(props.customerId ? { customer_id: props.customerId } : {})
+   code: props.code
 }));
 
 const rowActions = computed<Props['rowActions']>(() => [

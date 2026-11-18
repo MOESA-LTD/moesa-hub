@@ -2,18 +2,17 @@
 import { useAmazonAccounts } from '@/api/amazon';
 import { matrixCounts, useMarketCells, type MarketCellRow } from '@/api/marketMatrix';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { useAbility } from '@casl/vue';
 
-// The market matrix (S05) of the customer the lists are filtered by (every customer's when none
-// is): the pivot of products by platform and country, or the cells as a list (?view=list).
+// The market matrix (S05) of the tenants in scope: the pivot of products by platform and country,
+// or the cells as a list (?view=list).
 type View = 'matrix' | 'list';
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 const ability = useAbility();
-const customerFilter = useCustomerFilter();
+const authStore = useAuthStore();
 
 const view = computed<View>({
    get: () => (route.query.view === 'list' ? 'list' : 'matrix'),
@@ -31,35 +30,31 @@ const {
    data: cells,
    isPending,
    isError
-} = useMarketCells(() => ({
-   customerId: customerFilter.customerId,
-   platformId: platformId.value
-}));
+} = useMarketCells(() => ({ platformId: platformId.value }));
 
-// Per customer of the shown cells: its live cells against its target ones.
+// Per tenant of the shown cells: its live cells against its target ones.
 const counters = computed(() => {
-   const shown = cells.value ?? [];
-   const codes = new Map(shown.map((cell) => [cell.customer_id, cell.customer_code]));
+   const names = new Map(authStore.branches.map(({ id, display_name }) => [id, display_name]));
    return Object.entries(
-      matrixCounts(shown as Pick<MarketCellRow, 'customer_id' | 'status'>[])
-   ).map(([customerId, { live, target }]) => ({
-      customerId,
-      label: t('ops.market.counter', { code: codes.get(customerId) ?? '', live, target })
+      matrixCounts((cells.value ?? []) as Pick<MarketCellRow, 'tenant_id' | 'status'>[])
+   ).map(([tenantId, { live, target }]) => ({
+      tenantId,
+      label: t('ops.market.counter', { code: names.get(tenantId) ?? '', live, target })
    }));
 });
 
 const canCreate = computed(() => ability.can('create', 'market_cell'));
 
-// N2: an Amazon cell of a customer without a connected account shows draft. Without the right to
+// N2: an Amazon cell of a tenant without a connected account shows draft. Without the right to
 // read the accounts the stored states are shown (undefined); while they load, none (null).
-const canReadAccounts = computed(() => ability.can('select', 'customer_platform_account'));
+const canReadAccounts = computed(() => ability.can('select', 'platform_account'));
 const { data: amazonAccounts } = useAmazonAccounts(() => (canReadAccounts.value ? {} : null));
 const amazonConnected = computed(() => {
    if (!canReadAccounts.value) return undefined;
    if (!amazonAccounts.value) return null;
    return amazonAccounts.value
       .filter((account) => account.api_connection === 'connected')
-      .map((account) => account.customer_id);
+      .map((account) => account.tenant_id);
 });
 
 const dialog = { showDialog: DIALOG_POSITIONS.CENTER };
@@ -106,7 +101,7 @@ const addCells = () => router.push({ name: 'ops-market-cells-add', query: dialog
             <SelectPlatform v-model="platformId" show-clear class="w-56" />
             <Tag
                v-for="counter in counters"
-               :key="counter.customerId"
+               :key="counter.tenantId"
                :value="counter.label"
                severity="secondary"
             />

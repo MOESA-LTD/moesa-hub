@@ -113,7 +113,7 @@ describe('MarketMatrixGrid', () => {
       ) => {
          const amazon = {
             ...CELLS[2]!,
-            customer_id: 'k1',
+            tenant_id: 'k1',
             listing_state: state,
             ...extra
          } as MarketCellOverviewRow;
@@ -146,7 +146,7 @@ describe('MarketMatrixGrid', () => {
       expect(badge(null).exists()).toBe(false);
       expect(badge('live', { platform_id: 'ebay', cell_key: 'ebay_DE' }).exists()).toBe(false);
 
-      // N2: a customer whose account is not connected shows draft whatever the stored state.
+      // N2: a tenant whose account is not connected shows draft whatever the stored state.
       expect(badge('live', {}, []).attributes('data-listing-state')).toBe('draft');
       expect(badge('live', {}, ['k1']).attributes('data-listing-state')).toBe('live');
       // Accounts still loading: no verdict yet, so no listing badge.

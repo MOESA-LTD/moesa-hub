@@ -13,8 +13,8 @@ import { formatEmpty } from '@/constants/format';
 // The S05 matrix: a row per product, a column per platform and country that has a cell. An opened
 // cell shows its status (and a warning when its compliance is red) and opens it; a cell that is not
 // opened shows S05's dash, a button to open it for those who may. An Amazon cell the API manages
-// shows its listing state under the status; with `amazonConnected` (the customers whose Amazon
-// account is connected) a cell of any other customer shows draft (ruling N2); while those load
+// shows its listing state under the status; with `amazonConnected` (the tenants whose Amazon
+// account is connected) a cell of any other tenant shows draft (ruling N2); while those load
 // (null) no listing state is shown.
 const props = defineProps<{
    cells: MarketCellOverviewRow[];
@@ -24,7 +24,7 @@ const props = defineProps<{
    /** The cells could not be loaded: says so instead of the empty matrix's hint. */
    error?: boolean;
    /**
-    * The customers whose Amazon account is connected. Unset (the accounts may not be read) shows
+    * The tenants whose Amazon account is connected. Unset (the accounts may not be read) shows
     * the stored listing states; null (still loading) shows none yet.
     */
    amazonConnected?: readonly string[] | null;
@@ -48,7 +48,7 @@ const add = (row: MarketMatrixRow, column: MarketMatrixColumn) =>
 const listingState = (cell: MarketCellOverviewRow) => {
    if (cell.platform_id !== 'amazon' || !cell.listing_state) return null;
    if (props.amazonConnected === null) return null;
-   const connected = !props.amazonConnected || props.amazonConnected.includes(cell.customer_id!);
+   const connected = !props.amazonConnected || props.amazonConnected.includes(cell.tenant_id!);
    return shownListingState(cell.listing_state, connected);
 };
 

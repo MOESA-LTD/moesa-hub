@@ -13,7 +13,6 @@ import {
 } from '@/api/shipment';
 import { useLookup } from '@/api/useLookup';
 import { useUpsertForm } from '@/composables/useUpsertForm';
-import { useCustomerFilter } from '@/store/customerFilter';
 import {
    computed,
    inject,
@@ -68,26 +67,23 @@ export const tabForField = (field: string): 'general' | 'dates' | 'acceptance' =
 
 /** A delivery warehouse as the card offers it, with its S14 receiving rules. */
 export type WarehouseOption = Pick<
-   Tables['customer_warehouse']['Row'],
+   Tables['warehouse']['Row'],
    'id' | 'display_name' | 'city' | 'is_default' | 'dock_hours' | 'appointment_rule'
 >;
 
 /**
  * The shipment card's one form: the general, dates and acceptance tabs each show their part of
- * it. A new shipment starts with the customer the lists are filtered by; once a customer is chosen,
- * it goes to that customer's default warehouse (or the only one). Once a new shipment is saved,
- * its "new" draft is dropped: the card goes on under the shipment's id (see ShipmentCard).
+ * it. A new shipment goes to its tenant's default warehouse (or the only one). Once a new shipment
+ * is saved, its "new" draft is dropped: the card goes on under the shipment's id (see ShipmentCard).
  */
 export function useShipmentForm(
    id: () => string | null | undefined,
    onSaved?: (shipment: ShipmentCard) => void
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const form = useUpsertForm({
       id,
-      prefill: () => (customerFilter.customerId ? { customer_id: customerFilter.customerId } : {}),
       useRow: shipmentResource.useOne,
       useSaveRow: shipmentResource.useSave,
       subject: 'shipment',
@@ -101,25 +97,25 @@ export function useShipmentForm(
       }
    });
 
-   // The customer's warehouses; an empty `in` would list every customer's, so none until chosen.
-   const customerId = computed(() => form.values.value.customer_id ?? null);
+   // The warehouses of the shipment's tenant.
+   const tenantId = form.tenantId;
    const { data: warehouses } = useLookup<WarehouseOption>(
-      'customer_warehouse',
+      'warehouse',
       () => ({
          select: 'id, display_name, city, is_default, dock_hours, appointment_rule',
          order: 'display_name',
-         in: { column: 'customer_id', values: customerId.value ? [customerId.value] : [] }
+         in: { column: 'tenant_id', values: tenantId.value ? [tenantId.value] : [] }
       }),
-      () => !!customerId.value
+      () => !!tenantId.value
    );
 
-   // The list is the current customer's: a warehouse that is not on it (none yet, or another
-   // customer's) gives way to the default one. A saved shipment keeps its own.
+   // A warehouse that is not on the list gives way to the default one. A saved shipment keeps its
+   // own.
    if (isNew)
       watch(
          warehouses,
          (list) => {
-            if (!list || !customerId.value) return;
+            if (!list) return;
             const current = form.values.value.delivery_warehouse_id;
             if (current && list.some((warehouse) => warehouse.id === current)) return;
             form.values.value.delivery_warehouse_id = defaultWarehouseId(list);

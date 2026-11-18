@@ -157,11 +157,13 @@
       "document": "Document",
       "supplier": "Supplier",
       "supplier_contact": "Supplier contact",
-      "customer": "Customer",
-      "customer_contact": "Customer contact",
-      "customer_warehouse": "Customer warehouse",
-      "customer_platform_account": "Customer platform account",
-      "customer_brand": "Customer brand",
+      "brand": "Brand",
+      "contact": "Contact",
+      "warehouse": "Warehouse",
+      "platform_account": "Platform account",
+      "provider_relationship": "Client relationship",
+      "client": "Client",
+      "sourcing": "Sourcing",
       "product": "Product",
       "project": "Project",
       "project_product": "Project product",
@@ -184,7 +186,6 @@
       "incident_deadline": "Incident deadline",
       "change_request": "Change request",
       "change_request_product": "Change request product",
-      "transfer": "Transfer",
       "listing": "Listing",
       "listing_submission": "Listing submission"
    },
@@ -420,7 +421,7 @@
       "document_entity_missing": "The record this document belongs to was not found",
       "invalid_gtin": "Enter a valid GTIN: 8, 12, 13 or 14 digits with a correct check digit",
       "gtin_in_use": "This GTIN is already used by another active product",
-      "sku_in_use": "This SKU already exists for the customer",
+      "sku_in_use": "This SKU already exists in this company",
       "gate_not_pending": "This gate is already passed; a passed gate cannot be changed.",
       "gate_order": "Pass the earlier gates first.",
       "gate_customer_approval_required": "This gate needs the customer's approval date and approval document.",
@@ -433,14 +434,10 @@
       "gate_rollback_order": "Roll back the later passed gates first.",
       "gate_not_passed": "Only a passed gate can be rolled back.",
       "project_not_active": "The project is on hold, closed or cancelled.",
-      "project_immutable_field": "A project's customer, type, path and packages cannot be changed.",
+      "project_immutable_field": "A project's type, path and packages cannot be changed.",
       "project_code_immutable": "A project's code cannot be changed.",
       "document_superseded_sticky": "A superseded document stays superseded; add a new version instead.",
       "document_identity_immutable": "A saved document's record, type and version cannot be changed; add a new version instead.",
-      "customer_closed": "The customer is closed: it gets no new projects.",
-      "customer_contract_restricted": "Only management may change a customer's contract terms.",
-      "project_customer_missing": "The project's customer was not found.",
-      "customer_code_immutable": "A customer's code cannot be changed.",
       "tenant_required": "Choose a branch first.",
       "invalid_code_kind_or_scope": "This kind of code cannot be generated for that scope.",
       "rows_must_be_an_array": "The import file could not be read as a list of rows.",
@@ -458,9 +455,7 @@
       "media_link_entity_missing": "The record to link to does not exist.",
       "media_link_forbidden": "You may not change this record, so you cannot change its media.",
       "media_link_identity_immutable": "A link cannot be moved to another file or record.",
-      "media_customer_mismatch": "This file belongs to another customer.",
       "media_primary_not_image": "Only an image can be the primary image.",
-      "media_customer_locked": "The file's customer cannot change while it is linked.",
       "media_missing": "The media file does not exist.",
       "media_already_linked": "The file is already linked to this record.",
       "media_primary_exists": "The record already has a primary image.",
@@ -469,11 +464,10 @@
       "avatar_type": "The photo must be a PNG, JPEG or WebP image.",
       "avatar_size": "The photo must be at most 1 MB.",
       "unknown": "Something went wrong.",
-      "purchase_order_customer_missing": "The order's customer was not found.",
-      "purchase_order_immutable_field": "An order's code, customer and supplier cannot change.",
+      "purchase_order_immutable_field": "An order's code and supplier cannot change.",
       "incoterm_invalid": "Choose an Incoterms 2020 term.",
-      "po_project_customer": "The project belongs to another customer.",
-      "po_line_product_customer": "The product belongs to another customer.",
+      "po_project_scope": "The project belongs to another company.",
+      "po_line_product_scope": "The product belongs to another company.",
       "po_line_product_duplicate": "The product is already on this order.",
       "pi_check_invalid": "The PI checklist has an unknown item or answer.",
       "po_status_order": "The order cannot move to this status from its current one.",
@@ -489,9 +483,8 @@
       "po_locked": "The PI is approved; lines and terms no longer change.",
       "po_closed": "The order is closed or cancelled; it no longer changes.",
       "po_line_identity_immutable": "A line cannot move to another order.",
-      "shipment_customer_missing": "The shipment's customer was not found.",
-      "shipment_immutable_field": "A shipment's code and customer cannot change.",
-      "shipment_warehouse_customer": "Choose one of this customer's warehouses.",
+      "shipment_immutable_field": "A shipment's code cannot change.",
+      "shipment_warehouse_scope": "Choose one of this company's warehouses.",
       "shipment_status_order": "The shipment cannot move to this status from its current one.",
       "shipment_po_required": "Add a purchase order to the shipment first.",
       "shipment_booking_date_required": "Enter the booking confirmation date.",
@@ -500,7 +493,7 @@
       "shipment_delivery_receipt_required": "Add the signed delivery receipt (G5 evidence) first.",
       "shipment_acceptance_issue": "Quantities differ or goods are damaged: mark the shipment disputed.",
       "shipment_po_not_open": "Only orders with an approved PI that are not closed can be shipped.",
-      "shipment_po_customer": "The order belongs to another customer.",
+      "shipment_po_scope": "The order belongs to another company.",
       "shipment_po_has_lines": "Remove the order's lines from the shipment first.",
       "shipment_line_po_not_linked": "Add the line's order to the shipment first.",
       "shipment_line_duplicate": "This order line is already on the shipment.",
@@ -519,24 +512,22 @@
       "market_cell_immutable_field": "A cell's product, platform and country do not change; open a new cell.",
       "market_cell_delete_candidate_only": "Only a candidate cell can be deleted; remove or close the others.",
       "market_cell_duplicate": "This product already has a cell for this platform and country.",
-      "market_cell_product_customer": "The product belongs to another customer.",
-      "market_cell_project_customer": "The project belongs to another customer.",
+      "market_cell_product_scope": "The product belongs to another company.",
+      "market_cell_project_scope": "The project belongs to another company.",
       "market_cell_price_currency": "A price needs its currency.",
-      "incident_customer_missing": "The incident's customer was not found.",
-      "incident_immutable_field": "An incident's code, customer and family cannot change.",
+      "incident_immutable_field": "An incident's code and family cannot change.",
       "incident_type_family": "The Y10 card belongs to another family.",
-      "incident_entity_invalid": "Choose a project, order, shipment, product or market cell of this customer.",
+      "incident_entity_invalid": "Choose a project, order, shipment, product or market cell of this company.",
       "incident_status_order": "The incident cannot move to this status from its current one.",
       "incident_management_notice_required": "S1 and S2 incidents need the time management was told first.",
       "incident_closure_incomplete": "Fill the outcome, the root cause and the preventive action before closing.",
       "incident_close_management": "Only management closes an S1 incident.",
       "incident_closed": "The incident is closed; its log and deadlines no longer change.",
       "gate_rollback_incident_required": "A gate is rolled back only through an incident (K3); pick or open one.",
-      "gate_incident_invalid": "Pick an open incident of this project's customer.",
+      "gate_incident_invalid": "Pick an open incident of this project's company.",
       "incident_severity_downgrade_requires_management": "Only management may lower an S1 or S2 incident's severity.",
-      "change_request_customer_missing": "The request's customer was not found.",
       "change_request_immutable_field": "A change request's code and customer cannot change.",
-      "change_request_document_invalid": "Choose a document of this customer's records.",
+      "change_request_document_invalid": "Choose a document of this company's records.",
       "change_request_approval_document_invalid": "The customer's approval must be a signed or approved document of this request.",
       "change_request_status_order": "The request cannot move to this status from its current one.",
       "change_request_customer_approval_required": "It touches a passed (M) gate: add the customer's written approval date and document first (S08).",
@@ -545,33 +536,13 @@
       "incident_type_invalid": "Choose a Y10 card code (e.g. OL-09).",
       "incident_log_cost_incomplete": "A cost needs its amount, currency and who pays.",
       "incident_deadline_due_required": "Enter the due time; only the 48-hour, 7-day and document-request deadlines are calculated.",
-      "cr_project_customer": "The project belongs to another customer.",
-      "cr_product_customer": "A product belongs to another customer.",
+      "cr_project_scope": "The project belongs to another company.",
+      "cr_product_scope": "A product belongs to another company.",
       "change_request_kinds_required": "Choose at least one change kind.",
       "gate_rollback_immutable": "A rollback's reason and incident stay until the gate is passed again.",
-      "audit_transfer_not_revertable": "A transfer cannot be undone from the log. Transfer the records back instead.",
       "audit_revert_field_forbidden": "This change cannot be reverted: it touches a field you are not allowed to change.",
-      "transfer_invalid_mode": "Choose Copy or Move.",
-      "transfer_same_tenant": "The target must differ from the source.",
-      "transfer_owner_required": "Between two separate companies only an owner of both can transfer.",
-      "transfer_target_read_only": "The target is read-only (its subscription has ended); nothing can be transferred into it.",
-      "transfer_target_plan": "The target's plan does not include the business modules.",
-      "transfer_forbidden": "You need the right to transfer in both places: to read the records in the source and to create them in the target.",
-      "transfer_source_read_only": "The source is read-only: its records can be copied, not moved.",
-      "transfer_customer_missing": "This customer is not in the source.",
-      "transfer_products_invalid": "Pick products of one customer of the source.",
-      "transfer_gate_invalid": "A project's gates are out of order (a gate is passed before an earlier one, or the gate set does not match the project). Fix the project first.",
-      "transfer_report_required": "Rehearse the transfer first.",
-      "transfer_report_stale": "The records changed since the rehearsal. Rehearse again and check the report.",
-      "transfer_decision_required": "Every conflict needs a decision.",
-      "transfer_decision_invalid": "A decision does not fit its conflict: check the action and the record it links to.",
-      "transfer_code_invalid": "The new code has the wrong format or is taken in the target.",
-      "transfer_product_in_use": "Records that stay behind use these products (a project, order, market cell or change request). Copy them, or transfer the whole customer.",
-      "transfer_not_found": "Transfer not found.",
-      "transfer_files_pending": "The files of an earlier transfer into this customer are not all copied yet. Finish that transfer first: \"Retry file copy\" on the customer's page.",
-      "transfer_field_rights_required": "This transfer copies every field of the copied records, including internal notes. You need the right to read and change all of them in both the source and the target branch.",
       "request_failed": "Request failed",
-      "amazon_not_connected": "The customer has not connected an Amazon account.",
+      "amazon_not_connected": "No Amazon account is connected.",
       "amazon_connection_revoked": "The Amazon connection was withdrawn. Connect the account again.",
       "amazon_auth_failed": "Amazon refused the authorisation. Connect the account again.",
       "amazon_unavailable": "Amazon is not reachable right now. Try again later.",
@@ -604,7 +575,24 @@
       "listing_in_progress": "Amazon is still processing the last submission of this listing.",
       "listing_forbidden": "You may not manage this listing.",
       "platform_account_forbidden": "You may not change this Amazon account's connection.",
-      "platform_account_connected": "Disconnect Amazon before moving this account to another customer."
+      "platform_account_connected": "Disconnect Amazon before moving this account to another company or platform.",
+      "relationship_immutable": "A relationship's companies cannot change.",
+      "relationship_ended_final": "An ended relationship cannot be reopened.",
+      "client_code_immutable": "The client code cannot be changed.",
+      "relationship_contract_restricted": "Only management may change a relationship's contract terms.",
+      "relationship_end_forbidden": "You may not end this relationship.",
+      "relationship_inactive": "There is no active relationship with this client.",
+      "client_link_forbidden": "You may not link to a record of this company.",
+      "client_tenant_immutable": "A record's client cannot change.",
+      "client_mismatch": "The order is for another client than the shipment.",
+      "purchase_order_scope_missing": "The order cannot get a code: the company or the client has none.",
+      "po_project_locked": "An order's project can change only while it is a draft.",
+      "po_line_product_required": "Choose the line's product.",
+      "shipment_warehouse_required": "Choose the delivery warehouse.",
+      "shipment_scope_missing": "The shipment cannot get a code: the company or the client has none.",
+      "shipment_po_link_immutable": "An order on a shipment cannot be swapped: take it off and add the other one.",
+      "incident_scope_missing": "The incident cannot get a code: the company has none.",
+      "change_request_scope_missing": "The change request cannot get a code: the company has none."
    },
    "account": {
       "profile": {
@@ -709,29 +697,11 @@
          "ops_supplier_documents": "Documents",
          "ops_supplier_contact_add": "Add contact",
          "ops_supplier_contact_edit": "Edit contact",
-         "ops_customer": "Customers",
-         "ops_customer_list": "Customer list",
-         "ops_customer_manage": "Customer card",
-         "ops_customer_general": "General",
-         "ops_customer_contacts": "Contacts",
-         "ops_customer_warehouses": "Warehouses",
-         "ops_customer_platforms": "Platforms",
-         "ops_customer_brands": "Brands",
-         "ops_customer_documents": "Documents",
-         "ops_customer_contact_add": "Add contact",
-         "ops_customer_contact_edit": "Edit contact",
-         "ops_customer_warehouse_add": "Add warehouse",
-         "ops_customer_warehouse_edit": "Edit warehouse",
-         "ops_customer_platform_add": "Add platform account",
-         "ops_customer_platform_edit": "Edit platform account",
-         "ops_customer_brand_add": "Add brand",
-         "ops_customer_brand_edit": "Edit brand",
          "ops_product": "Products",
          "ops_product_list": "Product list",
          "ops_product_manage": "Product card",
          "ops_product_general": "General",
          "ops_product_dimensions": "Dimensions",
-         "ops_product_cost": "Cost",
          "ops_product_documents": "Documents",
          "ops_product_import": "Import products",
          "ops_project": "Projects",
@@ -746,7 +716,6 @@
          "ops_project_task_edit": "Edit task",
          "ops_document": "Documents",
          "ops_document_list": "Document list",
-         "ops_customer_media": "Media",
          "ops_product_media": "Media",
          "ops_media": "Media library",
          "ops_media_edit": "Edit file",
@@ -814,7 +783,6 @@
          "ops_change_request_decision": "Decision",
          "ops_change_request_documents": "Documents",
          "guide": "System guide",
-         "ops_transfer": "Transfer",
          "ops_product_amazon": "Amazon"
       }
    },
@@ -914,7 +882,6 @@
       "updated": "已更新",
       "deleted": "已删除",
       "readed": "已查看",
-      "revert_transfer_locked": "Transfer entries cannot be reverted. Transfer the records back instead.",
       "masked": "changed"
    },
    "user": {
@@ -1070,9 +1037,6 @@
             "media_max_mb": "Largest upload (MB)"
          }
       },
-      "customer_filter": {
-         "all": "All customers"
-      },
       "document": {
          "title": "Documents",
          "open_link": "Open link",
@@ -1087,7 +1051,6 @@
             "is_stamped": "Stamped",
             "sent_from_official_email": "Sent from the official e-mail",
             "notes": "Notes",
-            "customer": "Customer",
             "entity_type": "Record"
          },
          "type": {
@@ -1120,9 +1083,10 @@
             "superseded": "Superseded"
          },
          "entity": {
-            "customer": "Customer",
+            "provider_relationship": "Client relationship",
             "supplier": "Supplier",
             "product": "Product",
+            "sourcing": "Sourcing",
             "project": "Project",
             "project_gate": "Project gate",
             "purchase_order": "Purchase order",
@@ -1294,7 +1258,6 @@
          "tabs": {
             "general": "General",
             "dimensions": "Dimensions",
-            "cost": "Cost",
             "documents": "Documents",
             "media": "Media",
             "orders": "Orders and shipments",
@@ -1312,7 +1275,6 @@
             "prices": "Prices"
          },
          "fields": {
-            "customer_id": "Customer",
             "parent_id": "Parent product",
             "sku": "SKU",
             "display_name": "Name",
@@ -1353,7 +1315,6 @@
             "company_price_eur": "Company price (EUR)",
             "price_list_version": "Price list version",
             "notes": "Notes",
-            "customer": "Customer",
             "supplier": "Supplier",
             "spec": "Spec"
          },
@@ -1392,12 +1353,11 @@
                "required": "required",
                "invalid_value": "invalid value",
                "gtin_invalid": "invalid GTIN (check digit)",
-               "customer_unknown": "no customer with this code",
                "supplier_unknown": "no supplier with this code",
-               "parent_unknown": "no parent product with this SKU for the customer",
+               "parent_unknown": "no parent product with this SKU in the company",
                "gtin_in_use": "GTIN already used by active product {sku}",
                "gtin_duplicate": "GTIN appears more than once in the file",
-               "sku_duplicate": "SKU appears more than once in the file for this customer",
+               "sku_duplicate": "SKU appears more than once in the file",
                "csv_column_not_writable": "您无权写入此列，请留空"
             },
             "warnings": {
@@ -1429,8 +1389,6 @@
          },
          "fields": {
             "code": "Code",
-            "customer_id": "Customer",
-            "customer": "Customer",
             "display_name": "Name",
             "type": "Type",
             "path": "Path",
@@ -1444,7 +1402,7 @@
             "coordinator": "Coordinator",
             "notes": "Notes"
          },
-         "fixed_hint": "The customer, type, path and packages decide the gates and cannot be changed.",
+         "fixed_hint": "The type, path and packages decide the gates and cannot be changed.",
          "type": {
             "npi": "New product",
             "variant": "Variant",
@@ -1497,7 +1455,7 @@
             "passed": "Gate passed",
             "rolled_back": "Gate rolled back",
             "incident": "Incident",
-            "no_incident": "There is no open incident of this customer; open one first."
+            "no_incident": "There is no open incident in this company; open one first."
          },
          "task": {
             "fields": {
@@ -1593,7 +1551,6 @@
             "title": "Title",
             "alt_text": "Alt text",
             "tags": "Tags",
-            "customer": "Customer",
             "file_name": "File"
          },
          "too_large": "The file is larger than the upload limit: up to {mb} MB."
@@ -1611,7 +1568,7 @@
          },
          "fields": {
             "code": "Code",
-            "customer": "Customer",
+            "client": "Client",
             "supplier": "Supplier",
             "project": "Project",
             "status": "Status",
@@ -1792,13 +1749,15 @@
             "note": "Note",
             "step": "Event",
             "code": "Code",
-            "customer": "Customer",
+            "client": "Client",
             "status": "Status",
             "purchase_orders": "Orders",
             "ordered": "Ordered",
             "on_shipment": "On this shipment",
             "happened_at": "When",
-            "notes": "Notes"
+            "notes": "Notes",
+            "dock_hours": "Dock hours",
+            "appointment_rule": "Delivery appointment"
          },
          "mode": {
             "fcl20": "FCL 20'",
@@ -1850,7 +1809,7 @@
          "remove_order": "Remove order",
          "no_rows": "No shipments.",
          "no_orders": "No orders on this shipment yet.",
-         "no_open_orders": "No other open orders of this customer.",
+         "no_open_orders": "No other open orders to put on it.",
          "no_events": "No events.",
          "document_missing": "Missing",
          "psi_missing": "No approved PSI",
@@ -1910,7 +1869,6 @@
             "approved": "Approved (L-G1)"
          },
          "fields": {
-            "customer": "Customer",
             "sku": "SKU",
             "product": "Product",
             "products": "Products",
@@ -1940,7 +1898,8 @@
             "3": "New region"
          },
          "live_missing": "Missing for live: {fields}",
-         "load_error": "Market cells could not be loaded."
+         "load_error": "Market cells could not be loaded.",
+         "platform_select": "Select a platform"
       },
       "incident": {
          "title": "Incidents",
@@ -2055,7 +2014,6 @@
          },
          "fields": {
             "code": "Incident no",
-            "customer": "Customer",
             "family": "Family",
             "incident_type": "Incident type (Y10)",
             "severity": "Severity",
@@ -2156,7 +2114,6 @@
          },
          "fields": {
             "code": "Request no",
-            "customer": "Customer",
             "project": "Project",
             "products": "SKUs",
             "title": "Title",
@@ -2187,113 +2144,6 @@
          "customer_approval_hint": "It touches a passed (M) gate: the customer's written approval is required (S08).",
          "overdue": "Decision overdue",
          "no_rows": "No change requests."
-      },
-      "transfer": {
-         "title_customer": "Transfer {code}",
-         "title_products": "Transfer {count} products of {code}",
-         "steps": {
-            "target": "Target",
-            "report": "Rehearsal",
-            "result": "Result"
-         },
-         "target": {
-            "label": "Target company or branch",
-            "same_company": "Same company",
-            "other_company": "Another company"
-         },
-         "mode": {
-            "label": "Mode",
-            "copy_label": "Copy",
-            "move_label": "Move",
-            "copy": "Copy: the source stays as it is.",
-            "move": "Move: written to the target, then deleted from the source. Suppliers stay in the source.",
-            "move_read_only": "The source is read-only, so only Copy is possible."
-         },
-         "rehearse": "Rehearse",
-         "rehearse_again": "Rehearse again",
-         "report": {
-            "path_cheap": "Moved in place: the records keep their IDs.",
-            "path_copy": "Written as new records with new IDs.",
-            "counts": "Records per table",
-            "conflicts": "Conflicts",
-            "no_conflicts": "No conflicts.",
-            "users": "Users who are not members of the target",
-            "users_hint": "Their records are credited to you and their assignments are cleared.",
-            "left_behind": "Links that stay in the source",
-            "left_behind_item": "{table} {label}: its {column} refers to {refers_to} {ref}, outside the transfer",
-            "settings_gaps": "Missing under the target's settings",
-            "spec_sheet_required": "{label}: the target requires a spec sheet",
-            "files": "Files to copy: {count}"
-         },
-         "conflict_kind": {
-            "customer_code": "Customer code",
-            "supplier_code": "Supplier code",
-            "code": "Code",
-            "sku": "SKU",
-            "gtin": "GTIN",
-            "customer_contact": "Customer contact",
-            "customer_warehouse": "Customer warehouse",
-            "customer_brand": "Customer brand",
-            "platform_account": "Platform account",
-            "market_cell": "Market cell",
-            "document_version": "Document version",
-            "media_link": "Primary image",
-            "unknown": "Other conflict"
-         },
-         "conflict": {
-            "customer_code": "Customer code {code} exists in the target",
-            "supplier_code": "Supplier code {code} exists in the target",
-            "code": "Code {code} exists in the target",
-            "sku": "SKU {code} exists for this customer in the target",
-            "gtin": "GTIN {code} is active",
-            "document_version": "Version {code} of this document exists in the target",
-            "customer_contact": "The customer in the target already has the contact {code}",
-            "customer_warehouse": "The customer in the target already has the warehouse {code}",
-            "customer_brand": "The customer in the target already has the brand {code}",
-            "platform_account": "The customer in the target already has an account on {code}",
-            "market_cell": "The product in the target already has the market cell {code}",
-            "media_link": "{code} already has a primary image in the target",
-            "unknown": "{code} conflicts with a record in the target",
-            "duplicate_code": "Another conflict of this table is given the same code.",
-            "code_taken": "This code is taken in the target.",
-            "code_format": "The code has the wrong format."
-         },
-         "action": {
-            "map": "Link to the target's record",
-            "new_code": "Give a new code",
-            "clear_gtin": "Leave the GTIN empty",
-            "skip": "Skip",
-            "demote": "Keep as gallery image"
-         },
-         "skip_drops": "Also drops: {list}",
-         "skip_drops_item": "{table} ({count})",
-         "decision": {
-            "target": "Record in the target",
-            "code": "New code"
-         },
-         "unresolved": "{count} conflicts need a decision.",
-         "move_blocked": "A move cannot leave links in the source. Transfer these records too, or copy instead.",
-         "confirm": {
-            "copy": "Copy {count} records to {target}?",
-            "move_copy": "Move {count} records to {target}? They are copied there and deleted from the source.",
-            "move_in_place": "Move {count} records to {target}? They keep their IDs and leave the source."
-         },
-         "run": "Transfer",
-         "open": "Transfer…",
-         "open_disabled_mixed": "Pick products of one customer to transfer them.",
-         "result": {
-            "done": "Transferred: {count} records.",
-            "id_map": "Download the ID map (CSV)"
-         },
-         "files": {
-            "pending": "Files are being copied.",
-            "done": "All files copied.",
-            "partial": "{count} file could not be copied. | {count} files could not be copied.",
-            "retry": "Retry file copy",
-            "notice": "Files of a transfer into this customer are missing."
-         },
-         "open_count": "Transfer {count}…",
-         "open_disabled_empty": "Select products first."
       },
       "amazon": {
          "state": {
@@ -2348,7 +2198,7 @@
             "title": "Amazon listing",
             "open": "Open Amazon listing",
             "connection": "Amazon connection",
-            "not_connected": "The customer has not connected an Amazon account.",
+            "not_connected": "No Amazon account is connected.",
             "completeness": "Completeness",
             "missing_none": "No field is missing.",
             "marketplace": "Marketplace",
@@ -2383,14 +2233,14 @@
             "checked_at": "Checked {date}",
             "state": "Listing state",
             "state_unknown": "Unknown state",
-            "open_platforms": "Open the customer’s platform accounts",
+            "open_platforms": "Open the platform accounts",
             "product_type_missing": "The product has no Amazon product type yet.",
             "open_tab": "Open the Amazon tab",
             "catalogue": "Catalogue match",
             "fields_save": "Save marketplace fields",
             "published": "Sent to Amazon: {status}",
             "publish_blocked": {
-               "not_connected": "Connect the customer’s Amazon account first.",
+               "not_connected": "Connect the Amazon account first.",
                "product_type": "Choose the product’s Amazon product type first.",
                "missing": "Fill in the missing fields first.",
                "unchecked": "Run Check to mark the listing ready.",
@@ -2443,7 +2293,7 @@
                "error": "Failed"
             },
             "open_disabled_empty": "Select products first.",
-            "open_disabled_mixed": "Pick products of one customer to publish them.",
+            "open_disabled_mixed": "Pick products of one company to publish them.",
             "summary": "{submitted} of {total} submitted"
          },
          "submission": {
@@ -2530,13 +2380,6 @@
          "candidate": "Being evaluated; no orders yet.",
          "approved": "Evaluated and approved for orders.",
          "suspended": "No new orders until the issue is resolved."
-      },
-      "customer_status": {
-         "lead": "Potential customer, no contract yet (C1–C2).",
-         "onboarding": "Contract signed, being onboarded (C3).",
-         "active": "Projects are running.",
-         "paused": "Work is on hold for now.",
-         "closed": "Relationship ended; no new project can be opened."
       },
       "product_status": {
          "concept": "An idea or concept; not developed yet.",
@@ -2704,9 +2547,9 @@
          "issues": "Amazon reported problems that must be fixed."
       },
       "api_connection": {
-         "none": "The customer has not connected an Amazon account.",
-         "connected": "The customer’s Amazon account is connected.",
-         "revoked": "The customer withdrew the authorisation; connect again to continue."
+         "none": "No Amazon account is connected.",
+         "connected": "The Amazon account is connected.",
+         "revoked": "The authorisation was withdrawn; connect again to continue."
       }
    },
    "status_actions": {
@@ -2764,7 +2607,7 @@
                "complete_compliance": {
                   "title": "Complete a SKU's compliance",
                   "steps": {
-                     "1": "Open the customer's row; the product list opens.",
+                     "1": "Open a company's row; the product list opens.",
                      "2": "On the product's General tab, fill the Compliance section and add the documents S12 asks for.",
                      "3": "Set the compliance status to complete; the SKU leaves the box."
                   }
@@ -2804,7 +2647,7 @@
                "update_market": {
                   "title": "Move market cells to live",
                   "steps": {
-                     "1": "Open the customer's row; the market matrix opens for that customer.",
+                     "1": "Open a company's row; the market matrix opens.",
                      "2": "Open a cell and fill what live needs: platform ID, platform SKU, price, currency, stock source.",
                      "3": "With the content approved (L-G1), move the cell to live."
                   }
@@ -2836,51 +2679,6 @@
                      "1": "Read the setting the message names, e.g. the spec sheet date.",
                      "2": "Compare it with the record's date or amount.",
                      "3": "Ask management if the value itself should change."
-                  }
-               }
-            }
-         },
-         "customer": {
-            "purpose": "Every customer of your company with its contract terms, warehouses, marketplace accounts and brands. Choosing a customer in the top filter narrows every operations list to it.",
-            "tasks": {
-               "add_customer": {
-                  "title": "Add a customer",
-                  "steps": {
-                     "1": "Use Add in the menu; the three-letter code goes into every code of the customer.",
-                     "2": "Fill the commercial model, the packages and the status (C1–C4).",
-                     "3": "Save; the other tabs open."
-                  }
-               },
-               "add_warehouse": {
-                  "title": "Add a delivery warehouse",
-                  "steps": {
-                     "1": "Open the customer, then Warehouses.",
-                     "2": "Enter the address, dock hours and appointment rule as on the S14 card.",
-                     "3": "Shipments take the address from here; it is never typed on a shipment."
-                  }
-               },
-               "add_platform": {
-                  "title": "Record a marketplace account",
-                  "steps": {
-                     "1": "Open the customer, then Platforms.",
-                     "2": "Pick the platform and the countries the customer sells in.",
-                     "3": "Note our access; account IDs and passwords are never stored (K8)."
-                  }
-               },
-               "transfer_customer": {
-                  "title": "Transfer a customer to another company or branch",
-                  "steps": {
-                     "1": "Open the customer and use Transfer…; pick the target and Copy or Move.",
-                     "2": "Rehearse, then decide each conflict: link, new code, empty [[GTIN]] or skip.",
-                     "3": "Confirm; download the ID map, and retry the file copy if files are missing."
-                  }
-               },
-               "connect_amazon": {
-                  "title": "Connect the Amazon account",
-                  "steps": {
-                     "1": "Open the customer, then the Platforms tab.",
-                     "2": "Press Connect Amazon on the Amazon account and give consent as the seller.",
-                     "3": "The tab shows Connected with the seller ID; publishing is possible from then on."
                   }
                }
             }
@@ -2957,7 +2755,7 @@
                "open_project": {
                   "title": "Open a project",
                   "steps": {
-                     "1": "Use Add in the menu; pick the customer, type, path and packages.",
+                     "1": "Use Add in the menu; pick the type, path and packages.",
                      "2": "Save; the code and the gate set are created.",
                      "3": "Add the products on the Products tab."
                   }
@@ -3025,7 +2823,7 @@
                   "steps": {
                      "1": "Open that record's Media tab.",
                      "2": "Choose Pick from the library.",
-                     "3": "A customer's file links only to that customer's records."
+                     "3": "A file links only to records of its own company."
                   }
                },
                "delete_media": {
@@ -3044,7 +2842,7 @@
                "create_po": {
                   "title": "Open a purchase order",
                   "steps": {
-                     "1": "Use Add (or New purchase order on a project); pick the customer and the supplier.",
+                     "1": "Use Add (or New purchase order on a project); pick the supplier.",
                      "2": "Check the Incoterm and deposit taken from the supplier, and save.",
                      "3": "Add the lines, each with a signed or approved spec sheet, then Send."
                   }
@@ -3073,7 +2871,7 @@
                "plan_shipment": {
                   "title": "Plan a shipment",
                   "steps": {
-                     "1": "Use Add; pick the customer, the warehouse and the mode.",
+                     "1": "Use Add; pick the warehouse and the mode.",
                      "2": "On Orders, link the orders and the quantities of their lines.",
                      "3": "Move it to booked with the booking confirmation date."
                   }
@@ -3102,7 +2900,7 @@
                "add_cells": {
                   "title": "Open cells for a product family",
                   "steps": {
-                     "1": "Choose Add cells; pick the customer's products, a platform and its countries.",
+                     "1": "Choose Add cells; pick the products, a platform and its countries.",
                      "2": "Set the priority: 1 same account new country, 2 new platform, 3 new region.",
                      "3": "Save; existing cells are skipped and new ones start as candidates."
                   }
@@ -3168,7 +2966,7 @@
                "open_cr": {
                   "title": "Open a change request",
                   "steps": {
-                     "1": "Use Add; pick the customer, the project and the products affected.",
+                     "1": "Use Add; pick the project and the products affected.",
                      "2": "Write the old and new values word for word, the reason and the affected gate.",
                      "3": "Choose the kinds of change and the urgency; the decision date follows."
                   }
@@ -3432,10 +3230,6 @@
          }
       },
       "topics": {
-         "customer_filter": {
-            "title": "The customer filter",
-            "text": "The customer chosen in the top bar narrows every operations list and the dashboard to that customer; 'All customers' shows everything your role may see. The choice stays as you move between pages."
-         },
          "cards_tabs": {
             "title": "Cards and tabs",
             "text": "A row opens its record as a card over the list, with tabs for its parts: general data, lines, documents, media, history. A new record shows its first tab only; the others open once it is saved. The address of a card and tab can be shared as a link."

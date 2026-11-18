@@ -107,11 +107,8 @@ describe('affectedTables', () => {
       expect(affectedTables(['purchase_order'])).toContain('shipment');
       expect(affectedTables(['purchase_order_line'])).toContain('shipment');
       expect(affectedTables(['product'])).toContain('shipment');
-      // The customer and the warehouse, which the overview names too.
-      expect(affectedTables(['customer_warehouse'])).toEqual(
-         expect.arrayContaining(['shipment', 'shipment_overview'])
-      );
-      expect(affectedTables(['customer'])).toEqual(
+      // The warehouse, which the overview names too.
+      expect(affectedTables(['warehouse'])).toEqual(
          expect.arrayContaining(['shipment', 'shipment_overview'])
       );
    });
@@ -129,7 +126,7 @@ describe('affectedTables', () => {
       // The order card embeds its lines' products and spec sheets.
       expect(affectedTables(['document'])).toContain('purchase_order');
       expect(affectedTables(['product'])).toContain('purchase_order');
-      // The overview names the project, the supplier and the customer; the boxes show them.
+      // The overview names the project, the supplier and the client; the boxes show them.
       expect(affectedTables(['project'])).toContain('purchase_order_overview');
       expect(affectedTables(['supplier'])).toEqual(
          expect.arrayContaining([
@@ -138,11 +135,9 @@ describe('affectedTables', () => {
             'dashboard_purchase_order'
          ])
       );
-      expect(affectedTables(['customer'])).toEqual(
+      expect(affectedTables(['provider_relationship'])).toEqual(
          expect.arrayContaining([
-            'shipment',
             'shipment_overview',
-            'purchase_order',
             'purchase_order_overview',
             'dashboard_purchase_order',
             'dashboard_shipment'
@@ -161,7 +156,7 @@ describe('affectedTables of the market matrix', () => {
    });
 
    it('marks the matrix overview stale after a change to what it names', () => {
-      for (const table of ['product', 'project', 'customer'] as const)
+      for (const table of ['product', 'project'] as const)
          expect(affectedTables([table])).toContain('market_cell_overview');
    });
 
@@ -206,13 +201,8 @@ describe('affectedTables of incidents and change requests', () => {
       expect(affectedTables(['project_gate'])).toContain('incident');
    });
 
-   it('marks the incident card stale after a change to its customer', () => {
-      expect(affectedTables(['customer'])).toContain('incident');
-   });
-
    it('marks the overview stale after a change to what it names', () => {
       for (const table of [
-         'customer',
          'project',
          'product',
          'purchase_order',
@@ -225,7 +215,7 @@ describe('affectedTables of incidents and change requests', () => {
    it('marks the change request card stale after a change to what it embeds', () => {
       expect(affectedTables(['change_request'])).toContain('change_request_product');
       expect(affectedTables(['change_request_product'])).toContain('change_request');
-      for (const table of ['customer', 'project', 'product', 'document'] as const)
+      for (const table of ['project', 'product', 'document'] as const)
          expect(affectedTables([table])).toContain('change_request');
    });
 

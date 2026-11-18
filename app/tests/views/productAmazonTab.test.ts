@@ -423,7 +423,6 @@ describe('the product Amazon tab', () => {
       api.product = {
          id: 'p1',
          tenant_id: 't1',
-         customer_id: 'c1',
          gtin: '4006381333931',
          amazon_product_type: 'LUGGAGE',
          amazon_schema_version: definition.version,

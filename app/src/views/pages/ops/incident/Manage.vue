@@ -9,8 +9,7 @@ const props = defineProps<{
    id?: string | null;
    /** The tab opened first (the route's tab segment). */
    tab?: string | null;
-   /** A new incident's customer and linked record, from a project's link (the route's query). */
-   customer_id?: string | null;
+   /** A new incident's linked record, from a project's link (the route's query). */
    entity_type?: string | null;
    entity_id?: string | null;
 }>();
@@ -48,7 +47,6 @@ const onSaved = (id: string) => (incidentId.value = id);
          :key="incidentId ?? 'new'"
          :id="incidentId"
          :prefill="{
-            customer_id: props.customer_id,
             entity_type: props.entity_type,
             entity_id: props.entity_id
          }"

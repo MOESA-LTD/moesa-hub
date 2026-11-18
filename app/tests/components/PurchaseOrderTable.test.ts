@@ -19,7 +19,6 @@ vi.mock('vue-router', async (importOriginal) => ({
    useRoute: () => ({ query: {} }),
    useRouter: () => ({ push: vi.fn() })
 }));
-vi.mock('@/store/customerFilter', () => ({ useCustomerFilter: () => ({ customerId: null }) }));
 vi.mock('@/api/purchaseOrder', async (importOriginal) => {
    const { toValue } = await import('vue');
    return {

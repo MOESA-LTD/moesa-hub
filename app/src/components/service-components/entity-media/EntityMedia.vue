@@ -20,13 +20,11 @@ import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
 import { appErrorHandler } from '@/lib/appErrorHandler';
 import { useAuthStore } from '@/store/auth';
 
-// The files of one record (product, customer...), embedded in its card: uploaded or linked from
+// The files of one record (product, project...), embedded in its card: uploaded or linked from
 // the library, one image marked primary. Unlinking keeps the file in the library.
 const props = defineProps<{
    entityType: DocumentEntity;
    entityId: string;
-   /** The customer new uploads belong to and the library is narrowed to (plus shared files). */
-   customerId?: string | null;
    /** The record's tenant: its files and links are written there (a link shares its file's). */
    tenantId?: string | null;
 }>();
@@ -140,12 +138,7 @@ const download = (row: EntityMediaLink) =>
          />
       </header>
 
-      <MediaDropzone
-         v-if="canUpload"
-         :customerId="customerId ?? null"
-         :tenantId
-         @uploaded="onUploaded"
-      />
+      <MediaDropzone v-if="canUpload" :tenantId @uploaded="onUploaded" />
 
       <div v-if="canSelect && links.length" data-bulk-bar class="flex flex-wrap items-center gap-2">
          <span class="text-sm text-surface-500">
@@ -257,7 +250,6 @@ const download = (row: EntityMediaLink) =>
       <MediaPickerDialog
          v-if="canEdit"
          v-model:visible="pickerOpen"
-         :customerId="customerId ?? null"
          :tenantId
          :excludeIds="linkedMediaIds"
          @picked="onPicked"

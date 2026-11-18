@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import PurchaseOrderTable from '@/components/service-components/purchase-order-table/PurchaseOrderTable.vue';
 
-// Every purchase order of the customer the lists are filtered by (every customer's when none is).
+// Every purchase order of the tenants in scope.
 // A new order is added from the menu's context menu.
 </script>
 

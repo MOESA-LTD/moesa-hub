@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { withCustomerFilter } from '@/api/customerFilter';
 import {
    SHIPMENT_MODES,
    SHIPMENT_STATUSES,
@@ -15,12 +14,11 @@ import {
    type FilterSpec
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 import dayjs from 'dayjs';
 
-// Shipments (public.shipment_overview) of the customer the lists are filtered by (every
-// customer's when none is), optionally only those carrying some orders or a product. Embedded in
-// another card (with filters), the table keeps its state for the session only.
+// Shipments (public.shipment_overview) of the tenants in scope, optionally only those carrying some
+// orders or a product. Embedded in another card (with filters), the table keeps its state for the
+// session only.
 type Props = ResourceTableProps<'shipment_overview'>;
 
 const props = defineProps<{
@@ -54,7 +52,7 @@ const columns = computed<Props['columns']>(() => [
       sortOrder: { value: -1 },
       header: t('ops.shipment.fields.code')
    },
-   { field: 'customer_code', sortable: true, header: t('ops.shipment.fields.customer') },
+   { field: 'client_code', sortable: true, header: t('ops.shipment.fields.client') },
    {
       field: 'warehouse_name',
       sortable: true,
@@ -83,7 +81,6 @@ const tableFilters = ref<NonNullable<Props['filters']>>(
       code: 'startsWith',
       status: equalsFilter(),
       mode: equalsFilter(),
-      customer_id: equalsFilter(),
       ...(narrowed.value ? { id: idFilter([]) as FilterSpec } : {})
    })
 );
@@ -96,16 +93,6 @@ watch(
    },
    { immediate: true }
 );
-
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   tableFilters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const today = dayjs().format('YYYY-MM-DD');
 const isLate = (row: { eta: string | null; status: ShipmentStatus | null }) =>

@@ -19,15 +19,13 @@ const rpc = vi.hoisted(() =>
 );
 vi.mock('@/lib/supabase', () => ({ supabase: { rpc }, publicSchema: { rpc } }));
 
-const CUSTOMER = '6f1c2b0e-8f4a-4d6e-9a51-2b7c3d4e5f60';
-
 const gate = (code: ProjectGateRow['code'], position: number) =>
    ({ id: code, code, position, status: 'pending' }) as ProjectGateRow;
 
 describe('project form', () => {
    const parse = (values: Partial<ReturnType<typeof toProjectFormValues>>) =>
       projectSchema.safeParse({
-         ...toProjectFormValues({ customer_id: CUSTOMER, display_name: 'Mop launch' }),
+         ...toProjectFormValues({ display_name: 'Mop launch' }),
          ...values
       });
 
@@ -46,8 +44,7 @@ describe('project form', () => {
       expect(result.success && toProjectPayload(result.data).path).toBeNull();
    });
 
-   it('needs a customer and a name', () => {
-      expect(parse({ customer_id: null }).success).toBe(false);
+   it('needs a name', () => {
       expect(parse({ display_name: '' }).success).toBe(false);
    });
 
@@ -55,7 +52,6 @@ describe('project form', () => {
       const result = parse({ id: 'p1', type: 'npi', path: 'a_sourcing', packages: ['A1'] });
       expect(result.success).toBe(true);
       const payload = result.success ? toProjectPayload(result.data) : {};
-      expect(payload).not.toHaveProperty('customer_id');
       expect(payload).not.toHaveProperty('type');
       expect(payload).not.toHaveProperty('path');
       expect(payload).not.toHaveProperty('packages');

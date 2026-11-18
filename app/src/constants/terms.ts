@@ -163,7 +163,6 @@ export const TERM_SECTIONS = [
 
 /** The system guide's "how the panel works" topics (i18n `system_guide.topics.<topic>`). */
 export const SYSTEM_GUIDE_TOPICS = [
-   'customer_filter',
    'cards_tabs',
    'status_buttons',
    'document_versions',
