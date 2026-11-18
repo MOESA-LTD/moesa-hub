@@ -1,4 +1,4 @@
--- Documents: the evidence every business record (customer, supplier, product, project, gate and the
+-- Documents: the evidence every business record (provider relationship, supplier, product, project, gate and the
 -- Phase 2 purchase orders, shipments and incidents) is backed by. A document belongs to one record
 -- (entity_type, entity_id) and is versioned per type within its tenant: a new version supersedes
 -- the tenant's older ones, and version numbers are unique per tenant, so one tenant cannot take
@@ -6,8 +6,7 @@
 --
 -- entity_id is checked by a trigger rather than a foreign key, since it points into a different
 -- table per entity_type. A table that does not exist yet (Phase 2) lets any id through; once it
--- exists, the row must, in the document's own tenant. customer_id (whose customer the document concerns, for the customer's
--- document list) has no foreign key yet: public.customer arrives later and adds it.
+-- exists, the row must, in the document's own tenant.
 --
 -- Documents are records of what was sent and signed, so they are never deleted: there is no delete
 -- permission, and DELETE is revoked so an attempt fails instead of silently removing nothing.
@@ -46,7 +45,7 @@ CREATE TYPE public.document_type AS ENUM (
 CREATE TYPE public.document_status AS ENUM ('draft', 'signed', 'approved', 'superseded');
 
 CREATE TYPE public.document_entity AS ENUM (
-   'customer',
+   'provider_relationship',
    'supplier',
    'product',
    'project',
@@ -59,7 +58,6 @@ CREATE TYPE public.document_entity AS ENUM (
 CREATE TABLE IF NOT EXISTS public.document (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   customer_id UUID,
    entity_type public.document_entity NOT NULL,
    entity_id UUID NOT NULL,
    type public.document_type NOT NULL,
@@ -81,8 +79,6 @@ CREATE TABLE IF NOT EXISTS public.document (
 );
 
 CREATE INDEX IF NOT EXISTS idx_document_entity ON public.document (tenant_id, entity_type, entity_id);
-
-CREATE INDEX IF NOT EXISTS idx_document_customer ON public.document (tenant_id, customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_document_type_status ON public.document (tenant_id, type, status);
 

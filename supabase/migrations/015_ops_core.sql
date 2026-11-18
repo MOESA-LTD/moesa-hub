@@ -1,4 +1,4 @@
--- Operations core: what the business modules (customers, suppliers, products, documents,
+-- Operations core: what the business modules (clients, suppliers, products, documents,
 -- projects) build on.
 --
 -- setting        Numbers management has yet to settle (deposit %, safety stock days, …) kept as
@@ -10,7 +10,7 @@
 --                (private.audit_statement) identifies every audited row by a UUID `id`.
 -- platform       The marketplaces (amazon, ebay, …): global reference data like public.module and
 --                public.plan, the same for every tenant, so it has no tenant_id. Its id is the
---                code other tables refer to (customer_platform_account.platform_id). Read by every
+--                code other tables refer to (platform_account.platform_id). Read by every
 --                signed-in user and written only by migrations, so it has no permissions and is
 --                not audited (its TEXT id is not a UUID the audit trail could record).
 -- code_sequence  The counters behind the business codes (K5): per tenant, kind, customer code and
@@ -29,7 +29,7 @@ VALUES
    ('ops_setting', TRUE, 100),
    ('document', TRUE, 110),
    ('supplier', TRUE, 120),
-   ('customer', TRUE, 130),
+   ('client', TRUE, 130),
    ('product', TRUE, 140),
    ('project', TRUE, 150)
 ON CONFLICT (id) DO NOTHING;
