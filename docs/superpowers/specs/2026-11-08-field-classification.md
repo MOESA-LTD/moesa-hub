@@ -765,6 +765,30 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 
 `amazon_product_type_definition`, `code_sequence`, `module`, `permission`, `role_permission`, `plan`, `plan_limit`, `plan_module`, `platform`, `subscription`, `task_template`: all columns `system` or `public-to-tenant`, governed at table level as today. `plan.price` is the SaaS plan price, not MOESA business data. `audit_log` and `audit_transaction` are covered in §2.
 
+## Shared rows (customer = tenant, Plan 2, migrations 066-068)
+
+A table is shared when it carries `client_tenant_id` under the foreign key `(tenant_id, client_tenant_id)` to `provider_relationship` (`private.is_shared_table`): `provider_relationship`, `sourcing`, `purchase_order`, `purchase_order_line`, `shipment`, `shipment_event`, `shipment_line`, `shipment_purchase_order`. A provider's row with `client_tenant_id` = C is readable by C's members, never writable by them, and stays readable after the relationship ends.
+
+**Rules.**
+
+- `field_class.client_visible` marks the fixed client-visible set below. On a shared row a client reads NULL for every column that is not client-visible: costs, suppliers, payments, the deposit and balance (decision 15), internal notes, and the raw `purchase_order.status`. A client-visible column is narrowed (never widened) by the client's own roles. `client_visible` is only set on shared tables (`066_shared_catalog.test.sql`); no cost, supplier, finance or internal-note field is client-visible, bar `sourcing.manufacturer_art_no` (Q3: published on Amazon anyway).
+- `purchase_order.status` is provider-only (Q1): its values reveal supplier-payment progress. The client reads the derived `client_status` instead (`pending` for draft and sent, `confirmed`, `in_production`, `shipped`, `delivered`, `cancelled`; derived from the status and the order's live shipments). `client_status` is no column of the table: it has an open, client-visible `field_class` row so the generated list names it.
+- Every shipment_line and shipment_purchase_order column is client-visible. Payments, order updates and suppliers are never shared.
+- The generated masked list (`app/src/@types/maskedFields.generated.ts`) holds the sensitive fields of every table plus every column of a shared table that is not client-visible, so the app types them nullable. A sensitive field that is also client-visible (`sourcing.manufacturer_art_no`) stays listed: a role of the owning tenant without the read still gets NULL. `app/src/constants/clientVisible.ts` holds the client-visible set per shared table, generated from `field_class` by the same script (`pnpm dev:supabase-types`; `pnpm test:db` fails on drift).
+
+**Guarded fields (rights column).** A client's own incident or change request may cite a shared provider order; the cost of it belongs to the provider. `change_request.cost_impact` and `cost_payer`, and `incident_log.cost_amount`, `cost_currency` and `cost_payer`, are readable and writable only by the tenant named by the row's rights column (`guard_tenant_id`; `field_class.rights_column`), whatever the role. `incident.affected_parties` is sensitive (supplier_identity) but not guarded.
+
+**Client-visible set** (`field_class.client_visible`, 92 fields; shipment_line and shipment_purchase_order are listed in full; `purchase_order.client_status` is the derived column):
+
+- `provider_relationship` (20): `accepted_at`, `client_code`, `client_name`, `client_tenant_id`, `commercial_model`, `contract_accepted_on`, `contract_status`, `created_at`, `deposit_rate`, `ended_at`, `eu_responsible_person`, `extra_cost_rule`, `id`, `packages`, `procurement_model`, `provider_name`, `start_on`, `status`, `tenant_id`, `updated_at`
+- `purchase_order` (11): `client_status`, `client_tenant_id`, `code`, `created_at`, `id`, `project_code`, `project_id`, `project_tenant_id`, `ready_on`, `tenant_id`, `updated_at`
+- `purchase_order_line` (13): `client_tenant_id`, `created_at`, `id`, `position`, `product_id`, `product_name`, `product_sku`, `product_tenant_id`, `purchase_order_id`, `quantity`, `sell_price_eur`, `tenant_id`, `updated_at`
+- `shipment` (29): `accepted_on`, `booking_confirmed_on`, `carrier`, `carton_count`, `client_tenant_id`, `code`, `container_no`, `created_at`, `customs_cleared_on`, `delivered_at`, `delivery_address`, `delivery_warehouse_id`, `dispute_deadline_at`, `eta`, `etd`, `gross_kg`, `has_damage`, `id`, `mode`, `pallet_count`, `planned_delivery_on`, `quantity_matches`, `ready_on`, `seal_no`, `status`, `tenant_id`, `updated_at`, `volume_m3`, `warehouse_tenant_id`
+- `shipment_event` (8): `client_tenant_id`, `created_at`, `happened_at`, `id`, `shipment_id`, `step`, `tenant_id`, `updated_at`
+- `shipment_line` (10): `carton_count`, `client_tenant_id`, `created_at`, `id`, `purchase_order_id`, `purchase_order_line_id`, `quantity`, `shipment_id`, `tenant_id`, `updated_at`
+- `shipment_purchase_order` (5): `client_tenant_id`, `created_at`, `purchase_order_id`, `shipment_id`, `tenant_id`
+- `sourcing` (12): `client_tenant_id`, `created_at`, `id`, `manufacturer_art_no`, `price_list_version`, `product_id`, `product_name`, `product_sku`, `product_tenant_id`, `sell_price_eur`, `tenant_id`, `updated_at`
+
 ## 2. Derived exposures to handle (outside the column toggles)
 
 ### Views (all `security_invoker = true`, so they inherit table rights but not field rights)

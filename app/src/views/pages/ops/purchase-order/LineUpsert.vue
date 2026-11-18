@@ -82,7 +82,7 @@ const clientTenantId = computed(() => order.value?.client_tenant_id ?? null);
 const onProductPicked = (product: Parameters<typeof defaultUnitPrice>[0] | null) => {
    values.value.spec_document_id = null;
    preselectSpec.value = true;
-   if (!product || !order.value) return;
+   if (!product || !order.value?.currency) return;
    if (values.value.unit_price === null || values.value.unit_price === undefined)
       values.value.unit_price = defaultUnitPrice(product, order.value.currency);
 };

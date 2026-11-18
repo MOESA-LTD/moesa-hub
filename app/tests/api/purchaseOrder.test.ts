@@ -218,6 +218,10 @@ describe('piDifferences', () => {
 });
 
 describe('status flow', () => {
+   it('offers no step when the status is masked (a client reads client_status only)', () => {
+      expect(nextPurchaseOrderStatuses({ status: null, deposit_rate: null })).toEqual([]);
+   });
+
    it('offers the next status (rule 1), then cancelling', () => {
       expect(nextPurchaseOrderStatuses({ status: 'draft', deposit_rate: 30 })).toEqual([
          'sent',

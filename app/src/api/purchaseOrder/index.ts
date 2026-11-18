@@ -171,7 +171,8 @@ export function nextPurchaseOrderStatuses({
    status,
    deposit_rate
 }: Pick<PurchaseOrderRow, 'status' | 'deposit_rate'>): PurchaseOrderStatus[] {
-   if (status === 'closed' || status === 'cancelled') return [];
+   // A masked status (null: a client reads only client_status) offers no step.
+   if (status === null || status === 'closed' || status === 'cancelled') return [];
    if (status !== 'pi_approved') {
       return [PURCHASE_ORDER_STATUSES[statusIndex(status) + 1]!, 'cancelled'];
    }

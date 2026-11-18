@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(87);
+SELECT plan(88);
 
 SELECT private.create_test_helpers();
 
@@ -401,13 +401,12 @@ SELECT private.unimpersonate();
 -- narrowed (never widened) by the client's own roles. The helpers below compare the api views with
 -- the base rows, so every column of every shared table is covered without naming it.
 
--- The client-visible set, plus the derived client_status of api.purchase_order (Q1).
+-- The client-visible set; it includes the derived client_status of api.purchase_order (Q1), which has a
+-- field_class row of its own.
 CREATE TEMP TABLE cv_fields ON COMMIT DROP AS
 SELECT substr(f.resource_name, 8) AS tbl, f.field AS col
 FROM public.field_class f
-WHERE f.client_visible AND substr(f.resource_name, 8) = ANY (pg_temp.shared_tables())
-UNION ALL
-SELECT 'purchase_order', 'client_status';
+WHERE f.client_visible AND substr(f.resource_name, 8) = ANY (pg_temp.shared_tables());
 -- save_role's arguments: C's viewer role, its permissions, every sensitive field (read and write;
 -- public.user's personal data aside, which no owner grants);
 -- and the same without the read of the selling prices.
@@ -420,6 +419,8 @@ SELECT '{"id": "00000000-0000-4000-8000-000000006734", "display_name": "viewer"}
                                             'can_read', f.field <> 'sell_price_eur', 'can_write', f.field <> 'sell_price_eur'))
         FROM public.field_class f WHERE f.class = 'sensitive' AND f.resource_name <> 'public.user') AS all_but_sell_price;
 GRANT SELECT ON cv_fields, viewer_grant TO authenticated;
+SELECT results_eq($$ SELECT class::TEXT, client_visible, group_name FROM public.field_class WHERE resource_name = 'public.purchase_order' AND field = 'client_status' $$,
+   $$ VALUES ('open', TRUE, NULL::TEXT) $$, 'client_status is an open client-visible field_class row (the derived column, Q1)');
 
 -- Every (table, row, column, value) of the rows of the shared tables outside p_tenant: through api
 -- (p_api) or from the base (as postgres, rows shared with p_tenant). p_cv: the client-visible columns

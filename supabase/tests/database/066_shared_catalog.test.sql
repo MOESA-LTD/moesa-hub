@@ -12,7 +12,7 @@ SELECT set_eq($$ SELECT c.relname::TEXT FROM pg_class c WHERE c.relnamespace = '
    ARRAY['provider_relationship','sourcing','purchase_order','purchase_order_line','shipment','shipment_event','shipment_line','shipment_purchase_order'], 'the shared tables');
 SELECT is_empty($$ SELECT resource_name, field FROM public.field_class WHERE client_visible AND NOT private.is_shared_table(split_part(resource_name, '.', 2)) $$, 'client_visible only on shared tables');
 SELECT set_eq($$ SELECT field FROM public.field_class WHERE resource_name = 'public.purchase_order' AND client_visible $$,
-   ARRAY['id','tenant_id','client_tenant_id','code','project_id','project_tenant_id','project_code','ready_on','created_at','updated_at'], 'purchase_order client-visible set, raw status provider-only (Q1)');
+   ARRAY['id','tenant_id','client_tenant_id','code','project_id','project_tenant_id','project_code','ready_on','created_at','updated_at','client_status'], 'purchase_order client-visible set: raw status provider-only, the derived client_status client-visible (Q1, 067)');
 SELECT set_eq($$ SELECT field FROM public.field_class WHERE resource_name = 'public.purchase_order_line' AND client_visible $$,
    ARRAY['id','tenant_id','client_tenant_id','purchase_order_id','position','product_id','product_tenant_id','product_sku','product_name','quantity','sell_price_eur','created_at','updated_at'], 'line client-visible set');
 SELECT is_empty($$ SELECT field FROM public.field_class WHERE client_visible AND group_name IN ('cost','supplier_identity','supplier_contact','supplier_terms','finance','internal_note')

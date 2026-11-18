@@ -18,7 +18,9 @@ SELECT is_empty($$ SELECT c.relname, a.attname FROM pg_attribute a JOIN pg_class
      AND NOT EXISTS (SELECT 1 FROM public.field_class f WHERE f.resource_name = 'public.' || c.relname AND f.field = a.attname) $$,
    'every column of every public table is classified');
 SELECT is_empty($$ SELECT resource_name, field FROM public.field_class f WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a
-   WHERE a.attrelid = to_regclass(f.resource_name) AND a.attname = f.field AND NOT a.attisdropped) $$, 'no classification row is stale');
+   WHERE a.attrelid = to_regclass(f.resource_name) AND a.attname = f.field AND NOT a.attisdropped)
+   AND NOT EXISTS (SELECT 1 FROM private.api_view_derived_columns(split_part(f.resource_name, '.', 2)) d WHERE d.name = f.field) $$,
+   'no classification row is stale (a derived api column, 067, has a row but no table column)');
 SELECT is((SELECT count(*)::INT FROM public.field_class WHERE class = 'sensitive'), 88, '88 sensitive fields');
 SELECT results_eq($$ SELECT group_name, count(*)::INT FROM public.field_class WHERE class = 'sensitive' GROUP BY 1 ORDER BY 1 $$,
    $$ VALUES ('contract',5),('cost',20),('finance',5),('internal_note',22),('personal_data',8),('sell_price',3),('supplier_contact',4),('supplier_identity',8),('supplier_terms',13) $$, 'group sizes after customer = tenant');

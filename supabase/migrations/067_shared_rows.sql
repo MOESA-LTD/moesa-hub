@@ -227,6 +227,14 @@ $$;
 
 REVOKE ALL ON FUNCTION private.api_view_derived_columns (TEXT) FROM PUBLIC, anon, authenticated;
 
+-- client_status is no column of public.purchase_order, but the classification lists it as an open,
+-- client-visible field so the generated client-visible constants (scripts/masked-fields.mjs) name
+-- it. Nothing keys on the row beyond that: the api view takes the value from the derived column.
+INSERT INTO
+   public.field_class (resource_name, field, class, client_visible)
+VALUES
+   ('public.purchase_order', 'client_status', 'open', TRUE);
+
 -- 059's api_column_expr plus the shared-table rules (see the header).
 CREATE OR REPLACE FUNCTION private.api_column_expr (p_table TEXT, p_column TEXT) RETURNS TEXT LANGUAGE plpgsql STABLE
 SET

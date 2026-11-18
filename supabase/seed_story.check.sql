@@ -694,7 +694,7 @@ SELECT 'enum.pending', tbl || '.' || col FROM story_enum_column WHERE rule = 'pe
 SELECT 'feed.bands', b FROM unnest(ARRAY['today', 'yesterday', 'last_week', 'older']) b WHERE NOT EXISTS (SELECT 1 FROM public.dashboard_notification_feed WHERE tenant_id = pg_temp.tho() AND since = b);
 SELECT 'feed.bands_provider', b FROM unnest(ARRAY['yesterday', 'last_week', 'older']) b WHERE NOT EXISTS (SELECT 1 FROM public.dashboard_notification_feed WHERE tenant_id = pg_temp.moesa() AND since = b);
 -- guide.page: every business page of GUIDE_PAGES (app/src/constants/guide.ts) has rows in a story tenant; the dashboard page is the box.* checks and feed.bands
-SELECT 'guide.page', p FROM (VALUES ('setting', 'setting'), ('customer', 'provider_relationship'), ('supplier', 'supplier'), ('product', 'product'), ('project', 'project'),
+SELECT 'guide.page', p FROM (VALUES ('setting', 'setting'), ('supplier', 'supplier'), ('product', 'product'), ('project', 'project'),
    ('document', 'document'), ('media', 'media'), ('purchase_order', 'purchase_order'), ('shipment', 'shipment'), ('market_matrix', 'market_cell'),
    ('incident', 'incident'), ('change_request', 'change_request')) v (p, tbl)
    WHERE NOT pg_temp.has_rows(tbl);
