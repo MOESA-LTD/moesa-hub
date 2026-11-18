@@ -169,8 +169,9 @@ ORDER BY c.relname;
 --                   accepted or disputed
 --   shipped         a shipment loaded, in transit, at customs or arrived
 --   in_production   status in_production, ready or balance_paid
---   confirmed       otherwise: draft, sent, pi_received, pi_approved, deposit_paid (a planned or
---                   booked shipment changes nothing)
+--   pending         status draft or sent (the order is not yet confirmed by the supplier)
+--   confirmed       otherwise: pi_received, pi_approved, deposit_paid
+-- A planned or booked shipment changes neither pending nor confirmed.
 -- private.purchase_order_client_status is SECURITY DEFINER (the shipments may lie outside what the
 -- reader selects; only the stage of an order the reader already reads comes out) and executable by
 -- authenticated (the view calls it as the caller), which has no USAGE on private.
@@ -184,7 +185,7 @@ ORDER BY c.relname;
 -- (057's: the R4 functions across a provider-only link, which PostgREST no longer sees as a foreign
 -- key once masked), each plus only this delta.
 
-CREATE TYPE public.purchase_order_client_status AS ENUM ('confirmed', 'in_production', 'shipped', 'delivered', 'cancelled');
+CREATE TYPE public.purchase_order_client_status AS ENUM ('pending', 'confirmed', 'in_production', 'shipped', 'delivered', 'cancelled');
 
 CREATE OR REPLACE FUNCTION private.purchase_order_client_status (
    p_purchase_order_id UUID,
@@ -198,6 +199,7 @@ SET
         WHEN p_status = 'closed' OR (s.live > 0 AND s.arrived = s.live) THEN 'delivered'
         WHEN s.underway > 0 THEN 'shipped'
         WHEN p_status IN ('in_production', 'ready', 'balance_paid') THEN 'in_production'
+        WHEN p_status IN ('draft', 'sent') THEN 'pending'
         ELSE 'confirmed'
     END::public.purchase_order_client_status
     FROM (
@@ -778,3 +780,422 @@ LEFT JOIN LATERAL (
     FROM api.purchase_order_payment p
     WHERE p.purchase_order_id = po.id AND p.tenant_id = po.tenant_id
 ) pay ON TRUE;
+
+-- ======================================================================================== 3. writes
+--
+-- A shared row stays read-only for the client: the write policies keep their RESTRICTIVE tenant_id =
+-- ANY (scope), so an update or delete through api reaches no row of the provider, an insert into the
+-- provider tenant is refused by RLS, and a client child cannot hang under a provider row (the
+-- composite foreign keys carry tenant_id). A provider-only field is refused before that: the
+-- forwarder checks a written sensitive field in the row's rights tenant, never the client's.
+--
+-- Rights column (field_class.rights_column, Tasks 5 and 6: incident, change_request). A field is
+-- written under the tenant in column private.field_rights_column(resource, field), tenant_id unless
+-- the catalog names another. The writers compute that tenant from base columns (F1): when the rights
+-- column is generated (change_request.guard_tenant_id = coalesce(order_tenant_id, tenant_id)), from
+-- its generation expression (private.field_rights_generated), never from the column itself: Postgres
+-- fills a generated column only after BEFORE triggers (NULL in the guard), and the view row a client
+-- sends may carry any value for it (the forwarder never writes a generated column).
+--   private.api_forward             a written sensitive field passes when its rights tenant, in NEW
+--                                   on INSERT, in the masked OLD and in NEW on UPDATE (both must
+--                                   allow: no unlinking out of the provider's rights), is one of
+--                                   private.field_write_tenants(resource, field).
+--   private.enable_field_write_guard  the generated check: NEW.<rc> = ANY (...) on INSERT, and on
+--                                   UPDATE OLD.<rc> = ANY (...) AND NEW.<rc> = ANY (...); a generated
+--                                   <rc> becomes (SELECT <expression> FROM (SELECT NEW.*) x).
+-- Restated (F12, pinned in 052_guard_restatements.test.sql): api_forward (053's body) and
+-- enable_field_write_guard (051's), each plus only this delta. Every guard is regenerated.
+--
+-- api.purchase_order.pi_checked_by: masking drops its foreign key from what PostgREST sees, and the
+-- R4 generator names functions after *_id links only, so the purchase_order → user embed through
+-- pi_checked_by is gone. The app reads the raw column (Pi.vue resolves it against the members) and
+-- never embeds it, so no R4 is added.
+
+CREATE OR REPLACE FUNCTION private.field_rights_column (p_resource TEXT, p_field TEXT) RETURNS TEXT LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT coalesce(
+        (SELECT f.rights_column FROM public.field_class f WHERE f.resource_name = p_resource AND f.field = p_field),
+        'tenant_id'
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.field_rights_column (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION private.field_rights_column (TEXT, TEXT) TO api_owner;
+
+-- The rights tenant as an expression over the base columns when the rights column is generated
+-- (parenthesized, unqualified column names), else NULL (the column is read as it is).
+CREATE OR REPLACE FUNCTION private.field_rights_generated (p_resource TEXT, p_field TEXT) RETURNS TEXT LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT '(' || pg_catalog.pg_get_expr(d.adbin, d.adrelid) || ')'
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE a.attrelid = pg_catalog.to_regclass(p_resource)
+      AND a.attname = private.field_rights_column(p_resource, p_field)
+      AND a.attgenerated = 's' AND a.attnum > 0 AND NOT a.attisdropped;
+$$;
+
+REVOKE ALL ON FUNCTION private.field_rights_generated (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION private.field_rights_generated (TEXT, TEXT) TO api_owner;
+
+-- 053's api_forward; 067: a sensitive field's rights tenant comes from its rights column, read from
+-- base columns, in NEW (INSERT) or in the masked OLD and NEW (UPDATE).
+CREATE OR REPLACE FUNCTION private.api_forward () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := pg_catalog.format('public.%I', TG_TABLE_NAME)::REGCLASS;
+    resource TEXT := 'public.' || TG_TABLE_NAME;
+    is_user BOOLEAN := TG_TABLE_NAME = 'user';
+    has_tenant BOOLEAN;
+    pk TEXT[];
+    new_j JSONB;
+    old_j JSONB;
+    row_j JSONB;
+    key_j JSONB;
+    col RECORD;
+    cols TEXT[] := '{}';
+    allowed BOOLEAN;
+    reread RECORD;
+    n BIGINT;
+    cast_sql TEXT;
+    rc TEXT;
+    rc_expr TEXT;
+    rc_tenants UUID[];
+    rc_row JSONB;
+    rc_tenant UUID;
+    rec_def TEXT;
+BEGIN
+    pk := ARRAY(
+        SELECT a.attname::TEXT
+        FROM pg_catalog.pg_index i
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey::INT2[])
+        WHERE i.indrelid = base AND i.indisprimary
+        ORDER BY pg_catalog.array_position(i.indkey::INT2[], a.attnum)
+    );
+    IF cardinality(pk) = 0 THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'no primary key: ' || resource;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        EXECUTE pg_catalog.format(
+            'DELETE FROM %s b WHERE %s', base,
+            (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($1).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+        ) USING OLD;
+        GET DIAGNOSTICS n = ROW_COUNT;
+        IF n = 0 THEN
+            RETURN NULL;
+        END IF;
+        RETURN OLD;
+    END IF;
+
+    has_tenant := EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+    );
+    -- S1 compares at the column type: the view's columns carry no typmod and no domain (a per-row cast
+    -- would cost on every read), so each side is cast to the base column's type (a domain: its base type
+    -- and typmod, so a NULL never trips a NOT NULL domain) before the comparison. 12.50000 or 12.50004 for
+    -- a numeric(12,4) 12.5000, or 'EUR ' for a char(3) 'EUR', is then the stored value: a no-op, as the
+    -- base write would store the same. Per written row only.
+    cast_sql := pg_catalog.format(
+        'SELECT pg_catalog.to_jsonb(x) FROM (SELECT %s) x',
+        (SELECT pg_catalog.string_agg(
+                    pg_catalog.format('($1).%1$I::%2$s AS %1$I', a.attname,
+                        CASE WHEN ty.typtype = 'd' THEN pg_catalog.format_type(ty.typbasetype, ty.typtypmod)
+                             ELSE pg_catalog.format_type(a.atttypid, a.atttypmod) END),
+                    ', ' ORDER BY a.attnum)
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+         WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped)
+    );
+    EXECUTE cast_sql INTO new_j USING NEW;
+    -- The row whose rights apply: the stored (masked) row on UPDATE, the sent one on INSERT.
+    IF TG_OP = 'UPDATE' THEN
+        EXECUTE cast_sql INTO old_j USING OLD;
+        row_j := old_j;
+    ELSE
+        row_j := new_j;
+    END IF;
+
+    FOR col IN
+        SELECT a.attname::TEXT AS name, private.api_is_sensitive(resource, a.attname) AS sensitive
+        FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+        ORDER BY a.attnum
+    LOOP
+        IF TG_OP = 'UPDATE' THEN
+            CONTINUE WHEN NOT (new_j -> col.name IS DISTINCT FROM old_j -> col.name);
+        ELSE
+            CONTINUE WHEN coalesce(new_j -> col.name, 'null'::JSONB) = 'null'::JSONB;
+        END IF;
+
+        IF col.sensitive THEN
+            IF is_user THEN
+                allowed := (row_j ->> 'id')::UUID = auth.uid()
+                        OR (row_j ->> 'id')::UUID = ANY (private.field_user_ids(col.name, TRUE));
+            ELSIF has_tenant THEN
+                -- 067: the rights tenant, from base columns (F1): the rights column as sent or stored, or a
+                -- generated one's expression over the other columns (its own value is never read).
+                rc := private.field_rights_column(resource, col.name);
+                rc_expr := private.field_rights_generated(resource, col.name);
+                rc_tenants := private.field_write_tenants(resource, col.name);
+                IF rc_expr IS NOT NULL AND rec_def IS NULL THEN
+                    -- The base columns at the types new_j and old_j were cast to (a domain's base type).
+                    rec_def := (
+                        SELECT pg_catalog.string_agg(
+                                   pg_catalog.format('%I %s', a.attname,
+                                       CASE WHEN ty.typtype = 'd' THEN pg_catalog.format_type(ty.typbasetype, ty.typtypmod)
+                                            ELSE pg_catalog.format_type(a.atttypid, a.atttypmod) END),
+                                   ', ' ORDER BY a.attnum)
+                        FROM pg_catalog.pg_attribute a
+                        JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+                        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+                    );
+                END IF;
+                allowed := TRUE;
+                FOREACH rc_row IN ARRAY CASE WHEN TG_OP = 'UPDATE' THEN ARRAY[old_j, new_j] ELSE ARRAY[new_j] END LOOP
+                    IF rc_expr IS NULL THEN
+                        rc_tenant := (rc_row ->> rc)::UUID;
+                    ELSE
+                        EXECUTE pg_catalog.format('SELECT %s::UUID FROM pg_catalog.jsonb_to_record($1) AS x (%s)', rc_expr, rec_def)
+                        INTO rc_tenant USING rc_row;
+                    END IF;
+                    allowed := allowed AND coalesce(rc_tenant = ANY (rc_tenants), FALSE);
+                END LOOP;
+            ELSE
+                allowed := FALSE;
+            END IF;
+            IF NOT coalesce(allowed, FALSE) THEN
+                RAISE EXCEPTION 'field_write_forbidden' USING ERRCODE = '42501', DETAIL = TG_TABLE_NAME || '.' || col.name;
+            END IF;
+        END IF;
+
+        cols := cols || col.name;
+    END LOOP;
+
+    IF TG_OP = 'UPDATE' THEN
+        -- One pass per project per statement (project_gate_guard): the forwarder writes one row at a time, each
+        -- its own base statement, so the guard's flag is cleared between rows. Rows of one view statement share
+        -- the statement timestamp; a second pass of a project under the same one is refused.
+        IF TG_TABLE_NAME = 'project_gate' AND new_j ->> 'status' = 'passed' AND old_j ->> 'status' IS DISTINCT FROM 'passed' THEN
+            IF pg_catalog.current_setting('moesa.api_gate_pass_' || replace(new_j ->> 'project_id', '-', '_'), TRUE) = pg_catalog.statement_timestamp()::TEXT THEN
+                RAISE EXCEPTION 'gate_one_at_a_time' USING ERRCODE = 'check_violation';
+            END IF;
+            PERFORM pg_catalog.set_config('moesa.api_gate_pass_' || replace(new_j ->> 'project_id', '-', '_'), pg_catalog.statement_timestamp()::TEXT, TRUE);
+        END IF;
+        IF cardinality(cols) = 0 THEN
+            -- Nothing to write, but RLS still decides: FOR UPDATE applies the UPDATE policies (a
+            -- caller without update is refused as by a real UPDATE). Not a no-op UPDATE, which would
+            -- bump updated_at and log an audit row.
+            EXECUTE pg_catalog.format(
+                'SELECT to_jsonb(b) FROM %s b WHERE %s FOR UPDATE', base,
+                (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($1).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+            ) INTO key_j USING OLD;
+            GET DIAGNOSTICS n = ROW_COUNT;
+            IF n = 0 THEN
+                RETURN NULL;
+            END IF;
+        ELSE
+            EXECUTE pg_catalog.format(
+                'UPDATE %s b SET (%s) = ROW (%s) WHERE %s RETURNING to_jsonb(b)', base,
+                (SELECT pg_catalog.string_agg(pg_catalog.format('%I', c), ', ') FROM unnest(cols) AS c),
+                (SELECT pg_catalog.string_agg(pg_catalog.format('($1).%I', c), ', ') FROM unnest(cols) AS c),
+                (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($2).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+            ) INTO key_j USING NEW, OLD;
+            GET DIAGNOSTICS n = ROW_COUNT;
+            IF n = 0 THEN
+                RETURN NULL;
+            END IF;
+        END IF;
+    ELSIF cardinality(cols) = 0 THEN
+        EXECUTE pg_catalog.format('INSERT INTO %s AS b DEFAULT VALUES RETURNING to_jsonb(b)', base) INTO key_j;
+    ELSE
+        EXECUTE pg_catalog.format(
+            'INSERT INTO %s AS b (%s) VALUES (%s) RETURNING to_jsonb(b)', base,
+            (SELECT pg_catalog.string_agg(pg_catalog.format('%I', c), ', ') FROM unnest(cols) AS c),
+            (SELECT pg_catalog.string_agg(pg_catalog.format('($1).%I', c), ', ') FROM unnest(cols) AS c)
+        ) INTO key_j USING NEW;
+    END IF;
+
+    -- The row as the caller may see it.
+    EXECUTE pg_catalog.format(
+        'SELECT v.* FROM api.%I v WHERE %s', TG_TABLE_NAME,
+        (SELECT pg_catalog.string_agg(pg_catalog.format('v.%1$I = (jsonb_populate_record(NULL::%2$s, $1)).%1$I', k, base), ' AND ') FROM unnest(pk) AS k)
+    ) INTO reread USING key_j;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    IF n > 0 THEN
+        NEW := reread;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_forward () FROM PUBLIC, anon, authenticated;
+
+-- Changing a function's owner needs the new owner's CREATE on its schema; api_owner keeps only USAGE.
+GRANT CREATE ON SCHEMA private TO api_owner;
+
+ALTER FUNCTION private.api_forward () OWNER TO api_owner;
+
+REVOKE CREATE ON SCHEMA private FROM api_owner;
+
+-- 051's enable_field_write_guard; 067: a tenant-checked field is checked in its rights tenant (NEW on
+-- INSERT, OLD and NEW on UPDATE), a generated rights column through its expression.
+CREATE OR REPLACE FUNCTION private.enable_field_write_guard (p_table TEXT) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    rel REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    fn TEXT := p_table || '_field_write_guard';
+    has_tenant BOOLEAN;
+    is_user BOOLEAN := p_table = 'user';
+    col RECORD;
+    allowed TEXT;
+    raise_forbidden TEXT;
+    on_update TEXT := '';
+    on_insert TEXT := '';
+    n_fields INT := 0;
+    rc TEXT;
+    rc_expr TEXT;
+    allowed_update TEXT;
+    allowed_insert TEXT;
+BEGIN
+    -- Postgres would truncate a longer name silently, and two tables could then share one guard.
+    IF octet_length(fn) > 63 THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'guard name too long: ' || fn;
+    END IF;
+
+    has_tenant := EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = rel AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+    );
+
+    IF has_tenant THEN
+        on_update := on_update || $s$
+        IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
+            RAISE EXCEPTION 'tenant_move_forbidden' USING ERRCODE = '42501';
+        END IF;$s$;
+    END IF;
+
+    FOR col IN
+        SELECT a.attname::TEXT AS field,
+               CASE
+                   WHEN d.adbin IS NULL THEN 'NULL'
+                   -- Constant: no node that reads state or calls a function that is not immutable.
+                   WHEN d.adbin::TEXT !~ '\{(SUBLINK|NEXTVALEXPR|SQLVALUEFUNCTION|COERCEVIAIO|PARAM|VAR|CURRENTOFEXPR) '
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM regexp_matches(d.adbin::TEXT, ':(funcid|opfuncid|opno) (\d+)', 'g') AS m
+                        JOIN pg_catalog.pg_proc p ON p.oid = CASE m[1]
+                            WHEN 'opno' THEN (SELECT o.oprcode::OID FROM pg_catalog.pg_operator o WHERE o.oid = m[2]::OID)
+                            ELSE m[2]::OID
+                        END
+                        WHERE p.provolatile <> 'i'
+                    ) THEN '(' || pg_catalog.pg_get_expr(d.adbin, d.adrelid) || ')'
+                   ELSE 'NULL'
+               END AS default_expr
+        FROM public.field_class f
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = rel AND a.attname = f.field AND a.attnum > 0 AND NOT a.attisdropped
+        LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE f.resource_name = resource AND f.class = 'sensitive' AND a.attgenerated = ''
+        ORDER BY a.attnum
+    LOOP
+        n_fields := n_fields + 1;
+        IF is_user THEN
+            -- <row> is OLD on UPDATE (the user the stored row describes), NEW on INSERT.
+            allowed := format('<row>.id = auth.uid() OR <row>.id = ANY (private.field_user_ids(%L, TRUE))', col.field);
+            allowed_update := replace(allowed, '<row>', 'OLD');
+            allowed_insert := replace(allowed, '<row>', 'NEW');
+        ELSIF has_tenant THEN
+            -- 067: <row>.<rc>, the rights tenant (F1: a generated rights column is NULL in a BEFORE
+            -- trigger, so its expression is evaluated over the row instead).
+            rc := private.field_rights_column(resource, col.field);
+            rc_expr := private.field_rights_generated(resource, col.field);
+            IF rc_expr IS NULL THEN
+                allowed := format('<row>.%I = ANY (private.field_write_tenants(%L, %L))', rc, resource, col.field);
+            ELSE
+                allowed := format('(SELECT %s FROM (SELECT <row>.*) x) = ANY (private.field_write_tenants(%L, %L))',
+                                  rc_expr, resource, col.field);
+            END IF;
+            allowed_update := replace(allowed, '<row>', 'OLD') || ' AND ' || replace(allowed, '<row>', 'NEW');
+            allowed_insert := replace(allowed, '<row>', 'NEW');
+        ELSE
+            RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = resource;
+        END IF;
+
+        raise_forbidden := format(
+            $s$
+            IF NOT coalesce(%s, FALSE) THEN
+                RAISE EXCEPTION 'field_write_forbidden' USING ERRCODE = '42501', DETAIL = %L;
+            END IF;$s$,
+            '<allowed>', p_table || '.' || col.field
+        );
+        on_update := on_update || format(E'\n        IF NEW.%1$I IS DISTINCT FROM OLD.%1$I THEN%2$s\n        END IF;', col.field,
+                                         replace(raise_forbidden, '<allowed>', allowed_update));
+        on_insert := on_insert || format(E'\n        IF NEW.%1$I IS DISTINCT FROM %2$s THEN%3$s\n        END IF;', col.field, col.default_expr,
+                                         replace(raise_forbidden, '<allowed>', allowed_insert));
+    END LOOP;
+
+    EXECUTE format(
+        $f$
+CREATE OR REPLACE FUNCTION private.%1$I () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $g$
+BEGIN
+    IF private.field_guard_bypassed() THEN
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'UPDATE' THEN%2$s
+    ELSE%3$s
+        NULL;
+    END IF;
+    RETURN NEW;
+END;
+$g$
+        $f$,
+        fn, on_update, on_insert
+    );
+    EXECUTE format('ALTER FUNCTION private.%I () OWNER TO postgres', fn);
+    EXECUTE format('REVOKE ALL ON FUNCTION private.%I () FROM PUBLIC, anon, authenticated', fn);
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER aa_field_write_guard BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION private.%I ()',
+        rel, fn
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.enable_field_write_guard (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- Every guard regenerated over the restated generator (051's set: every public table with tenant_id
+-- or a sensitive field; a partitioned table carries the trigger for its partitions).
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOR t IN
+        SELECT c.relname
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind IN ('r', 'p')
+          AND NOT c.relispartition
+          AND (
+              EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_attribute a
+                  WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+              )
+              OR EXISTS (
+                  SELECT 1 FROM public.field_class f WHERE f.resource_name = 'public.' || c.relname AND f.class = 'sensitive'
+              )
+          )
+        ORDER BY c.relname
+    LOOP
+        PERFORM private.enable_field_write_guard(t);
+    END LOOP;
+END;
+$$;

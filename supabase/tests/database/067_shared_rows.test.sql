@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(67);
+SELECT plan(87);
 
 SELECT private.create_test_helpers();
 
@@ -495,7 +495,7 @@ GRANT EXECUTE ON FUNCTION private.field_calls_only_in_initplans (TEXT) TO authen
 SELECT results_eq(
    $$ SELECT s::TEXT, private.purchase_order_client_status('00000000-0000-4000-8000-000000006799', '00000000-0000-4000-8000-000000006701', s)::TEXT
       FROM unnest(enum_range(NULL::public.purchase_order_status)) WITH ORDINALITY AS u (s, k) ORDER BY u.k $$,
-   $$ VALUES ('draft', 'confirmed'), ('sent', 'confirmed'), ('pi_received', 'confirmed'), ('pi_approved', 'confirmed'),
+   $$ VALUES ('draft', 'pending'), ('sent', 'pending'), ('pi_received', 'confirmed'), ('pi_approved', 'confirmed'),
              ('deposit_paid', 'confirmed'), ('in_production', 'in_production'), ('ready', 'in_production'),
              ('balance_paid', 'in_production'), ('closed', 'delivered'), ('cancelled', 'cancelled') $$,
    'client_status: an order without shipments maps its status');
@@ -511,9 +511,10 @@ SELECT results_eq(
    $$ SELECT pg_temp.status_with_shipment(x.s::public.shipment_status, x.o::public.purchase_order_status)
       FROM (VALUES (1, 'planned', 'deposit_paid'), (2, 'booked', 'ready'), (3, 'loaded', 'deposit_paid'), (4, 'in_transit', 'balance_paid'),
                    (5, 'at_customs', 'ready'), (6, 'delivered', 'balance_paid'), (7, 'accepted', 'ready'), (8, 'disputed', 'ready'),
-                   (9, 'cancelled', 'ready'), (10, 'delivered', 'cancelled')) AS x (k, s, o) ORDER BY x.k $$,
+                   (9, 'cancelled', 'ready'), (10, 'delivered', 'cancelled'), (11, 'planned', 'draft'), (12, 'booked', 'sent'),
+                   (13, 'loaded', 'draft')) AS x (k, s, o) ORDER BY x.k $$,
    $$ VALUES ('confirmed'), ('in_production'), ('shipped'), ('shipped'), ('shipped'), ('delivered'), ('delivered'), ('delivered'),
-             ('in_production'), ('cancelled') $$,
+             ('in_production'), ('cancelled'), ('pending'), ('pending'), ('shipped') $$,
    'client_status: a loaded shipment ships the order, every live shipment arrived delivers it, a cancelled one counts for nothing');
 UPDATE public.shipment SET status = 'planned' WHERE id = '00000000-0000-4000-8000-000000006771';
 SELECT set_config('moesa.rules_bypass', '', TRUE);
@@ -537,7 +538,7 @@ SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006712', '000000
                                  ARRAY['00000000-0000-4000-8000-000000006702']::UUID[]);
 SELECT results_eq($$ SELECT pi_total, notes, supplier_id, currency::TEXT, status::TEXT, client_status::TEXT, code IS NOT NULL
                      FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751' $$,
-                  $$ VALUES (NULL::NUMERIC, NULL::TEXT, NULL::UUID, NULL::TEXT, NULL::TEXT, 'confirmed', TRUE) $$,
+                  $$ VALUES (NULL::NUMERIC, NULL::TEXT, NULL::UUID, NULL::TEXT, NULL::TEXT, 'pending', TRUE) $$,
                   'client owner: provider-only order fields NULL (raw status included), client_status and code visible');
 SELECT results_eq($$ SELECT unit_price, sell_price_eur, quantity FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000006761' $$,
                   $$ VALUES (NULL::NUMERIC, 9.90::NUMERIC, 10) $$, 'client owner: purchase price NULL, sell price and quantity visible');
@@ -577,7 +578,7 @@ SELECT results_eq($$ SELECT status::TEXT, currency::TEXT, pi_total, notes, suppl
                             spec_missing_line_ids, has_approved_psi, client_status::TEXT, line_count, total_quantity
                      FROM api.purchase_order_overview WHERE id = '00000000-0000-4000-8000-000000006751' $$,
                   $$ VALUES (NULL::TEXT, NULL::TEXT, NULL::NUMERIC, NULL::TEXT, NULL::TEXT, NULL::NUMERIC, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
-                             NULL::UUID[], FALSE, 'confirmed', 1, 10) $$,
+                             NULL::UUID[], FALSE, 'pending', 1, 10) $$,
                   'purchase_order_overview: provider-only figures NULL, client_status and quantities visible');
 SELECT results_eq($$ SELECT forwarder, customs_broker, demurrage_note, notes, is_insured, eta FROM api.shipment_overview
                      WHERE id = '00000000-0000-4000-8000-000000006771' $$,
@@ -649,6 +650,102 @@ SELECT set_eq($$ SELECT * FROM pg_temp.cells('00000000-0000-4000-8000-0000000067
               'provider coordinator reads every field of the rows it shares');
 RESET ROLE;
 SELECT private.unimpersonate();
+
+-- =================================================================================== writes (Task 4)
+
+-- A shared row is read-only for the client: a provider-only field is refused whatever the guess, an
+-- open field or a delete reaches no row, a child in the provider tenant is refused by RLS and one in
+-- the client tenant cannot hang under the provider's order.
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006712', '00000000-0000-4000-8000-000000006702',
+                                 ARRAY['00000000-0000-4000-8000-000000006702']::UUID[]);
+SELECT throws_ok($$ UPDATE api.purchase_order SET pi_total = 1 WHERE id = '00000000-0000-4000-8000-000000006751' $$,
+                 '42501', 'field_write_forbidden', 'write to a provider-only sensitive field refused (wrong guess)');
+SELECT throws_ok($$ UPDATE api.purchase_order SET pi_total = 1234.56 WHERE id = '00000000-0000-4000-8000-000000006751' $$,
+                 '42501', 'field_write_forbidden', 'refused the same on a correct guess');
+-- (A data-modifying WITH cannot sit in a subquery: write_outcome returns the row count, or 'refused'.)
+SELECT is(pg_temp.write_outcome($$ UPDATE api.purchase_order SET status = 'cancelled' WHERE id = '00000000-0000-4000-8000-000000006751' $$),
+          '0', 'open field update reaches no shared row');
+SELECT is(pg_temp.write_outcome($$ DELETE FROM api.purchase_order_line WHERE purchase_order_id = '00000000-0000-4000-8000-000000006751' $$),
+          '0', 'delete reaches no shared row');
+SELECT throws_ok($$ INSERT INTO api.purchase_order_line (tenant_id, purchase_order_id, product_id, quantity)
+                    VALUES ('00000000-0000-4000-8000-000000006701', '00000000-0000-4000-8000-000000006751',
+                            '00000000-0000-4000-8000-000000006741', 1) $$,
+                 '42501', NULL, 'insert into the provider tenant refused');
+-- (unit_price is NOT NULL: without it the insert would stop there, before the foreign key.)
+SELECT throws_ok($$ INSERT INTO api.purchase_order_line (tenant_id, purchase_order_id, product_id, quantity, unit_price)
+                    VALUES ('00000000-0000-4000-8000-000000006702', '00000000-0000-4000-8000-000000006751',
+                            '00000000-0000-4000-8000-000000006741', 1, 1) $$,
+                 '23503', NULL, 'a client line cannot hang under a provider order');
+RESET ROLE;
+SELECT is((SELECT status::TEXT FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751'), 'draft',
+          'the shared order is unchanged');
+SELECT is((SELECT pi_total FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751'), 1234.56::NUMERIC,
+          'its cost is unchanged');
+
+-- The provider still writes its shared row.
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006711', '00000000-0000-4000-8000-000000006701',
+                                 ARRAY['00000000-0000-4000-8000-000000006701']::UUID[]);
+SELECT is(pg_temp.write_outcome($$ UPDATE api.purchase_order SET pi_total = 1300 WHERE id = '00000000-0000-4000-8000-000000006751' $$),
+          '1', 'the provider writes the cost of its shared order');
+RESET ROLE;
+UPDATE public.purchase_order SET pi_total = 1234.56 WHERE id = '00000000-0000-4000-8000-000000006751';
+
+-- Rights column (field_class.rights_column): a field read and written under the tenant in another
+-- column of the row (Tasks 5 and 6 use it for incident and change_request). Exercised here on a
+-- scaffold rolled back with the test: warehouse.rights_tenant_t4, generated like change_request's
+-- guard_tenant_id (the provider P when city is 'P-RIGHTS', else the row's own tenant), rights column
+-- of receiving_person. The forwarder and the base guard compute it from base columns (F1): Postgres
+-- fills a generated column only after BEFORE triggers, and a client could send any value for it.
+ALTER TABLE public.warehouse ADD COLUMN rights_tenant_t4 UUID
+    GENERATED ALWAYS AS (CASE WHEN city = 'P-RIGHTS' THEN '00000000-0000-4000-8000-000000006701'::UUID ELSE tenant_id END) STORED;
+INSERT INTO public.field_class (resource_name, field, class) VALUES ('public.warehouse', 'rights_tenant_t4', 'open');
+UPDATE public.field_class SET rights_column = 'rights_tenant_t4' WHERE resource_name = 'public.warehouse' AND field = 'receiving_person';
+SELECT private.enable_field_security('warehouse');
+-- pm (provider management, every field in P) also holds every right in C.
+INSERT INTO public.user_role (user_id, role_id) VALUES ('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006736');
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+INSERT INTO public.warehouse (id, tenant_id, display_name, city, receiving_person) VALUES
+   ('00000000-0000-4000-8000-000000006777', '00000000-0000-4000-8000-000000006702', 'Guarded DC', 'P-RIGHTS', 'R-SECRET');
+SELECT set_config('moesa.rules_bypass', '', TRUE);
+
+SELECT results_eq($$ SELECT private.field_rights_column('public.warehouse', 'receiving_person'),
+                            private.field_rights_column('public.warehouse', 'city') $$,
+                  $$ VALUES ('rights_tenant_t4', 'tenant_id') $$, 'field_rights_column: the rights column, else tenant_id');
+
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006712', '00000000-0000-4000-8000-000000006702',
+                                 ARRAY['00000000-0000-4000-8000-000000006702']::UUID[]);
+SELECT throws_ok($$ INSERT INTO api.warehouse (tenant_id, display_name, city, receiving_person)
+                    VALUES ('00000000-0000-4000-8000-000000006702', 'X', 'P-RIGHTS', 'X') $$,
+                 '42501', 'field_write_forbidden', 'a client insert carrying a field guarded in the provider tenant is refused');
+SELECT throws_ok($$ INSERT INTO api.warehouse (tenant_id, display_name, city, receiving_person, rights_tenant_t4)
+                    VALUES ('00000000-0000-4000-8000-000000006702', 'X', 'P-RIGHTS', 'X', '00000000-0000-4000-8000-000000006702') $$,
+                 '42501', 'field_write_forbidden', 'a forged rights column in the insert body is ignored');
+SELECT lives_ok($$ INSERT INTO api.warehouse (id, tenant_id, display_name, city, receiving_person, rights_tenant_t4)
+                   VALUES ('00000000-0000-4000-8000-000000006778', '00000000-0000-4000-8000-000000006702', 'Own DC', 'Köln', 'X',
+                           '00000000-0000-4000-8000-000000006701') $$,
+                'under its own rights tenant the client writes the field (a forged provider tenant changes nothing)');
+SELECT throws_ok($$ UPDATE api.warehouse SET city = 'Köln', receiving_person = 'Y' WHERE id = '00000000-0000-4000-8000-000000006777' $$,
+                 '42501', 'field_write_forbidden', 'update: the stored rights tenant must allow (no unlink to write)');
+SELECT throws_ok($$ UPDATE api.warehouse SET city = 'P-RIGHTS', receiving_person = 'Z' WHERE id = '00000000-0000-4000-8000-000000006778' $$,
+                 '42501', 'field_write_forbidden', 'update: the new rights tenant must allow');
+-- The base guard, as the api views write (api_owner), under the same request identity.
+SET LOCAL ROLE api_owner;
+SELECT throws_ok($$ INSERT INTO public.warehouse (tenant_id, display_name, city, receiving_person)
+                    VALUES ('00000000-0000-4000-8000-000000006702', 'X', 'P-RIGHTS', 'X') $$,
+                 '42501', 'field_write_forbidden', 'base guard: an insert is checked in the rights tenant');
+SELECT throws_ok($$ UPDATE public.warehouse SET city = 'Köln', receiving_person = 'Y' WHERE id = '00000000-0000-4000-8000-000000006777' $$,
+                 '42501', 'field_write_forbidden', 'base guard: an update is checked in the old rights tenant too');
+SELECT lives_ok($$ UPDATE public.warehouse SET receiving_person = 'Y2' WHERE id = '00000000-0000-4000-8000-000000006778' $$,
+                'base guard: a field in the own rights tenant is written');
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006702',
+                                 ARRAY['00000000-0000-4000-8000-000000006702', '00000000-0000-4000-8000-000000006701']::UUID[]);
+SELECT lives_ok($$ UPDATE api.warehouse SET receiving_person = 'R2' WHERE id = '00000000-0000-4000-8000-000000006777' $$,
+                'rights in the provider tenant write the guarded field');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT is((SELECT receiving_person FROM public.warehouse WHERE id = '00000000-0000-4000-8000-000000006777'), 'R2',
+          'and the value is stored');
 
 -- ================================================================================ history (Task 2)
 
