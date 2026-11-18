@@ -523,6 +523,7 @@ export const APP_SELECTS: [string, string][] = [
    ['project', '*, project_gate(*), project_product(product(id, sku, display_name))'],
    ['project', '*, project_gate(id, code, position, status)'],
    ['project', 'id, code, display_name'],
+   ['project', 'id, tenant_id'],
    ['project_task', '*'],
    ['project_product', '*'],
    ['project_gate', 'code, status, needs_customer_approval'],

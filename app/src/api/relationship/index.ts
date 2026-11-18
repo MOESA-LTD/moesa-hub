@@ -1,7 +1,11 @@
 import { defineResource } from '@/api/defineResource';
 import { useFormTenant } from '@/api/formTenant';
+import { queryKeys } from '@/api/queryKeys';
 import { useLookup } from '@/api/useLookup';
+import { useTenantKey } from '@/api/useTenantKey';
+import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
+import { useQuery } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 
 export * from './constants';
@@ -75,6 +79,73 @@ export function useClientOptions(keep: MaybeRefOrGetter<string | null | undefine
          data.value ?? [],
          formTenant?.value ?? authStore.currentTenant?.id,
          toValue(keep)
+      )
+   );
+}
+
+/** What a project's link (a new order opened from a project) says about the order's client. */
+export type LinkedClient =
+   | { status: 'pending' }
+   | { status: 'own' }
+   | { status: 'client'; clientTenantId: string }
+   | { status: 'forbidden' };
+
+/**
+ * The client of a new order of `tenantId` opened from a project of `projectTenantId` (undefined
+ * while loading, null when the project cannot be read): none for the tenant's own project, the
+ * project's tenant when it is an active provider-procures client of `tenantId`, else forbidden
+ * (the database would refuse it: relationship_inactive).
+ */
+export function linkedClient(
+   projectTenantId: string | null | undefined,
+   tenantId: string | null | undefined,
+   relationships: readonly ClientRelationship[] | undefined
+): LinkedClient {
+   if (projectTenantId === undefined) return { status: 'pending' };
+   if (projectTenantId && projectTenantId === tenantId) return { status: 'own' };
+   if (!projectTenantId) return { status: 'forbidden' };
+   if (!relationships) return { status: 'pending' };
+   return toClientOptions(relationships, tenantId).some(({ value }) => value === projectTenantId)
+      ? { status: 'client', clientTenantId: projectTenantId }
+      : { status: 'forbidden' };
+}
+
+/**
+ * The client of a new order opened from project `projectId` (see linkedClient). The project is
+ * read in every tenant in scope, as the page that linked it showed it. Nothing is read without a
+ * project.
+ */
+export function useLinkedClient(
+   projectId: MaybeRefOrGetter<string | null | undefined>,
+   tenantId: MaybeRefOrGetter<string | null | undefined>
+) {
+   const tenantKey = useTenantKey();
+   const { data: project, isPending } = useQuery({
+      queryKey: computed(() =>
+         queryKeys.detail(tenantKey.value, 'project', `tenant:${toValue(projectId)}`)
+      ),
+      queryFn: async ({ signal }) => {
+         const { data } = await supabase
+            .from('project')
+            .select('id, tenant_id')
+            .eq('id', toValue(projectId)!)
+            .abortSignal(signal)
+            .maybeSingle()
+            .throwOnError();
+         return data;
+      },
+      enabled: computed(() => !!toValue(projectId))
+   });
+   const { data: relationships } = useLookup<ClientRelationship>(
+      'provider_relationship',
+      { select: CLIENT_RELATIONSHIP_SELECT, order: 'client_code' },
+      () => !!toValue(projectId)
+   );
+   return computed(() =>
+      linkedClient(
+         isPending.value ? undefined : (project.value?.tenant_id ?? null),
+         toValue(tenantId),
+         relationships.value
       )
    );
 }

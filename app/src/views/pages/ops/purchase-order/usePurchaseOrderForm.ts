@@ -10,8 +10,9 @@ import {
    type PurchaseOrderOverviewRow
 } from '@/api/purchaseOrder';
 import { piDifferences, type FigureLine } from '@/api/purchaseOrder/figures';
+import { useLinkedClient } from '@/api/relationship';
 import { useUpsertForm } from '@/composables/useUpsertForm';
-import { computed, inject, ref, type InjectionKey, type Ref } from 'vue';
+import { computed, inject, ref, watch, type InjectionKey, type Ref } from 'vue';
 
 /**
  * The purchase order card's tabs: the form's general tab, the lines, the PI check (the form's PI
@@ -42,7 +43,9 @@ export type PurchaseOrderLink = { projectId?: unknown };
  * with the project a link names (?project_id=…). The route passes it as props: a route dialog
  * renders the page outside the router, where useRoute sees the page under the dialog. Once a new
  * order is saved, its "new" draft is dropped: the card goes on under the order's id (see
- * PurchaseOrderCard).
+ * PurchaseOrderCard). A project of a client names the order's client (an active provider-procures
+ * relationship); a project of a tenant with no such relationship is refused (`linkError`) instead
+ * of a form the database would refuse.
  */
 export function usePurchaseOrderForm(
    id: () => string | null | undefined,
@@ -71,7 +74,29 @@ export function usePurchaseOrderForm(
          onSaved?.(order);
       }
    });
-   return form;
+
+   /** Why the project's link cannot open an order (an errors.<code>), if it cannot. */
+   const linkError = ref<string | null>(null);
+   const linkedProjectId = isNew ? queryValue(link.projectId) : undefined;
+   const linked = useLinkedClient(
+      () => linkedProjectId,
+      () => form.tenantId.value
+   );
+   watch(
+      linked,
+      (state) => {
+         if (!linkedProjectId) return;
+         if (state.status === 'client') form.values.value.client_tenant_id = state.clientTenantId;
+         else if (state.status === 'own') form.values.value.client_tenant_id = null;
+         else if (state.status === 'forbidden') {
+            linkError.value = 'relationship_inactive';
+            form.values.value.project_id = null;
+         }
+      },
+      { immediate: true }
+   );
+
+   return { ...form, linkError };
 }
 
 /** The card's form with a submit that opens the tab of the first error. */

@@ -23,7 +23,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PrimeVue from 'primevue/config';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, ref } from 'vue';
+import { defineComponent, h, nextTick, ref } from 'vue';
 
 const api = vi.hoisted(() => ({
    query: {} as Record<string, string>,
@@ -34,7 +34,10 @@ const api = vi.hoisted(() => ({
            toPayload: (data: Record<string, unknown>) => Record<string, unknown>;
            onSaved?: (row: { id: string }) => void;
         },
-   row: { value: null as unknown }
+   row: { value: null as unknown },
+   values: { value: {} as Record<string, unknown> },
+   linked: { status: 'pending' } as { status: string; clientTenantId?: string | null },
+   linkedProjectIds: [] as unknown[]
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -47,9 +50,25 @@ vi.mock('vue-router', async (importOriginal) => ({
 vi.mock('@/composables/useUpsertForm', () => ({
    useUpsertForm: (given: NonNullable<typeof api.options>) => {
       api.options = given;
-      return { discardDraft: vi.fn(), row: api.row };
+      return {
+         discardDraft: vi.fn(),
+         row: api.row,
+         values: api.values,
+         tenantId: { value: 'provider' }
+      };
    }
 }));
+vi.mock('@/api/relationship', async (importOriginal) => {
+   const { computed, toValue } = await import('vue');
+   return {
+      ...(await importOriginal<typeof import('@/api/relationship')>()),
+      useLinkedClient: (projectId: () => unknown) =>
+         computed(() => {
+            api.linkedProjectIds.push(toValue(projectId));
+            return api.linked;
+         })
+   };
+});
 vi.mock('@/api/purchaseOrder', async (importOriginal) => {
    const { computed } = await import('vue');
    return {
@@ -117,7 +136,8 @@ const standInForm = (row: PurchaseOrderCard | null) => ({
    reset: vi.fn(),
    submit: vi.fn(),
    draft: {},
-   row: ref(row)
+   row: ref(row),
+   linkError: ref<string | null>(null)
 });
 
 const mountTab = (
@@ -151,6 +171,9 @@ beforeEach(() => {
    ability.update([{ action: 'manage', subject: 'all' }]);
    api.query = {};
    api.row.value = null;
+   api.values.value = { client_tenant_id: null, project_id: null };
+   api.linked = { status: 'pending' };
+   api.linkedProjectIds = [];
 });
 
 describe('tabForField', () => {
@@ -171,6 +194,49 @@ describe('usePurchaseOrderForm', () => {
    it("takes the project from the link's props", () => {
       usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
       expect(api.options!.prefill()).toEqual({ project_id: 'pr1' });
+   });
+
+   it("names the client of a client project's link", async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'client', clientTenantId: 'tho' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(api.linkedProjectIds).toContain('pr1');
+      expect(api.values.value).toEqual({ client_tenant_id: 'tho', project_id: 'pr1' });
+      expect(form.linkError.value).toBeNull();
+   });
+
+   it("leaves an own project's link without a client", async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'own' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(api.values.value).toEqual({ client_tenant_id: null, project_id: 'pr1' });
+      expect(form.linkError.value).toBeNull();
+   });
+
+   it('refuses the link of a project outside an active provider-procures relationship', async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'forbidden' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(form.linkError.value).toBe('relationship_inactive');
+      expect(api.values.value.project_id).toBeNull();
+   });
+
+   it('looks up no project for a saved order', () => {
+      usePurchaseOrderForm(() => 'o1', undefined, { projectId: 'pr1' });
+      expect(api.linkedProjectIds.every((id) => id === undefined)).toBe(true);
+   });
+
+   it('shows the refusal instead of the form', () => {
+      const form = { ...standInForm(null), linkError: ref('relationship_inactive') };
+      const wrapper = mountTab(General, form as never);
+      expect(wrapper.get('[data-link-error]').text()).toBe(i18n.t('errors.relationship_inactive'));
+      expect(wrapper.findComponent({ name: 'SelectSupplier' }).exists()).toBe(false);
    });
 
    it('ignores the query of the page under a route dialog', () => {

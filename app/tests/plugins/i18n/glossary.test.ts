@@ -63,6 +63,7 @@ describe('glossary', () => {
          'project_path',
          'project_type',
          'purchase_order_status',
+         'relationship_status',
          'shipment_mode',
          'shipment_status',
          'stock_source',

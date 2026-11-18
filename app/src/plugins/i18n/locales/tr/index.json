@@ -1166,6 +1166,10 @@
          }
       },
       "client": {
+         "status": {
+            "active": "Etkin",
+            "ended": "Sona erdi"
+         },
          "own": "Müşteri yok (kendi kaydımız)"
       },
       "company": {
@@ -2394,6 +2398,10 @@
          "balance_paid": "Bakiye ödendi; [[G4]]'e göre yalnızca onaylı [[PSI]]'dan sonra.",
          "closed": "Teslim edildi ve kapandı; yapılacak iş kalmadı.",
          "cancelled": "İptal edildi; kayıt için saklanır."
+      },
+      "relationship_status": {
+         "active": "Yürürlükte: sağlayıcı müşteri adına tedarik yapabilir; müşteri kendisi için tedarik edilen siparişleri ve sevkiyatları görür.",
+         "ended": "Kalıcı olarak sona erdi: yeni ortak kayıt açılmaz; müşteri daha önce paylaşılan siparişleri ve sevkiyatları görmeye devam eder."
       },
       "payment_kind": {
          "deposit": "Üretimden önce ödenen avans (depozito %).",

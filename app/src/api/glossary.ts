@@ -25,6 +25,7 @@ import {
 import { PRODUCT_STATUSES } from '@/api/product';
 import { GATE_CODES, PACKAGES, PROJECT_PATHS, PROJECT_TYPES, TASK_STATUSES } from '@/api/project';
 import { PAYMENT_KINDS, PURCHASE_ORDER_STATUSES } from '@/api/purchaseOrder';
+import { RELATIONSHIP_STATUSES } from '@/api/relationship/constants';
 import { SHIPMENT_MODES, SHIPMENT_STATUSES } from '@/api/shipment';
 import { SUPPLIER_STATUSES } from '@/api/supplier';
 
@@ -60,7 +61,8 @@ export const GLOSSARY_ENUMS = {
    change_request_urgency: CHANGE_REQUEST_URGENCIES,
    change_kind: CHANGE_KINDS,
    listing_state: LISTING_STATES,
-   api_connection: API_CONNECTIONS
+   api_connection: API_CONNECTIONS,
+   relationship_status: RELATIONSHIP_STATUSES
 } as const;
 
 export type GlossaryEnum = keyof typeof GLOSSARY_ENUMS;
@@ -99,5 +101,6 @@ export const GLOSSARY_LABELS: Record<GlossaryEnum, string | null> = {
    change_request_urgency: 'ops.change_request.urgency',
    change_kind: 'ops.change_request.kind',
    listing_state: 'ops.amazon.state',
-   api_connection: 'ops.amazon.api_connection'
+   api_connection: 'ops.amazon.api_connection',
+   relationship_status: 'ops.client.status'
 };

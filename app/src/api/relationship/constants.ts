@@ -21,3 +21,8 @@ export const CONTRACT_STATUSES = allValues<ContractStatus>()([
    'paused',
    'closed'
 ]);
+
+export type RelationshipStatusValue = Enums['relationship_status'];
+
+/** A provider relationship is in force, or has ended (for good: relationship_ended_final). */
+export const RELATIONSHIP_STATUSES = allValues<RelationshipStatusValue>()(['active', 'ended']);

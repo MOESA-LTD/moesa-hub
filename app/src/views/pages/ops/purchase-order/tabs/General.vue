@@ -17,7 +17,7 @@ const fieldAccess = provideFieldAccess('purchase_order');
 // (po_project_locked), among the client's projects on a client order; the terms are fixed from
 // pi_approved on (PO_LOCKED_FIELDS).
 const form = injectPurchaseOrderForm();
-const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
+const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, linkError } = form;
 
 const { t } = useI18n();
 
@@ -57,7 +57,12 @@ const applySupplier = (
 </script>
 
 <template>
+   <!-- An order opened from a project the tenant may not order for: refused, not a broken form. -->
+   <Message v-if="linkError" severity="error" data-link-error>
+      {{ $t(`errors.${linkError}`) }}
+   </Message>
    <FormBox
+      v-else
       @submit="submit"
       @reset="() => reset()"
       v-focustrap

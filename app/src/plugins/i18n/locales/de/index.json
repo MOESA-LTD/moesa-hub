@@ -1166,6 +1166,10 @@
          }
       },
       "client": {
+         "status": {
+            "active": "Active",
+            "ended": "Ended"
+         },
          "own": "No client (our own)"
       },
       "company": {
@@ -2394,6 +2398,10 @@
          "balance_paid": "The balance is paid; per G4, only after an approved PSI.",
          "closed": "Delivered and settled; nothing left to do.",
          "cancelled": "Cancelled; kept for the record."
+      },
+      "relationship_status": {
+         "active": "In force: the provider may procure for the client, and the client sees the orders and shipments procured for it.",
+         "ended": "Ended for good: no new shared records; the client keeps seeing the orders and shipments shared before."
       },
       "payment_kind": {
          "deposit": "Advance paid before production (deposit %).",

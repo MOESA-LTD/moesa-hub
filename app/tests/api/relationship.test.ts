@@ -1,4 +1,4 @@
-import { toClientOptions } from '@/api/relationship';
+import { linkedClient, toClientOptions } from '@/api/relationship';
 import { describe, expect, it } from 'vitest';
 
 const row = (overrides: object) => ({
@@ -43,5 +43,31 @@ describe('toClientOptions', () => {
          'AAA',
          'BBB'
       ]);
+   });
+});
+
+describe('linkedClient', () => {
+   const rows = [row({}), row({ client_tenant_id: 'self', procurement_model: 'client' })];
+
+   it("names the project's tenant when it is an active provider-procures client", () => {
+      expect(linkedClient('tho', 'provider', rows)).toEqual({
+         status: 'client',
+         clientTenantId: 'tho'
+      });
+   });
+
+   it("names no client for the tenant's own project", () => {
+      expect(linkedClient('provider', 'provider', rows)).toEqual({ status: 'own' });
+   });
+
+   it('refuses a project of a tenant with no such relationship, or not found', () => {
+      expect(linkedClient('self', 'provider', rows)).toEqual({ status: 'forbidden' });
+      expect(linkedClient(null, 'provider', rows)).toEqual({ status: 'forbidden' });
+   });
+
+   it('waits for the project and the relationships', () => {
+      expect(linkedClient(undefined, 'provider', rows)).toEqual({ status: 'pending' });
+      expect(linkedClient('tho', 'provider', undefined)).toEqual({ status: 'pending' });
+      expect(linkedClient('provider', 'provider', undefined)).toEqual({ status: 'own' });
    });
 });
