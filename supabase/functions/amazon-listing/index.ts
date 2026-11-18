@@ -87,6 +87,8 @@ import {
    putListingsItem,
    requireLanguageTag,
    skuFor,
+   SOURCING_LISTING_COLUMNS,
+   sourcingArtNo,
    withNewItemAvailability
 } from './listing.ts';
 
@@ -168,6 +170,16 @@ const loadContext = async (db: Db, tenantId: string, id: string): Promise<CellCo
    if (!product.amazon_product_type) throw new HttpError(422, 'listing_product_type_missing');
 
    const parent = product.parent_id ? await loadProduct(db, tenantId, product.parent_id) : null;
+   // Q3: the article number of the sourcing row the caller reads, through api (masked when not
+   // readable); the model and part number are derived from it.
+   const { data: sourcing, error: sourcingError } = await db
+      .from('sourcing')
+      .select(SOURCING_LISTING_COLUMNS)
+      .eq('product_tenant_id', tenantId)
+      .in('product_id', parent ? [product.id, parent.id] : [product.id]);
+   if (sourcingError) throw sourcingError;
+   product.manufacturer_art_no = sourcingArtNo(sourcing ?? [], tenantId, product.id);
+   if (parent) parent.manufacturer_art_no = sourcingArtNo(sourcing ?? [], tenantId, parent.id);
    let parentCell: MarketCellRow | null = null;
    if (parent) {
       const { data, error } = await db
@@ -443,9 +455,11 @@ const publishCell = async (run: Run, id: string, asParent = false): Promise<Publ
 
    // 3. A child needs its parent's cell (created when missing) and the parent listed first (R7).
    if (ctx.parent && !asParent) {
-      const { data: parentCellId, error } = await run.db.schema('public').rpc('listing_parent_cell', {
-         p_cell_id: ctx.cell.id
-      });
+      const { data: parentCellId, error } = await run.db
+         .schema('public')
+         .rpc('listing_parent_cell', {
+            p_cell_id: ctx.cell.id
+         });
       if (error) throw error;
       if (parentCellId) {
          const parentSubs = await submissionsOf(run.db, run.tenantId, parentCellId);

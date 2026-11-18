@@ -287,6 +287,11 @@ export type ProductCard = {
    pack_gross_g?: number | string | null;
    pack_qty?: number | string | null;
    origin_country?: string | null;
+   /**
+    * Not a product column: the manufacturer article number of the sourcing row the caller reads for
+    * the product (its own, else its provider's shared row; client-visible, ruling Q3). The caller
+    * supplies it (amazon-listing: sourcingArtNo); left out or NULL (masked), nothing is derived.
+    */
    manufacturer_art_no?: string | null;
    is_hazmat?: boolean | null;
 };

@@ -20,6 +20,7 @@ import {
    mediaRefs,
    parseSubmission,
    PRODUCT_LISTING_COLUMNS,
+   SOURCING_LISTING_COLUMNS,
    type ProductRow,
    publicImageUrl,
    requireLanguageTag,
@@ -1471,6 +1472,82 @@ Deno.test('validate sends the derived attributes under the user values', async (
    assertEquals(sent.number_of_items, [{ value: 2, marketplace_id: DE }]);
 });
 
+// Q3: the model and part number come from the manufacturer article number of the sourcing row the
+// caller reads for the product (its own, else its provider's shared row), read through the user
+// client on api so masking applies. The R3 fixture has neither attribute, so they are added here.
+const PROVIDER = '00000000-0000-4000-8000-0000000000b1';
+const PRODUCT_ID = '00000000-0000-4000-8000-00000000ad01';
+const textAttribute = {
+   type: 'array',
+   items: {
+      type: 'object',
+      properties: { value: { type: 'string' }, marketplace_id: { type: 'string' } }
+   }
+};
+const withPartNumbers = (state: State) => {
+   for (const row of state.tables.amazon_product_type_definition) {
+      const schema = row.schema as AmazonSchema;
+      row.schema = {
+         ...schema,
+         properties: {
+            ...schema.properties,
+            model_number: textAttribute,
+            part_number: textAttribute
+         }
+      };
+   }
+   return state;
+};
+const sourcingRow = (tenant: string, artNo: string | null) => ({
+   id: `src-${tenant}`,
+   tenant_id: tenant,
+   client_tenant_id: tenant === TENANT ? null : TENANT,
+   product_tenant_id: TENANT,
+   product_id: PRODUCT_ID,
+   manufacturer_art_no: artNo,
+   purchase_price: 1.1
+});
+const validateSent = async (state: State) => {
+   clearTokenCache();
+   const { deps: amazon, calls } = fakeAmazon(() => Response.json(SANDBOX_INVALID));
+   await handler(post({ action: 'validate', cell_id: CELL }), deps(state, amazon));
+   return (calls[0].body as ListingBody).attributes;
+};
+
+Deno.test(
+   "validate derives the model and part number from the provider's shared sourcing row",
+   async () => {
+      const state = withPartNumbers(withMediaObject(story()));
+      state.tables.sourcing = [sourcingRow(PROVIDER, 'MOP-40')];
+      const sent = await validateSent(state);
+      assertEquals(sent.model_number, [{ value: 'MOP-40', marketplace_id: DE }]);
+      assertEquals(sent.part_number, [{ value: 'MOP-40', marketplace_id: DE }]);
+      // Read by the caller's client: the article number and nothing sensitive.
+      assertEquals(
+         state.selects.filter((s) => s.table === 'sourcing'),
+         [{ table: 'sourcing', columns: SOURCING_LISTING_COLUMNS, client: 'user' }]
+      );
+   }
+);
+
+Deno.test("validate prefers the tenant's own sourcing row (the client procures)", async () => {
+   const state = withPartNumbers(withMediaObject(story()));
+   state.tables.sourcing = [sourcingRow(PROVIDER, 'MOP-40'), sourcingRow(TENANT, 'OWN-7')];
+   assertEquals((await validateSent(state)).model_number, [{ value: 'OWN-7', marketplace_id: DE }]);
+});
+
+Deno.test(
+   'validate derives no model or part number from a masked (NULL) or missing number',
+   async () => {
+      const masked = withPartNumbers(withMediaObject(story()));
+      masked.tables.sourcing = [sourcingRow(PROVIDER, null)];
+      const sent = await validateSent(masked);
+      assertEquals([sent.model_number, sent.part_number], [undefined, undefined]);
+      const none = withPartNumbers(withMediaObject(story()));
+      assertEquals((await validateSent(none)).model_number, undefined);
+   }
+);
+
 Deno.test('check treats a cell without a connected account as draft', async () => {
    const state = story();
    state.tables.platform_account[0].api_connection = 'revoked';
@@ -2150,8 +2227,12 @@ Deno.test('amazon-listing selects no sensitive product or cell column', () => {
    const product = PRODUCT_LISTING_COLUMNS.split(',').map((s) => s.trim());
    const cell = MARKET_CELL_LISTING_COLUMNS.split(',').map((s) => s.trim());
    for (const c of SENSITIVE) assert(!product.includes(c), c);
-   // Supplier identity sits on the sourcing row, never on the product read.
+   // Supplier identity sits on the sourcing row, never on the product read; the sourcing read
+   // carries the (client-visible, Q3) article number and nothing sensitive.
    assert(!product.includes('manufacturer_art_no'));
+   const sourcing = SOURCING_LISTING_COLUMNS.split(',').map((s) => s.trim());
+   assertEquals(sourcing, ['product_id', 'tenant_id', 'manufacturer_art_no']);
+   for (const c of SENSITIVE) assert(!sourcing.includes(c), c);
    assert(!cell.includes('notes'));
 });
 
@@ -2176,7 +2257,9 @@ Deno.test('amazon-listing never selects * from a table with sensitive columns', 
    assert(state.selects.some((s) => s.table === 'product'));
    // The supplier identity number is never selected by the service client.
    assertEquals(
-      state.selects.filter((s) => s.client === 'service' && s.columns.includes('manufacturer_art_no')),
+      state.selects.filter(
+         (s) => s.client === 'service' && s.columns.includes('manufacturer_art_no')
+      ),
       []
    );
 });

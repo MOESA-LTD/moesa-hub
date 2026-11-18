@@ -52,7 +52,10 @@ export type ProductRow = Pick<
    | 'origin_country'
    | 'is_hazmat'
 > & {
-   /** Lives on the sourcing row now (the procuring tenant's), so the product read never carries it. */
+   /**
+    * Not a product column: the manufacturer article number of the sourcing row the caller reads for
+    * the product (sourcingArtNo), set by the loader; NULL when none is readable.
+    */
    manufacturer_art_no?: string | null;
 };
 
@@ -60,12 +63,39 @@ export type ProductRow = Pick<
  * The product columns the listing reads: open ones only. The product card columns (unit/pack size,
  * weight, quantity, origin, hazmat) feed the derived attributes. The listing never needs cost,
  * supplier or notes, and a service-role read must not carry them along with a `*`. The manufacturer
- * article number is supplier identity and sits on the sourcing row, which the procuring tenant owns,
- * so the product read does not carry it; nothing is derived from it until sharing (Plan 2) lets the
- * client tenant read it.
+ * article number is supplier identity and sits on the sourcing row (SOURCING_LISTING_COLUMNS), so
+ * the product read does not carry it.
  */
 export const PRODUCT_LISTING_COLUMNS =
    'id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat';
+
+/**
+ * The sourcing columns the listing reads: the manufacturer article number (client-visible, ruling
+ * Q3) and what picks the row, nothing sensitive. Read through the caller's client on api, so the
+ * masking applies: a number the caller may not read is NULL and derives nothing.
+ */
+export const SOURCING_LISTING_COLUMNS = 'product_id, tenant_id, manufacturer_art_no';
+
+export type SourcingArtNoRow = {
+   product_id: string | null;
+   tenant_id: string;
+   manufacturer_art_no: string | null;
+};
+
+/**
+ * The manufacturer article number of a product of `tenantId`, from the sourcing rows the caller
+ * reads: the tenant's own row (the client procures), else its provider's row shared with it (the
+ * provider procures). The model and part number are derived from it (Q3); NULL derives nothing.
+ */
+export function sourcingArtNo(
+   rows: readonly SourcingArtNoRow[],
+   tenantId: string,
+   productId: string
+): string | null {
+   const mine = rows.filter((row) => row.product_id === productId);
+   const row = mine.find((r) => r.tenant_id === tenantId) ?? mine[0];
+   return row?.manufacturer_art_no ?? null;
+}
 
 export type CellContext = {
    cell: MarketCellRow;

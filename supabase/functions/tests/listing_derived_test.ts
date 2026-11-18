@@ -177,7 +177,7 @@ Deno.test('the manufacturer article number is the model and the part number', ()
 });
 
 Deno.test('a masked (NULL) manufacturer article number derives no model or part number', () => {
-   // Through api.product the number is NULL for a caller without supplier_identity.
+   // Through api.sourcing the number is NULL for a caller who may not read it (masked).
    const { attributes, sources } = derive({ manufacturer_art_no: null });
    assertEquals(attributes.model_number, undefined);
    assertEquals(attributes.part_number, undefined);
