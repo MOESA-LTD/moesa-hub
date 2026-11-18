@@ -3,11 +3,13 @@ const route = useRoute();
 
 const home = ref({
    meta: { icon: PrimeIcons.HOME },
-   path: '/'
+   // By name, so the locale in the URL is kept; the route redirects to the dashboard.
+   name: 'home'
 });
 const breadcrumbItems = computed(() =>
    route.matched
-      .filter(({ name, path }) => !_isNil(name) && !_isNil(path))
+      // `home` is the crumb above, not a step of the trail.
+      .filter(({ name, path }) => !_isNil(name) && !_isNil(path) && name !== 'home')
       .map((route, index) => {
          const label = i18n.t(route.meta.label);
          return {

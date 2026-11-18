@@ -29,7 +29,7 @@ const version = import.meta.env.PACKAGE_VERSION;
             @click="sidebar.toggle"
             v-if="isSignedIn"
          />
-         <router-link to="/" class="layout-topbar-logo">
+         <router-link :to="{ name: 'home' }" class="layout-topbar-logo">
             <!-- The company's own logo, when it has one (see the branch profile). -->
             <img
                v-if="logo"
