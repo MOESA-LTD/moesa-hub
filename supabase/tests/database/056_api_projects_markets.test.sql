@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- (t_restricted: the business tables, no field rows).
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(13);
 
 SELECT private.field_test_fixtures();
 SELECT private.create_test_helpers();
@@ -29,6 +29,21 @@ SELECT throws_ok($$ UPDATE api.market_cell SET listing_state = 'live' WHERE id =
 SELECT is(t.error_of($$ DELETE FROM api.market_cell WHERE id = current_setting('test.live_cell')::UUID $$), '23514:market_cell_delete_candidate_only', 'R7 through api');
 SELECT throws_ok($$ INSERT INTO api.incident_log (tenant_id, incident_id, note, cost_amount) VALUES (current_setting('test.moesa')::UUID, current_setting('test.inc')::UUID, 'x', 10) $$, '42501', 'field_write_forbidden', 'internal note and finance write refused');
 SELECT throws_ok($$ UPDATE api.project_gate SET note = 'gate secret' WHERE id = current_setting('test.gate')::UUID $$, '42501', 'field_write_forbidden', 'S1: a correct gate note guess is refused');
+
+-- Cross-tenant (Plan 1 carry, restored with sharing): none of these tables is shared, so THO's viewer
+-- (project and market reader) sees none of the provider's rows, even in the forged scope {THO, provider}.
+RESET ROLE;
+SELECT private.impersonate_scope(current_setting('test.portal')::UUID, current_setting('test.tho')::UUID,
+                                 ARRAY[current_setting('test.tho')::UUID, current_setting('test.moesa')::UUID]);
+SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM api.project WHERE id = current_setting('test.project')::UUID),
+                            (SELECT count(*)::INT FROM api.project_gate WHERE id = current_setting('test.gate')::UUID),
+                            (SELECT count(*)::INT FROM api.market_cell WHERE id = current_setting('test.cell')::UUID),
+                            (SELECT count(*)::INT FROM api.incident WHERE id = current_setting('test.inc')::UUID),
+                            (SELECT count(*)::INT FROM api.incident_log WHERE id = current_setting('test.inc_log')::UUID),
+                            (SELECT count(*)::INT FROM api.change_request WHERE id = current_setting('test.cr')::UUID) $$,
+                  $$ VALUES (0, 0, 0, 0, 0, 0) $$, 'THO''s viewer reads none of the provider''s projects, markets, incidents or change requests');
+RESET ROLE;
+SELECT private.unimpersonate();
 
 SELECT * FROM finish();
 ROLLBACK;
