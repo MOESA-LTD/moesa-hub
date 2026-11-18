@@ -142,14 +142,14 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.code_sequence (
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
    kind TEXT NOT NULL,
-   -- The customer code the codes are numbered under.
+   -- The code the codes are numbered under (private.code_scope).
    scope TEXT NOT NULL,
    year INT NOT NULL,
    last_no INT NOT NULL DEFAULT 0,
    CONSTRAINT code_sequence_pkey PRIMARY KEY (tenant_id, kind, scope, year)
 );
 
--- The next code of `kind` for the customer `scope` in the active tenant, this year:
+-- The next code of `kind` for the `scope` (private.code_scope) in the active tenant, this year:
 -- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr → <KIND>-<SCOPE>-<YYYY>-<NNN>. The upsert locks the
 -- counter row, so concurrent calls wait for each other and never get the same number.
 CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
@@ -192,6 +192,30 @@ $$;
 REVOKE ALL ON FUNCTION public.next_code (TEXT, TEXT) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.next_code (TEXT, TEXT) TO authenticated;
+
+-- The code a number is drawn under. A row of the tenant's own (p_client NULL) is numbered under the
+-- tenant's code; a row kept for a client tenant under the code the provider gave that client in
+-- their relationship. NULL when there is none, which next_code refuses. SECURITY DEFINER because
+-- the caller may not read the other side of the relationship.
+CREATE OR REPLACE FUNCTION private.code_scope (p_tenant UUID, p_client UUID) RETURNS TEXT LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    scope TEXT;
+BEGIN
+    -- plpgsql, so the body is not checked until it runs: provider_relationship is made in
+    -- 018_tenant_relations.sql.
+    IF p_client IS NULL THEN
+        SELECT t.code INTO scope FROM public.tenant t WHERE t.id = p_tenant;
+    ELSE
+        SELECT r.client_code INTO scope FROM public.provider_relationship r
+        WHERE r.tenant_id = p_tenant AND r.client_tenant_id = p_client;
+    END IF;
+    RETURN scope;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.code_scope (UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- Tenant policies (006_init_permissions.sql covers only the tables that existed then).
 SELECT

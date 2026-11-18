@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(16);
 
 SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Danışmanlık')::TEXT, TRUE);
 
@@ -18,23 +18,25 @@ SELECT is(
     'existing companies get the management_gates setting, G1 by default'
 );
 
-INSERT INTO api.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000301', current_setting('test.tenant_id')::UUID, 'DSH', 'Dash Trading',
-        'trading_partner');
+SELECT hasnt_column('public', 'dashboard_gate_pending', 'customer_id', 'the gate list has no customer');
 
--- Two brand sourcing projects of the customer; the second is put on hold below.
-INSERT INTO api.project (id, tenant_id, customer_id, display_name, type, path, packages)
-VALUES ('00000000-0000-4000-8000-000000000302', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'Dash lamp', 'npi', 'a_sourcing', ARRAY['A1']),
-       ('00000000-0000-4000-8000-000000000303', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'Dash chair', 'npi', 'a_sourcing', ARRAY['A1']);
+SELECT hasnt_column('public', 'dashboard_task_due', 'customer_id', 'the task list has no customer');
+
+SELECT hasnt_column('public', 'dashboard_product_evidence', 'customer_id', 'the evidence is per tenant, not per customer');
+
+-- Two brand sourcing projects of the company; the second is put on hold below.
+INSERT INTO api.project (id, tenant_id, display_name, type, path, packages)
+VALUES ('00000000-0000-4000-8000-000000000302', current_setting('test.tenant_id')::UUID, 'Dash lamp', 'npi',
+        'a_sourcing', ARRAY['A1']),
+       ('00000000-0000-4000-8000-000000000303', current_setting('test.tenant_id')::UUID, 'Dash chair', 'npi',
+        'a_sourcing', ARRAY['A1']);
 
 SELECT is(
     (SELECT string_agg(d.gate_code || ':' || d.owner_role || ':' || d.needs_customer_approval || ':'
                        || d.needs_management, ',')
      FROM api.dashboard_gate_pending d WHERE d.project_id = '00000000-0000-4000-8000-000000000302'),
     'G1:coordinator:true:true',
-    'a new project waits on G1 only: the coordinator''s, with the customer''s approval and management''s'
+    'a new project waits on G1 only: the coordinator''s, with the client''s approval and management''s'
 );
 
 SELECT is(
@@ -53,13 +55,13 @@ SELECT is(
     'a project on hold has no pending gate on the dashboard'
 );
 
--- Pass G1: its blocking tasks done and the customer's written approval attached to the gate.
+-- Pass G1: its blocking tasks done and the written approval attached to the gate.
 UPDATE api.project_task SET status = 'done'
 WHERE project_id = '00000000-0000-4000-8000-000000000302' AND phase = 'P1' AND blocks_gate;
 
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, status, url)
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, status, url)
 SELECT '00000000-0000-4000-8000-000000000304', current_setting('test.tenant_id')::UUID,
-       '00000000-0000-4000-8000-000000000301', 'project_gate', g.id, 'gate_approval', 'approved',
+       'project_gate', g.id, 'gate_approval', 'approved',
        'https://example.test/dash-g1.pdf'
 FROM api.project_gate g
 WHERE g.project_id = '00000000-0000-4000-8000-000000000302' AND g.code = 'G1';
@@ -107,27 +109,23 @@ SELECT is(
 
 -- Two active products (one with a signed spec sheet, the other with complete compliance), a
 -- concept and an archived one.
-INSERT INTO api.product (id, tenant_id, customer_id, sku, status, compliance_status)
-VALUES ('00000000-0000-4000-8000-000000000305', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'DSH-001', 'development', 'none'),
-       ('00000000-0000-4000-8000-000000000306', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'DSH-002', 'on_sale', 'complete'),
-       ('00000000-0000-4000-8000-000000000307', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'DSH-003', 'concept', 'none'),
-       ('00000000-0000-4000-8000-000000000308', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000301', 'DSH-004', 'archived', 'none');
+INSERT INTO api.product (id, tenant_id, sku, status, compliance_status)
+VALUES ('00000000-0000-4000-8000-000000000305', current_setting('test.tenant_id')::UUID, 'DSH-001', 'development', 'none'),
+       ('00000000-0000-4000-8000-000000000306', current_setting('test.tenant_id')::UUID, 'DSH-002', 'on_sale', 'complete'),
+       ('00000000-0000-4000-8000-000000000307', current_setting('test.tenant_id')::UUID, 'DSH-003', 'concept', 'none'),
+       ('00000000-0000-4000-8000-000000000308', current_setting('test.tenant_id')::UUID, 'DSH-004', 'archived', 'none');
 
-INSERT INTO api.document (tenant_id, customer_id, entity_type, entity_id, type, status, url, is_signed,
+INSERT INTO api.document (tenant_id, entity_type, entity_id, type, status, url, is_signed,
                              is_stamped, sent_from_official_email, issued_on)
-VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000301', 'product',
+VALUES (current_setting('test.tenant_id')::UUID, 'product',
         '00000000-0000-4000-8000-000000000305', 'spec_sheet', 'approved', 'https://example.test/dsh-001.pdf', TRUE,
         TRUE, TRUE, current_date);
 
 SELECT is(
-    (SELECT d.customer_code || ':' || d.active_sku_count || ':' || d.signed_spec_count || ':'
+    (SELECT d.active_sku_count || ':' || d.signed_spec_count || ':'
             || d.compliance_complete_count || ':' || d.unsigned_sku_count
-     FROM api.dashboard_product_evidence d WHERE d.customer_id = '00000000-0000-4000-8000-000000000301'),
-    'DSH:2:1:1:1',
+     FROM api.dashboard_product_evidence d WHERE d.tenant_id = current_setting('test.tenant_id')::UUID),
+    '2:1:1:1',
     'evidence counts: 2 active SKUs (concept and archived left out), 1 signed, 1 compliant, 1 unsigned'
 );
 
@@ -153,13 +151,8 @@ SELECT private.impersonate(
     current_setting('test.branch_id')::UUID
 );
 
-INSERT INTO api.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000309', current_setting('test.branch_id')::UUID, 'BRN', 'Branch Trading',
-        'trading_partner');
-
-INSERT INTO api.project (id, tenant_id, customer_id, display_name, type, path, packages)
-VALUES ('00000000-0000-4000-8000-000000000310', current_setting('test.branch_id')::UUID,
-        '00000000-0000-4000-8000-000000000309', 'Branch lamp', 'npi', 'a_sourcing', ARRAY['A1']);
+INSERT INTO api.project (id, tenant_id, display_name, type, path, packages)
+VALUES ('00000000-0000-4000-8000-000000000310', current_setting('test.branch_id')::UUID, 'Branch lamp', 'npi', 'a_sourcing', ARRAY['A1']);
 
 -- The company now needs management on G2 only, and its auditor loses the setting read permission.
 RESET ROLE;

@@ -8,13 +8,12 @@
 --                             it (the company's setting management_gates).
 -- dashboard_task_due          The open tasks of active projects due within five days, overdue ones
 --                             included.
--- dashboard_product_evidence  Per customer, the evidence behind its active products (neither
+-- dashboard_product_evidence  Per tenant, the evidence behind its active products (neither
 --                             concept nor archived): how many have a signed spec sheet and how many
 --                             have complete compliance (public.product_evidence).
 --
 -- The views run as the caller (security_invoker), so each shows what the caller's RLS lets them
--- read. The customer is joined LEFT: a caller who may read projects but not customers still sees
--- the rows, without the customer's code. The management gates are read by
+-- read. The management gates are read by
 -- private.management_gates, so every caller gets the company's list whatever settings they may
 -- read, and a branch's project uses its company's (root tenant's) setting.
 
@@ -87,8 +86,6 @@ SELECT
    p.id AS project_id,
    p.code AS project_code,
    p.display_name AS project_display_name,
-   p.customer_id,
-   c.code::TEXT AS customer_code,
    p.tenant_id,
    g.code AS gate_code,
    g.position,
@@ -137,8 +134,6 @@ FROM
       LIMIT
          1
    ) prev ON TRUE
-   LEFT JOIN public.customer c ON c.id = p.customer_id
-   AND c.tenant_id = p.tenant_id
 WHERE
    p.status = 'active';
 
@@ -154,8 +149,6 @@ SELECT
    t.id AS task_id,
    p.id AS project_id,
    p.code AS project_code,
-   p.customer_id,
-   c.code::TEXT AS customer_code,
    p.tenant_id,
    t.display_name,
    t.role,
@@ -168,8 +161,6 @@ FROM
    public.project_task t
    JOIN public.project p ON p.id = t.project_id
    AND p.tenant_id = t.tenant_id
-   LEFT JOIN public.customer c ON c.id = p.customer_id
-   AND c.tenant_id = p.tenant_id
 WHERE
    t.status <> 'done'
    AND t.due_on IS NOT NULL
@@ -185,8 +176,6 @@ CREATE OR REPLACE VIEW public.dashboard_product_evidence
 WITH
    (security_invoker = TRUE) AS
 SELECT
-   e.customer_id,
-   c.code::TEXT AS customer_code,
    e.tenant_id,
    count(*)::INT AS active_sku_count,
    (count(*) FILTER (WHERE e.has_signed_spec))::INT AS signed_spec_count,
@@ -194,15 +183,11 @@ SELECT
    (count(*) FILTER (WHERE NOT e.has_signed_spec))::INT AS unsigned_sku_count
 FROM
    public.product_evidence e
-   LEFT JOIN public.customer c ON c.id = e.customer_id
-   AND c.tenant_id = e.tenant_id
 WHERE
    e.status NOT IN ('archived', 'concept')
 GROUP BY
-   e.customer_id,
-   c.code,
    e.tenant_id;
 
-COMMENT ON VIEW public.dashboard_product_evidence IS 'Per customer, over its active products (neither concept nor archived): how many there are, how many have a signed or approved spec sheet, how many have complete compliance, and how many lack a signed spec sheet.';
+COMMENT ON VIEW public.dashboard_product_evidence IS 'Per tenant, over its active products (neither concept nor archived): how many there are, how many have a signed or approved spec sheet, how many have complete compliance, and how many lack a signed spec sheet.';
 
 GRANT SELECT ON public.dashboard_product_evidence TO authenticated;
