@@ -1,7 +1,7 @@
-// amazon-auth: connects a customer's Amazon platform account to the panel (Seller Central OAuth,
+// amazon-auth: connects a tenant's Amazon platform account to the panel (Seller Central OAuth,
 // public app) and disconnects it.
 //
-//   POST { action: 'connect', account_id, return_to }  (update customer_platform_account)
+//   POST { action: 'connect', account_id, return_to }  (update platform_account)
 //        production -> { redirect: <Seller Central consent URL with a signed state> }
 //        sandbox    -> { account }  (no OAuth: the self-authorized env token serves, R6)
 //   POST { action: 'disconnect', account_id }           -> { account }
@@ -37,17 +37,17 @@ import {
    verifyState
 } from './auth.ts';
 
-const PERMISSION: Requirement = [['update', 'customer_platform_account']];
+const PERMISSION: Requirement = [['update', 'platform_account']];
 /** The seller id stored by a sandbox connect when AMAZON_SPAPI_SELLER_ID is not set. */
 const SANDBOX_SELLER = 'SANDBOX_SELLER';
 const CALLBACK_PATH = '/functions/v1/amazon-auth/callback';
 /** The account as responses show it: the connection state, never a credential. */
-const ACCOUNT_COLUMNS = 'id, customer_id, platform_id, api_connection, authorized_at, seller_id';
+const ACCOUNT_COLUMNS = 'id, platform_id, api_connection, authorized_at, seller_id';
 
 type Db = SupabaseClient<Database>;
 type Account = Pick<
-   Database['public']['Tables']['customer_platform_account']['Row'],
-   'id' | 'customer_id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
+   Database['public']['Tables']['platform_account']['Row'],
+   'id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
 >;
 
 export type HandlerDeps = {
@@ -81,7 +81,6 @@ const body = z.discriminatedUnion('action', [
 
 const pick = (row: Account): Account => ({
    id: row.id,
-   customer_id: row.customer_id,
    platform_id: row.platform_id,
    api_connection: row.api_connection,
    authorized_at: row.authorized_at,
@@ -91,7 +90,7 @@ const pick = (row: Account): Account => ({
 /** The tenant's amazon account, or 404 platform_account_not_found. */
 const findAccount = async (db: Db, id: string, tenantId: string): Promise<Account> => {
    const { data, error } = await db
-      .from('customer_platform_account')
+      .from('platform_account')
       .select(ACCOUNT_COLUMNS)
       .eq('id', id)
       .eq('tenant_id', tenantId)

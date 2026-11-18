@@ -35,7 +35,6 @@ export type ProductRow = Pick<
    Database['public']['Tables']['product']['Row'],
    | 'id'
    | 'tenant_id'
-   | 'customer_id'
    | 'parent_id'
    | 'sku'
    | 'display_name'
@@ -65,7 +64,7 @@ export type ProductRow = Pick<
  * published publicly on Amazon.
  */
 export const PRODUCT_LISTING_COLUMNS =
-   'id, tenant_id, customer_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat, manufacturer_art_no';
+   'id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat, manufacturer_art_no';
 
 export type CellContext = {
    cell: MarketCellRow;

@@ -117,11 +117,11 @@ BEGIN
     PERFORM private.platform_account_authorize(p_account_id, p_state);
 
     IF p_state = 'none' THEN
-        UPDATE public.customer_platform_account a
+        UPDATE public.platform_account a
         SET api_connection = 'none', authorized_at = NULL, seller_id = NULL
         WHERE a.id = p_account_id;
     ELSE
-        UPDATE public.customer_platform_account a SET api_connection = 'revoked' WHERE a.id = p_account_id;
+        UPDATE public.platform_account a SET api_connection = 'revoked' WHERE a.id = p_account_id;
     END IF;
 
     IF NOT FOUND THEN

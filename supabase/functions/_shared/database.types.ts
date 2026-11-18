@@ -4939,14 +4939,13 @@ export type Database = {
           },
         ]
       }
-      customer_platform_account: {
+      platform_account: {
         Row: {
           access: Database["public"]["Enums"]["platform_access"]
           account_holder: string | null
           api_connection: Database["public"]["Enums"]["api_connection"]
           authorized_at: string | null
           countries: string[]
-          customer_id: string
           id: string
           notes: string | null
           platform_id: string
@@ -4959,7 +4958,6 @@ export type Database = {
           api_connection?: Database["public"]["Enums"]["api_connection"]
           authorized_at?: string | null
           countries?: string[]
-          customer_id: string
           id?: string
           notes?: string | null
           platform_id: string
@@ -4972,7 +4970,6 @@ export type Database = {
           api_connection?: Database["public"]["Enums"]["api_connection"]
           authorized_at?: string | null
           countries?: string[]
-          customer_id?: string
           id?: string
           notes?: string | null
           platform_id?: string
@@ -4981,28 +4978,21 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "customer_platform_account_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_platform_account_platform_id_fkey"
+            foreignKeyName: "platform_account_platform_id_fkey"
             columns: ["platform_id"]
             isOneToOne: false
             referencedRelation: "platform"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "customer_platform_account_tenant_id_fkey"
+            foreignKeyName: "platform_account_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "company_subscription"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "customer_platform_account_tenant_id_fkey"
+            foreignKeyName: "platform_account_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
@@ -5624,7 +5614,6 @@ export type Database = {
           country: string
           created_at: string
           currency: string | null
-          customer_id: string
           fulfillment_channel: string | null
           id: string
           last_checked_on: string | null
@@ -5655,7 +5644,6 @@ export type Database = {
           country: string
           created_at?: string
           currency?: string | null
-          customer_id: string
           fulfillment_channel?: string | null
           id?: string
           last_checked_on?: string | null
@@ -5686,7 +5674,6 @@ export type Database = {
           country?: string
           created_at?: string
           currency?: string | null
-          customer_id?: string
           fulfillment_channel?: string | null
           id?: string
           last_checked_on?: string | null

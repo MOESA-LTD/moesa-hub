@@ -1,7 +1,7 @@
 // The poll run: every cell in listing_state 'submitted' (all tenants, service role) is asked for
 // its status through the shared refreshListingStatus, oldest check first, a few per run. A
 // settled (done) latest submission is not asked again: such a cell (a variation parent showing its
-// children's state) is only stamped to the back of the queue. A cell whose customer's account is
+// children's state) is only stamped to the back of the queue. A cell whose tenant's account is
 // not connected (a transferred cell, a revoked grant) is skipped and set to draft without an open
 // issue (N2). Give-up applies only to the cell's latest submission still in flight (accepted or
 // processing) that Amazon has not reported within POLL_GIVE_UP_HOURS: submission failed, cell
@@ -52,7 +52,7 @@ export type PollResult = {
    polled: number;
    failed: number;
    given_up: number;
-   /** Cells set to draft because their customer's account is not connected (N2). */
+   /** Cells set to draft because their tenant's account is not connected (N2). */
    skipped: number;
    remaining: number;
 };

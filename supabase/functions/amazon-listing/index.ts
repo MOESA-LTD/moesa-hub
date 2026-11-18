@@ -1,5 +1,5 @@
 // amazon-listing: one cell's Amazon listing. Every action is POST { action, ... } and needs
-// insert on listing_submission (each one spends the customer's grant or writes state).
+// insert on listing_submission (each one spends the tenant's grant or writes state).
 //
 //   check        { cell_id }                   -> { missing, match, state }
 //                match = { asin, restricted, reasons, checked_at } | null (no connected account)
@@ -92,7 +92,7 @@ import {
 
 type Db = SupabaseClient<Database>;
 
-/** Every action: the check and the status spend the customer's grant and write state too. */
+/** Every action: the check and the status spend the tenant's grant and write state too. */
 const WRITE: Requirement = [['insert', 'listing_submission']];
 /** The static sandbox serves the VALIDATION_PREVIEW mock only on its NA host, for this marketplace. */
 const SANDBOX_PREVIEW_MARKETPLACE = 'ATVPDKIKX0DER';
@@ -236,16 +236,10 @@ const missingFor = (definition: DefinitionRow, ctx: CellContext): MissingField[]
    );
 };
 
-/** N2: a cell whose customer account is not connected is treated as draft. */
+/** N2: a cell whose tenant account is not connected is treated as draft. */
 const accountOrNull = async (run: Run, ctx: CellContext): Promise<AmazonAccount | null> => {
    try {
-      return await amazonAccountFor(
-         run.db,
-         run.service,
-         ctx.cell.customer_id,
-         run.tenantId,
-         run.env
-      );
+      return await amazonAccountFor(run.db, run.service, run.tenantId, run.env);
    } catch (error) {
       if (error instanceof HttpError && error.message === 'amazon_not_connected') return null;
       throw error;
@@ -392,7 +386,7 @@ const bodyFor = (ctx: CellContext, imageUrls: Record<string, string>, definition
    );
 
 const requireAccount = async (run: Run, ctx: CellContext) =>
-   amazonAccountFor(run.db, run.service, ctx.cell.customer_id, run.tenantId, run.env);
+   amazonAccountFor(run.db, run.service, run.tenantId, run.env);
 
 const validate = async (run: Run, id: string) => {
    const ctx = await loadContext(run.db, run.tenantId, id);
@@ -534,13 +528,7 @@ const loadDeleteTarget = async (run: Run, id: string) => {
 
 const remove = async (run: Run, id: string): Promise<Response> => {
    const ctx = await loadDeleteTarget(run, id);
-   const account = await amazonAccountFor(
-      run.db,
-      run.service,
-      ctx.cell.customer_id,
-      run.tenantId,
-      run.env
-   );
+   const account = await amazonAccountFor(run.db, run.service, run.tenantId, run.env);
    const submission = await beginSubmission(run, ctx, 'delete', {});
 
    // A delete must not walk the business status (listing_apply_submission would): the

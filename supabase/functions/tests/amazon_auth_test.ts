@@ -21,7 +21,7 @@ const SECRET = 'a-test-state-secret-of-at-least-32-chars';
 const ACCOUNT = '0f6d5a4e-3c2b-4a19-8e7f-6a5b4c3d2e1f';
 const TENANT = 'tenant-1';
 const USER = 'user-1';
-const RETURN_TO = '/ops/customer/1/platforms';
+const RETURN_TO = '/ops/company/platforms';
 
 const ENV: AmazonEnv = {
    env: 'sandbox',
@@ -68,7 +68,6 @@ const arg = (query: Query, method: string, column: string) =>
 type Row = {
    id: string;
    tenant_id: string;
-   customer_id: string;
    platform_id: string;
    api_connection: string;
    authorized_at: string | null;
@@ -78,7 +77,6 @@ type Row = {
 const amazonRow = (overrides: Partial<Row> = {}): Row => ({
    id: ACCOUNT,
    tenant_id: TENANT,
-   customer_id: 'customer-1',
    platform_id: 'amazon',
    api_connection: 'none',
    authorized_at: null,
@@ -87,7 +85,7 @@ const amazonRow = (overrides: Partial<Row> = {}): Row => ({
 });
 
 /**
- * `rows` is the customer_platform_account table; every filter (eq) is applied to it. The rpc fake
+ * `rows` is the platform_account table; every filter (eq) is applied to it. The rpc fake
  * records its calls and answers amazon_account_connect with the connected row.
  */
 const fakeDb = (rows: Row[] = [amazonRow()]) => {
@@ -160,7 +158,7 @@ const fakeFetch = (answer: () => Response = () => Response.json({ refresh_token:
    return { fetch, calls };
 };
 
-const PERMISSION: Requirement = [['update', 'customer_platform_account']];
+const PERMISSION: Requirement = [['update', 'platform_account']];
 
 const deps = (
    db: SupabaseClient<Database>,
@@ -387,9 +385,9 @@ Deno.test(
 // --- callback ------------------------------------------------------------------------------------
 
 Deno.test(
-   'callback stores the token with selling_partner_id and redirects to the app',
+   "connect stores the token on the tenant's platform_account",
    async () => {
-      const { db, rpcs } = fakeDb();
+      const { db, rpcs, queries } = fakeDb();
       const lwa = fakeFetch();
       const state = await signState(payload(), SECRET);
 
@@ -401,9 +399,10 @@ Deno.test(
       assertEquals(response.status, 302);
       assertEquals(
          response.headers.get('Location'),
-         'http://localhost:5173/ops/customer/1/platforms?amazon=connected'
+         'http://localhost:5173/ops/company/platforms?amazon=connected'
       );
       assertEquals(response.headers.get('Referrer-Policy'), 'no-referrer');
+      assertEquals(queries.map((q) => q.table), ['platform_account']);
       assertEquals(rpcs, [
          {
             name: 'amazon_account_connect',
@@ -463,7 +462,7 @@ Deno.test('callback with an expired state or missing parameters stores nothing',
    );
    assertEquals(
       noCode.headers.get('Location'),
-      'http://localhost:5173/ops/customer/1/platforms?amazon=error&reason=amazon_callback_invalid'
+      'http://localhost:5173/ops/company/platforms?amazon=error&reason=amazon_callback_invalid'
    );
    assertEquals([rpcs.length, lwa.calls.length], [0, 0]);
 });
@@ -485,7 +484,7 @@ Deno.test('callback refuses a replayed state once the account was connected with
    );
    assertEquals(
       response.headers.get('Location'),
-      'http://localhost:5173/ops/customer/1/platforms?amazon=error&reason=amazon_state_replayed'
+      'http://localhost:5173/ops/company/platforms?amazon=error&reason=amazon_state_replayed'
    );
    assertEquals([rpcs.length, lwa.calls.length], [0, 0]);
 });
@@ -501,7 +500,7 @@ Deno.test('callback refuses an account that left the state tenant', async () => 
    );
    assertEquals(
       response.headers.get('Location'),
-      'http://localhost:5173/ops/customer/1/platforms?amazon=error&reason=platform_account_not_found'
+      'http://localhost:5173/ops/company/platforms?amazon=error&reason=platform_account_not_found'
    );
    assertEquals([rpcs.length, lwa.calls.length], [0, 0]);
 });
@@ -521,7 +520,7 @@ Deno.test('callback with a refused code redirects with its reason and logs no se
    );
    assertEquals(
       response.headers.get('Location'),
-      'http://localhost:5173/ops/customer/1/platforms?amazon=error&reason=amazon_auth_failed'
+      'http://localhost:5173/ops/company/platforms?amazon=error&reason=amazon_auth_failed'
    );
    assertEquals(rpcs.length, 0);
    assertEquals(lines, ['amazon-auth callback failed: amazon_auth_failed']);
@@ -569,7 +568,6 @@ Deno.test('connect in sandbox stores no token and uses AMAZON_SPAPI_SELLER_ID', 
    const { account } = await response.json();
    assertEquals(account, {
       id: ACCOUNT,
-      customer_id: 'customer-1',
       platform_id: 'amazon',
       api_connection: 'connected',
       authorized_at: new Date(NOW).toISOString(),
@@ -628,7 +626,7 @@ Deno.test('disconnect clears the connection through amazon_account_disconnect', 
    assertEquals((await response.json()).account.api_connection, 'none');
 });
 
-Deno.test('connect and disconnect need update on customer_platform_account', async () => {
+Deno.test('connect and disconnect need update on platform_account', async () => {
    for (const body of [
       { action: 'connect', account_id: ACCOUNT, return_to: RETURN_TO },
       { action: 'disconnect', account_id: ACCOUNT }
@@ -685,7 +683,7 @@ Deno.test(
       assertEquals(response.status, 200);
       assertEquals(
          user.queries.map((q) => q.table),
-         ['customer_platform_account']
+         ['platform_account']
       );
       assertEquals(user.rpcs, []);
       assertEquals(
