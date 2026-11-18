@@ -207,15 +207,19 @@ t('a forged x-tenant-ids neither widens rows nor unmasks', async () => {
    assert(rows.every((row: { product_sku: string; purchase_price: unknown }) => row.product_sku !== 'HTTP-EU' || row.purchase_price === null), JSON.stringify(m.body));
 });
 
-t('a client tenant reads no provider row', async () => {
-   // Sharing comes in Plan 2: until then a client tenant holds no right on the provider's rows,
-   // even when it names the provider tenant in the scope header.
+t('a client tenant reads no unshared provider row', async () => {
+   // Since Plan 2 a client reads the provider rows shared with it (client_tenant_id, masked: see
+   // shared_rows_http_test.ts) and nothing else, even when it names the provider tenant in the scope header.
    const headers = { 'x-tenant-id': f.client, 'x-tenant-ids': `${f.client},${f.moesa}` };
-   for (const table of ['purchase_order', 'sourcing', 'supplier', 'provider_relationship']) {
-      const r = await rest(f.clientOwner, `${table}?select=id`, { headers });
+   for (const table of ['purchase_order', 'sourcing', 'provider_relationship']) {
+      const r = await rest(f.clientOwner, `${table}?select=id,client_tenant_id`, { headers });
       assertEquals(r.status, 200, `${table}: ${JSON.stringify(r.body)}`);
-      assertEquals(r.body.length, 0, `${table} leaked rows to the client owner`);
+      assert(
+         r.body.every((row: { client_tenant_id: string }) => row.client_tenant_id === f.client),
+         `${table} leaked an unshared row to the client owner`,
+      );
    }
+   assertEquals((await rest(f.clientOwner, 'supplier?select=id', { headers })).body, []);
    assertEquals((await rest(f.clientOwner, 'document?type=eq.pi&select=id', { headers })).body, []);
    // The koordinator does see the PI document (so the empty answers above are the row rule).
    assert((await rest(f.koordinator, 'document?type=eq.pi&notes=eq.HTTP-PI&select=id', { headers: h() })).body.length === 1);

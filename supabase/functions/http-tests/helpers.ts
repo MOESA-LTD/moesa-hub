@@ -2,6 +2,9 @@
 // Storage. The keys come from `supabase status -o env` through the environment (API_URL, ANON_KEY,
 // SERVICE_ROLE_KEY, JWT_SECRET) and are never printed. Local stack only.
 import { create, getNumericDate } from 'jsr:@zaubrik/djwt@3';
+// The client-visible fields of each shared table (generated from field_class, Task 8); the shared-rows
+// suite checks it against the catalog.
+export { CLIENT_VISIBLE_FIELDS as CLIENT_VISIBLE } from '../../../app/src/constants/clientVisible.ts';
 
 const env = (name: string): string => {
    const value = Deno.env.get(name);
@@ -131,11 +134,46 @@ export type Fixture = {
    restrictedUserId: string;
    koordinatorUserId: string;
    piObject: string;
+   /** A MOESA LTD supplier (TR1 by code order). */
+   supplierId: string;
+   // Shared rows (Plan 2, Task 9; F18: the existing fixture, found by id and sentinel, never by code).
+   /** akif: management in MOESA LTD and in THO (invited), the provider's staff with both tenants. */
+   providerMgmt: string;
+   /** baris: owner of MOESA LTD, not invited into THO. */
+   providerOwner: string;
+   portalUserId: string;
+   /** THO's viewer role (portal@'s). */
+   viewerRoleId: string;
+   /** A second client of MOESA LTD (HTTP Other Client) and the token of its owner. */
+   otherClient: string;
+   otherClientOwner: string;
+   otherRelationshipId: string;
+   /** MOESA LTD's order shared with THO: pi_total, notes, supplier, currency and deposit rate set. */
+   poShared: string;
+   lineShared: string;
+   shipmentShared: string;
+   eventShared: string;
+   /** MOESA LTD's order for the other client, and its own order (no client). */
+   poOther: string;
+   poOwn: string;
+   /** THO's change request on poShared; its cost (provider-guarded) written by akif. */
+   crShared: string;
 };
 
+/** The sentinels of the shared rows' provider-only fields. None may reach a client tenant. */
+export const SECRET_PI = 987654.32;
+export const SECRET_PI_TEXT = '987654.32';
+export const SECRET_NOTE = 'LEAK-NOTE';
+export const LEAK = 'LEAK-';
+export const SHARED_SELL_PRICE = 24.5;
+export const SECRET_UNIT_PRICE = 141093.76;
+
 const HTTP_SKUS = '(HTTP-SECRET,HTTP-EU,HTTP-NEW)';
-const HTTP_ROLES = '(http_restricted,http_no_cost)';
+const HTTP_ROLES = '(http_restricted,http_no_cost,http_spy)';
 const HTTP_PI = 'HTTP-PI';
+const OTHER_CLIENT = 'HTTP Other Client';
+const OTHER_EMAIL = 'http-other@moesa-panel.test';
+const HTTP_CR = 'HTTP-SHARED-CR';
 
 const one = <T>(r: RestResult, what: string): T => {
    if (!Array.isArray(r.body) || r.body.length !== 1) throw new Error(`expected one ${what}, got ${JSON.stringify(r.body).slice(0, 200)}`);
@@ -160,19 +198,42 @@ async function cleanup(): Promise<void> {
          await admin(`media?id=eq.${d.media_id}`, { method: 'DELETE' });
       }
    }
+   // The shared rows (Task 9): the change request, the shipment and its children, then the orders.
+   await admin(`change_request?title=eq.${HTTP_CR}`, { method: 'DELETE' });
+   const shipments = (await admin(`shipment?notes=like.${SECRET_NOTE}*&select=id`)).body as { id: string }[];
+   for (const { id } of shipments) {
+      for (const child of ['shipment_event', 'shipment_line', 'shipment_purchase_order']) {
+         await admin(`${child}?shipment_id=eq.${id}`, { method: 'DELETE' });
+      }
+      await admin(`shipment?id=eq.${id}`, { method: 'DELETE' });
+   }
+   const orders = (await admin(`purchase_order?notes=like.${SECRET_NOTE}*&select=id`)).body as { id: string }[];
+   for (const { id } of orders) {
+      await admin(`purchase_order_payment?purchase_order_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`purchase_order_update?purchase_order_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`purchase_order?id=eq.${id}`, { method: 'DELETE' });
+   }
+   await admin(`document?notes=like.LEAK-*`, { method: 'DELETE' });
    await admin(`purchase_order?pi_number=eq.${HTTP_PI}`, { method: 'DELETE' });
    // Sourcing rows first: they keep a product's sku as a snapshot and would outlive it.
    await admin(`sourcing?product_sku=in.${HTTP_SKUS}`, { method: 'DELETE' });
    await admin(`product?sku=in.${HTTP_SKUS}`, { method: 'DELETE' });
-   const users = await admin(`user?email=in.(${RESTRICTED_EMAIL},${MIXED_EMAIL})&select=id`);
+   const others = (await admin(`tenant?display_name=eq.${encodeURIComponent(OTHER_CLIENT)}&select=id`)).body as { id: string }[];
+   for (const { id } of others) {
+      await admin(`provider_relationship?client_tenant_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`tenant?id=eq.${id}`, { method: 'DELETE' });
+   }
+   const users = await admin(`user?email=in.(${RESTRICTED_EMAIL},${MIXED_EMAIL},${OTHER_EMAIL})&select=id`);
    for (const { id } of users.body as { id: string }[]) {
       await admin(`user_role?user_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`tenant_owner?user_id=eq.${id}`, { method: 'DELETE' });
       await admin(`tenant_user?user_id=eq.${id}`, { method: 'DELETE' });
       const r = await authAdmin(`users/${id}`, 'DELETE');
       if (r.status >= 400 && r.status !== 404) throw new Error(`deleting user ${id}: ${r.status}`);
    }
    const roles = await admin(`role?display_name=in.${HTTP_ROLES}&select=id`);
    for (const { id } of roles.body as { id: string }[]) {
+      await admin(`user_role?role_id=eq.${id}`, { method: 'DELETE' });
       await admin(`role_field_permission?role_id=eq.${id}`, { method: 'DELETE' });
       await admin(`role_permission?role_id=eq.${id}`, { method: 'DELETE' });
       await admin(`role?id=eq.${id}`, { method: 'DELETE' });
@@ -322,6 +383,7 @@ export async function adminSetup(): Promise<Fixture> {
          supplier_id: supplierId,
          purchase_price: 12.5,
          purchase_currency: 'USD',
+         manufacturer_art_no: 'HTTP-ART',
          notes: 'secret note',
       },
    });
@@ -422,6 +484,7 @@ export async function adminSetup(): Promise<Fixture> {
       signIn('thomas@moesa-panel.test'),
       signIn('koordinator@moesa-panel.test'),
    ]);
+   const shared = await sharedSetup({ akif, clientOwner, moesa, client, supplierId, productSecret, secretId });
 
    return {
       restricted,
@@ -441,6 +504,280 @@ export async function adminSetup(): Promise<Fixture> {
       restrictedUserId,
       koordinatorUserId,
       piObject,
+      supplierId,
+      ...shared,
+   };
+}
+
+const created = <T = { id: string }>(r: RestResult, what: string): T => {
+   if (r.status !== 201) throw new Error(`creating ${what}: ${r.status} ${JSON.stringify(r.body).slice(0, 300)}`);
+   return one<T>(r, what);
+};
+
+/**
+ * The shared rows (Task 9, F18), written as a real provider would write them: akif (management in
+ * MOESA LTD and THO) through api. Every provider-only text carries LEAK-, pi_total is 987654.32.
+ * - poShared: MOESA LTD's order for THO, with a line (sell price 24.5), a payment and an update; a
+ *   shipment carrying it, with a line and an event; THO's change request on it (cost by akif);
+ * - poOwn: MOESA LTD's own order; poOther: its order for a second client (HTTP Other Client, owned by
+ *   http-other@, a relationship of its own that the suite ends).
+ */
+async function sharedSetup(x: {
+   akif: string;
+   clientOwner: string;
+   moesa: string;
+   client: string;
+   supplierId: string;
+   productSecret: string;
+   secretId: string;
+}): Promise<
+   Pick<
+      Fixture,
+      | 'providerMgmt'
+      | 'providerOwner'
+      | 'portalUserId'
+      | 'viewerRoleId'
+      | 'otherClient'
+      | 'otherClientOwner'
+      | 'otherRelationshipId'
+      | 'poShared'
+      | 'lineShared'
+      | 'shipmentShared'
+      | 'eventShared'
+      | 'poOther'
+      | 'poOwn'
+      | 'crShared'
+   >
+> {
+   const { akif, clientOwner, moesa, client, supplierId, productSecret, secretId } = x;
+   const inMoesa = { 'x-tenant-id': moesa, Prefer: 'return=representation' };
+   const both = { 'x-tenant-id': client, 'x-tenant-ids': `${client},${moesa}`, Prefer: 'return=representation' };
+   const order = (extra: Record<string, unknown>) => ({
+      tenant_id: moesa,
+      supplier_id: supplierId,
+      currency: 'USD',
+      incoterm: 'FOB',
+      incoterm_place: 'LEAK-PLACE',
+      deposit_rate: 30,
+      penalty_rule: 'LEAK-PENALTY',
+      ...extra,
+   });
+
+   // The second client: its tenant, owner and relationship.
+   const otherClient = created(
+      await admin('tenant', { method: 'POST', headers: { Prefer: 'return=representation' }, body: { display_name: OTHER_CLIENT } }),
+      'other client',
+   ).id;
+   const otherUserId = await createUser(OTHER_EMAIL);
+   await admin('tenant_owner', { method: 'POST', body: { tenant_id: otherClient, user_id: otherUserId } });
+   await admin('tenant_user', { method: 'POST', body: { tenant_id: otherClient, user_id: otherUserId } });
+   const otherRelationshipId = created(
+      await admin('provider_relationship', {
+         method: 'POST',
+         headers: { Prefer: 'return=representation' },
+         body: {
+            tenant_id: moesa,
+            client_tenant_id: otherClient,
+            client_code: 'HOC',
+            client_name: OTHER_CLIENT,
+            procurement_model: 'provider',
+            restricted_drive_url: 'https://drive.test/LEAK-DRIVE',
+            provider_name: 'x',
+            notes: 'LEAK-RELATIONSHIP',
+         },
+      }),
+      'other relationship',
+   ).id;
+
+   // The orders.
+   const poShared = created(
+      await rest(akif, 'purchase_order', {
+         method: 'POST',
+         headers: inMoesa,
+         body: order({ client_tenant_id: client, notes: `${SECRET_NOTE} shared`, pi_number: 'LEAK-PI-NO' }),
+      }),
+      'shared order',
+   ).id;
+   const poOther = created(
+      await rest(akif, 'purchase_order', {
+         method: 'POST',
+         headers: inMoesa,
+         body: order({ client_tenant_id: otherClient, notes: `${SECRET_NOTE} other`, pi_total: SECRET_PI }),
+      }),
+      'other client order',
+   ).id;
+   const poOwn = created(
+      await rest(akif, 'purchase_order', {
+         method: 'POST',
+         headers: inMoesa,
+         body: order({ notes: `${SECRET_NOTE} own`, pi_total: SECRET_PI }),
+      }),
+      'own order',
+   ).id;
+   // The provider's signed spec sheet of THO's product (on its sourcing row, the 030 rule).
+   const specDoc = created(
+      await admin('document', {
+         method: 'POST',
+         headers: { 'x-tenant-id': moesa, Prefer: 'return=representation' },
+         body: { tenant_id: moesa, entity_type: 'sourcing', entity_id: secretId, type: 'spec_sheet', status: 'signed', notes: 'LEAK-SPEC', url: 'https://drive.test/LEAK-SPEC', file_name: 'LEAK-SPEC', is_signed: true, is_stamped: true, sent_from_official_email: true, issued_on: '2026-10-15' },
+      }),
+      'spec sheet',
+   ).id;
+   const lineShared = created(
+      await rest(akif, 'purchase_order_line', {
+         method: 'POST',
+         headers: inMoesa,
+         body: {
+            tenant_id: moesa,
+            purchase_order_id: poShared,
+            product_id: productSecret,
+            quantity: 7,
+            unit_price: SECRET_UNIT_PRICE,
+            sell_price_eur: SHARED_SELL_PRICE,
+            spec_document_id: specDoc,
+            notes: `${SECRET_NOTE} line`,
+         },
+      }),
+      'shared order line',
+   ).id;
+   // Through the PI to pi_approved (030): 7 × 141093.76 = 987656.32, less a 2.00 discount = 987654.32;
+   // a 30 % deposit. A shipment may carry an order from pi_approved on.
+   const piDoc = created(
+      await admin('document', {
+         method: 'POST',
+         headers: { 'x-tenant-id': moesa, Prefer: 'return=representation' },
+         body: { tenant_id: moesa, entity_type: 'purchase_order', entity_id: poShared, type: 'pi', notes: 'LEAK-PI-DOC', url: 'https://drive.test/LEAK-PI-DOC' },
+      }),
+      'PI document',
+   ).id;
+   const step = async (body: Record<string, unknown>) => {
+      const r = await rest(akif, `purchase_order?id=eq.${poShared}`, { method: 'PATCH', headers: inMoesa, body });
+      if (r.status !== 200 || r.body.length !== 1) throw new Error(`shared order ${JSON.stringify(body).slice(0, 80)}: ${r.status} ${JSON.stringify(r.body).slice(0, 300)}`);
+   };
+   await step({ status: 'sent' });
+   await step({
+      status: 'pi_received',
+      pi_document_id: piDoc,
+      pi_subtotal: 987656.32,
+      pi_discount_amount: 2,
+      pi_total: SECRET_PI,
+      pi_deposit_amount: 296296.3,
+      pi_balance_amount: 691358.02,
+      pi_check: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [String(i + 1), 'ok'])),
+   });
+   await step({ status: 'pi_approved' });
+   created(
+      await rest(akif, 'purchase_order_payment', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, purchase_order_id: poShared, kind: 'deposit', amount: 296296.3, currency: 'USD', notes: `${SECRET_NOTE} payment` },
+      }),
+      'payment',
+   );
+   created(
+      await rest(akif, 'purchase_order_update', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, purchase_order_id: poShared, note: `${SECRET_NOTE} update` },
+      }),
+      'order update',
+   );
+
+   // The shipment carrying the shared order, to THO's warehouse.
+   const warehouseId = one<{ id: string }>(await admin(`warehouse?tenant_id=eq.${client}&select=id&limit=1`), 'THO warehouse').id;
+   const shipmentShared = created(
+      await rest(akif, 'shipment', {
+         method: 'POST',
+         headers: inMoesa,
+         body: {
+            tenant_id: moesa,
+            client_tenant_id: client,
+            mode: 'fcl20',
+            delivery_warehouse_id: warehouseId,
+            warehouse_tenant_id: client,
+            forwarder: 'LEAK-FORWARDER',
+            customs_broker: 'LEAK-BROKER',
+            demurrage_note: 'LEAK-DEMURRAGE',
+            incoterm_buy: 'EXW',
+            notes: `${SECRET_NOTE} shipment`,
+            carrier: 'Visible Carrier',
+         },
+      }),
+      'shipment',
+   ).id;
+   created(
+      await rest(akif, 'shipment_purchase_order', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, shipment_id: shipmentShared, purchase_order_id: poShared },
+      }),
+      'shipment order link',
+   );
+   created(
+      await rest(akif, 'shipment_line', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, shipment_id: shipmentShared, purchase_order_id: poShared, purchase_order_line_id: lineShared, quantity: 7 },
+      }),
+      'shipment line',
+   );
+   const eventShared = created(
+      await rest(akif, 'shipment_event', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, shipment_id: shipmentShared, step: 1, channel: 'LEAK-CHANNEL', note: 'LEAK-EVENT', from_party: 'LEAK-FROM' },
+      }),
+      'shipment event',
+   ).id;
+
+   // THO's change request on the shared order; the provider writes its (provider-guarded) cost.
+   const crShared = created(
+      await rest(clientOwner, 'change_request', {
+         method: 'POST',
+         headers: { 'x-tenant-id': client, Prefer: 'return=representation' },
+         body: {
+            tenant_id: client,
+            title: HTTP_CR,
+            source: 'customer',
+            change_kinds: ['spec'],
+            current_value: 'a',
+            requested_value: 'b',
+            reason: 'client reason',
+            purchase_order_id: poShared,
+            order_tenant_id: moesa,
+         },
+      }),
+      'change request',
+   ).id;
+   const cost = await rest(akif, `change_request?id=eq.${crShared}`, {
+      method: 'PATCH',
+      headers: both,
+      body: { cost_impact: `${SECRET_PI_TEXT} LEAK-COST`, cost_payer: 'supplier' },
+   });
+   if (cost.status !== 200 || cost.body.length !== 1) throw new Error(`writing the CR cost: ${cost.status} ${JSON.stringify(cost.body).slice(0, 300)}`);
+
+   const portalUserId = one<{ id: string }>(await admin('user?email=eq.portal@moesa-panel.test&select=id'), 'portal').id;
+   const viewerRoleId = one<{ id: string }>(await admin(`role?tenant_id=eq.${client}&display_name=eq.viewer&select=id`), 'THO viewer').id;
+   const [providerMgmt, providerOwner, otherClientOwner] = await Promise.all([
+      Promise.resolve(akif),
+      signIn('baris@moesa-panel.test'),
+      signIn(OTHER_EMAIL),
+   ]);
+   return {
+      providerMgmt,
+      providerOwner,
+      portalUserId,
+      viewerRoleId,
+      otherClient,
+      otherClientOwner,
+      otherRelationshipId,
+      poShared,
+      lineShared,
+      shipmentShared,
+      eventShared,
+      poOther,
+      poOwn,
+      crShared,
    };
 }
 
