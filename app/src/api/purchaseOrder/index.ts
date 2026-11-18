@@ -213,7 +213,7 @@ export const PURCHASE_ORDER_SELECT = [
    '*',
    'supplier(code, display_name, default_incoterm, deposit_rate)',
    'project!purchase_order_project_fkey(code, display_name)',
-   'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status), spec_document:document!purchase_order_line_spec_fkey(id, version, status))',
+   'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status), spec_document(id, version, status))',
    'purchase_order_payment!purchase_order_payment_po_fkey(*)'
 ].join(', ');
 

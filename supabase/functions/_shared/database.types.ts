@@ -2365,6 +2365,9 @@ export type Database = {
       }
       purchase_order: {
         Row: {
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
           client_tenant_id: string | null
           code: string | null
           created_at: string | null
@@ -2398,20 +2401,6 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "purchase_order_packing_document_fkey"
-            columns: ["packing_instruction_document_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "document"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "purchase_order_pi_checked_by_fkey"
-            columns: ["pi_checked_by"]
-            isOneToOne: false
-            referencedRelation: "user"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "purchase_order_project_fkey"
             columns: ["project_id", "project_tenant_id"]
@@ -2528,13 +2517,6 @@ export type Database = {
             referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
-            foreignKeyName: "purchase_order_line_spec_fkey"
-            columns: ["spec_document_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "document"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "purchase_order_line_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
@@ -2555,6 +2537,9 @@ export type Database = {
           balance_paid_on: string | null
           balance_planned_on: string | null
           client_code: string | null
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
           client_tenant_id: string | null
           code: string | null
           created_at: string | null
@@ -2600,20 +2585,6 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "purchase_order_packing_document_fkey"
-            columns: ["packing_instruction_document_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "document"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "purchase_order_pi_checked_by_fkey"
-            columns: ["pi_checked_by"]
-            isOneToOne: false
-            referencedRelation: "user"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "purchase_order_project_fkey"
             columns: ["project_id", "project_tenant_id"]
@@ -3089,30 +3060,6 @@ export type Database = {
           tenant_id: string | null
           updated_at: string | null
         }
-        Insert: {
-          carton_count?: number | null
-          client_tenant_id?: string | null
-          created_at?: string | null
-          id?: string | null
-          purchase_order_id?: string | null
-          purchase_order_line_id?: string | null
-          quantity?: number | null
-          shipment_id?: string | null
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          carton_count?: number | null
-          client_tenant_id?: string | null
-          created_at?: string | null
-          id?: string | null
-          purchase_order_id?: string | null
-          purchase_order_line_id?: string | null
-          quantity?: number | null
-          shipment_id?: string | null
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
         Relationships: [
           {
             foreignKeyName: "shipment_line_link_fkey"
@@ -3262,20 +3209,6 @@ export type Database = {
           purchase_order_id: string | null
           shipment_id: string | null
           tenant_id: string | null
-        }
-        Insert: {
-          client_tenant_id?: string | null
-          created_at?: string | null
-          purchase_order_id?: string | null
-          shipment_id?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          client_tenant_id?: string | null
-          created_at?: string | null
-          purchase_order_id?: string | null
-          shipment_id?: string | null
-          tenant_id?: string | null
         }
         Relationships: [
           {
@@ -3895,6 +3828,31 @@ export type Database = {
         }
         Returns: string[]
       }
+      packing_instruction_document: {
+        Args: {
+          "": unknown
+        }
+        Returns: {
+          created_at: string | null
+          created_by: string | null
+          entity_id: string | null
+          entity_type: Database["public"]["Enums"]["document_entity"] | null
+          file_name: string | null
+          id: string | null
+          is_signed: boolean | null
+          is_stamped: boolean | null
+          issued_on: string | null
+          media_id: string | null
+          notes: string | null
+          sent_from_official_email: boolean | null
+          status: Database["public"]["Enums"]["document_status"] | null
+          tenant_id: string | null
+          type: Database["public"]["Enums"]["document_type"] | null
+          updated_at: string | null
+          url: string | null
+          version: number | null
+        }[]
+      }
       pi_document: {
         Args: {
           "": unknown
@@ -3954,11 +3912,55 @@ export type Database = {
           updated_at: string | null
         }[]
       }
+      purchase_order_by_packing_instruction_document: {
+        Args: {
+          "": unknown
+        }
+        Returns: {
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
+          client_tenant_id: string | null
+          code: string | null
+          created_at: string | null
+          currency: string | null
+          deposit_rate: number | null
+          id: string | null
+          incoterm: string | null
+          incoterm_place: string | null
+          notes: string | null
+          packing_instruction_document_id: string | null
+          penalty_rule: string | null
+          pi_balance_amount: number | null
+          pi_check: Json | null
+          pi_checked_at: string | null
+          pi_checked_by: string | null
+          pi_deposit_amount: number | null
+          pi_discount_amount: number | null
+          pi_document_id: string | null
+          pi_extra_amount: number | null
+          pi_number: string | null
+          pi_subtotal: number | null
+          pi_total: number | null
+          project_code: string | null
+          project_id: string | null
+          project_tenant_id: string | null
+          ready_on: string | null
+          status: Database["public"]["Enums"]["purchase_order_status"] | null
+          supplier_id: string | null
+          tenant_id: string | null
+          tolerance_pct: number | null
+          updated_at: string | null
+        }[]
+      }
       purchase_order_by_pi_document: {
         Args: {
           "": unknown
         }
         Returns: {
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
           client_tenant_id: string | null
           code: string | null
           created_at: string | null
@@ -3997,6 +3999,9 @@ export type Database = {
           "": unknown
         }
         Returns: {
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
           client_tenant_id: string | null
           code: string | null
           created_at: string | null
@@ -4027,6 +4032,31 @@ export type Database = {
           supplier_id: string | null
           tenant_id: string | null
           tolerance_pct: number | null
+          updated_at: string | null
+        }[]
+      }
+      purchase_order_line_by_spec_document: {
+        Args: {
+          "": unknown
+        }
+        Returns: {
+          client_tenant_id: string | null
+          created_at: string | null
+          id: string | null
+          line_total: number | null
+          notes: string | null
+          pi_line_total: number | null
+          position: number | null
+          product_id: string | null
+          product_name: string | null
+          product_sku: string | null
+          product_tenant_id: string | null
+          purchase_order_id: string | null
+          quantity: number | null
+          sell_price_eur: number | null
+          spec_document_id: string | null
+          tenant_id: string | null
+          unit_price: number | null
           updated_at: string | null
         }[]
       }
@@ -4068,6 +4098,31 @@ export type Database = {
           target_price_eur: number | null
           tenant_id: string | null
           updated_at: string | null
+        }[]
+      }
+      spec_document: {
+        Args: {
+          "": unknown
+        }
+        Returns: {
+          created_at: string | null
+          created_by: string | null
+          entity_id: string | null
+          entity_type: Database["public"]["Enums"]["document_entity"] | null
+          file_name: string | null
+          id: string | null
+          is_signed: boolean | null
+          is_stamped: boolean | null
+          issued_on: string | null
+          media_id: string | null
+          notes: string | null
+          sent_from_official_email: boolean | null
+          status: Database["public"]["Enums"]["document_status"] | null
+          tenant_id: string | null
+          type: Database["public"]["Enums"]["document_type"] | null
+          updated_at: string | null
+          url: string | null
+          version: number | null
         }[]
       }
       status: {
@@ -9564,6 +9619,12 @@ export type Database = {
         | "closed"
       project_status: "active" | "on_hold" | "closed" | "cancelled"
       project_type: "npi" | "variant" | "revision" | "reorder"
+      purchase_order_client_status:
+        | "confirmed"
+        | "in_production"
+        | "shipped"
+        | "delivered"
+        | "cancelled"
       purchase_order_status:
         | "draft"
         | "sent"
