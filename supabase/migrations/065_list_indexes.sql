@@ -8,3 +8,10 @@
 CREATE INDEX IF NOT EXISTS idx_product_created ON public.product (created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_purchase_order_created ON public.purchase_order (created_at DESC);
+
+-- The tenant-level lists: sourcing and provider_relationship are read per tenant
+-- (one tenant's sourcing rows, a provider's relationships), newest first. brand, contact and
+-- warehouse have no created_at; their lists are small and idx_<table>_tenant (018) serves them.
+CREATE INDEX IF NOT EXISTS idx_sourcing_tenant_created ON public.sourcing (tenant_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_provider_relationship_tenant_created ON public.provider_relationship (tenant_id, created_at DESC);

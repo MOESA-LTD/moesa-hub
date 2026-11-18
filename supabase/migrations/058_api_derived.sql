@@ -27,8 +27,8 @@
 -- S1 in RPCs             A parameter stored into a sensitive field is checked before any write, by its
 --                        presence, never by comparing it with the stored value (no NULL oracle either):
 --                        pass_gate(note) → project_gate.note, a NULL note leaving the stored one
---                        untouched; import_products: every row key naming a sensitive product field,
---                        JSON null included (it clears the field), supplier_code as supplier_id. rollback_gate
+--                        untouched; import_products: every row key naming a sensitive product or sourcing field,
+--                        JSON null included (it clears the field), supplier_code as sourcing.supplier_id. rollback_gate
 --                        stores its reason in rolled_back_reason, which is not sensitive.
 --                        field_write_forbidden (42501), DETAIL <table>.<field>.
 -- C2/S6                  pass_gate and rollback_gate return api.project_gate, set_primary_media
@@ -110,8 +110,6 @@ WHERE t.parent_id IS NULL AND (SELECT private.check_super_admin());
 CREATE OR REPLACE VIEW api.dashboard_change_request WITH (security_invoker = true) AS
 SELECT r.id AS change_request_id,
     r.code,
-    r.customer_id,
-    c.code::TEXT AS customer_code,
     r.tenant_id,
     r.status,
     r.urgency,
@@ -119,7 +117,6 @@ SELECT r.id AS change_request_id,
     r.decision_due_on,
     coalesce(r.status = 'open'::public.change_request_status AND r.decision_due_on < CURRENT_DATE, FALSE) AS overdue
 FROM api.change_request r
-LEFT JOIN api.customer c ON c.id = r.customer_id AND c.tenant_id = r.tenant_id
 WHERE r.status = ANY (ARRAY['open'::public.change_request_status, 'approved'::public.change_request_status]);
 
 CREATE OR REPLACE VIEW api.dashboard_gate_pending WITH (security_invoker = true) AS
@@ -127,8 +124,6 @@ SELECT g.id AS gate_id,
     p.id AS project_id,
     p.code AS project_code,
     p.display_name AS project_display_name,
-    p.customer_id,
-    c.code::TEXT AS customer_code,
     p.tenant_id,
     g.code AS gate_code,
     g.position,
@@ -157,13 +152,11 @@ LEFT JOIN LATERAL (
     ORDER BY pg.position DESC
     LIMIT 1
 ) prev ON TRUE
-LEFT JOIN api.customer c ON c.id = p.customer_id AND c.tenant_id = p.tenant_id
 WHERE p.status = 'active'::public.project_status;
 
 CREATE OR REPLACE VIEW api.incident_overview WITH (security_invoker = true) AS
 SELECT i.id,
     i.tenant_id,
-    i.customer_id,
     i.code,
     i.family,
     i.incident_type,
@@ -193,7 +186,6 @@ SELECT i.id,
     i.closed_by,
     i.created_at,
     i.updated_at,
-    c.code::TEXT AS customer_code,
     CASE i.entity_type
         WHEN 'project'::public.document_entity THEN pj.code
         WHEN 'purchase_order'::public.document_entity THEN po.code
@@ -207,11 +199,10 @@ SELECT i.id,
     (EXISTS (
         SELECT 1
         FROM api.incident r
-        WHERE r.tenant_id = i.tenant_id AND r.customer_id = i.customer_id AND r.incident_type = i.incident_type AND r.id <> i.id
+        WHERE r.tenant_id = i.tenant_id AND r.incident_type = i.incident_type AND r.id <> i.id
           AND r.opened_at < i.opened_at AND r.opened_at >= (i.opened_at - '90 days'::INTERVAL)
     )) AS is_repeat
 FROM api.incident i
-LEFT JOIN api.customer c ON c.id = i.customer_id AND c.tenant_id = i.tenant_id
 LEFT JOIN api.project pj ON i.entity_type = 'project'::public.document_entity AND pj.id = i.entity_id AND pj.tenant_id = i.tenant_id
 LEFT JOIN api.purchase_order po ON i.entity_type = 'purchase_order'::public.document_entity AND po.id = i.entity_id AND po.tenant_id = i.tenant_id
 LEFT JOIN api.shipment s ON i.entity_type = 'shipment'::public.document_entity AND s.id = i.entity_id AND s.tenant_id = i.tenant_id
@@ -228,8 +219,6 @@ LEFT JOIN LATERAL (
 CREATE OR REPLACE VIEW api.dashboard_incident WITH (security_invoker = true) AS
 SELECT i.id AS incident_id,
     i.code,
-    i.customer_id,
-    i.customer_code,
     i.tenant_id,
     i.severity,
     i.status,
@@ -244,21 +233,17 @@ FROM api.incident_overview i
 WHERE i.status <> 'closed'::public.incident_status;
 
 CREATE OR REPLACE VIEW api.dashboard_market WITH (security_invoker = true) AS
-SELECT m.customer_id,
-    c.code::TEXT AS customer_code,
-    m.tenant_id,
+SELECT m.tenant_id,
     count(*) FILTER (WHERE m.status = 'live'::public.market_cell_status)::INTEGER AS live_count,
     count(*) FILTER (WHERE m.status = ANY (ARRAY['preparing'::public.market_cell_status, 'uploaded'::public.market_cell_status]))::INTEGER AS preparing_count,
     count(*) FILTER (WHERE m.status = 'suppressed'::public.market_cell_status)::INTEGER AS suppressed_count,
     count(*) FILTER (WHERE m.status = ANY (ARRAY['planned'::public.market_cell_status, 'preparing'::public.market_cell_status, 'uploaded'::public.market_cell_status,
                                                  'live'::public.market_cell_status, 'suppressed'::public.market_cell_status, 'paused'::public.market_cell_status]))::INTEGER AS target_count
 FROM api.market_cell m
-LEFT JOIN api.customer c ON c.id = m.customer_id AND c.tenant_id = m.tenant_id
-GROUP BY m.customer_id, c.code, m.tenant_id;
+GROUP BY m.tenant_id;
 
 CREATE OR REPLACE VIEW api.product_evidence WITH (security_invoker = true) AS
 SELECT p.id AS product_id,
-    p.customer_id,
     p.tenant_id,
     p.sku,
     p.status,
@@ -292,24 +277,23 @@ LEFT JOIN LATERAL (
 ) spec ON TRUE;
 
 CREATE OR REPLACE VIEW api.dashboard_product_evidence WITH (security_invoker = true) AS
-SELECT e.customer_id,
-    c.code::TEXT AS customer_code,
-    e.tenant_id,
+SELECT e.tenant_id,
     count(*)::INTEGER AS active_sku_count,
     count(*) FILTER (WHERE e.has_signed_spec)::INTEGER AS signed_spec_count,
     count(*) FILTER (WHERE e.compliance_complete)::INTEGER AS compliance_complete_count,
     count(*) FILTER (WHERE NOT e.has_signed_spec)::INTEGER AS unsigned_sku_count
 FROM api.product_evidence e
-LEFT JOIN api.customer c ON c.id = e.customer_id AND c.tenant_id = e.tenant_id
 WHERE e.status <> ALL (ARRAY['archived'::public.product_status, 'concept'::public.product_status])
-GROUP BY e.customer_id, c.code, e.tenant_id;
+GROUP BY e.tenant_id;
 
 CREATE OR REPLACE VIEW api.purchase_order_overview WITH (security_invoker = true) AS
 SELECT po.id,
     po.tenant_id,
-    po.customer_id,
+    po.client_tenant_id,
     po.supplier_id,
     po.project_id,
+    po.project_tenant_id,
+    po.project_code,
     po.code,
     po.status,
     po.currency,
@@ -334,9 +318,8 @@ SELECT po.id,
     po.notes,
     po.created_at,
     po.updated_at,
-    c.code::TEXT AS customer_code,
+    r.client_code,
     s.code AS supplier_code,
-    pr.code AS project_code,
     l.line_count,
     l.total_quantity,
     l.product_ids,
@@ -356,9 +339,8 @@ SELECT po.id,
           AND d.type = 'psi_report'::public.document_type AND d.status = 'approved'::public.document_status
     )) AS has_approved_psi
 FROM api.purchase_order po
-LEFT JOIN api.customer c ON c.id = po.customer_id AND c.tenant_id = po.tenant_id
+LEFT JOIN api.provider_relationship r ON r.tenant_id = po.tenant_id AND r.client_tenant_id = po.client_tenant_id
 LEFT JOIN api.supplier s ON s.id = po.supplier_id AND s.tenant_id = po.tenant_id
-LEFT JOIN api.project pr ON pr.id = po.project_id AND pr.tenant_id = po.tenant_id
 LEFT JOIN LATERAL (
     SELECT count(*)::INTEGER AS line_count,
         coalesce(sum(ln.quantity), 0::BIGINT)::INTEGER AS total_quantity,
@@ -381,8 +363,8 @@ LEFT JOIN LATERAL (
 CREATE OR REPLACE VIEW api.dashboard_purchase_order WITH (security_invoker = true) AS
 SELECT o.id AS purchase_order_id,
     o.code,
-    o.customer_id,
-    o.customer_code,
+    o.client_tenant_id,
+    o.client_code,
     o.supplier_code,
     o.tenant_id,
     o.status,
@@ -398,11 +380,13 @@ WHERE o.status <> ALL (ARRAY['draft'::public.purchase_order_status, 'closed'::pu
 CREATE OR REPLACE VIEW api.shipment_overview WITH (security_invoker = true) AS
 SELECT s.id,
     s.tenant_id,
-    s.customer_id,
+    s.client_tenant_id,
     s.code,
     s.status,
     s.mode,
     s.delivery_warehouse_id,
+    s.warehouse_tenant_id,
+    s.delivery_address,
     s.forwarder,
     s.customs_broker,
     s.carrier,
@@ -433,15 +417,15 @@ SELECT s.id,
     s.notes,
     s.created_at,
     s.updated_at,
-    c.code::TEXT AS customer_code,
+    r.client_code,
     w.display_name AS warehouse_name,
     o.purchase_order_ids,
     o.purchase_order_codes,
     o.psi_missing_po_codes,
     ln.product_ids
 FROM api.shipment s
-LEFT JOIN api.customer c ON c.id = s.customer_id AND c.tenant_id = s.tenant_id
-LEFT JOIN api.customer_warehouse w ON w.id = s.delivery_warehouse_id AND w.tenant_id = s.tenant_id
+LEFT JOIN api.provider_relationship r ON r.tenant_id = s.tenant_id AND r.client_tenant_id = s.client_tenant_id
+LEFT JOIN api.warehouse w ON w.id = s.delivery_warehouse_id AND w.tenant_id = s.warehouse_tenant_id
 LEFT JOIN LATERAL (
     SELECT coalesce(array_agg(po.id ORDER BY po.code, po.id), '{}'::UUID[]) AS purchase_order_ids,
         coalesce(array_agg(po.code ORDER BY po.code, po.id), '{}'::TEXT[]) AS purchase_order_codes,
@@ -465,8 +449,8 @@ LEFT JOIN LATERAL (
 CREATE OR REPLACE VIEW api.dashboard_shipment WITH (security_invoker = true) AS
 SELECT s.id AS shipment_id,
     s.code,
-    s.customer_id,
-    s.customer_code,
+    s.client_tenant_id,
+    s.client_code,
     s.tenant_id,
     s.status,
     s.mode,
@@ -476,6 +460,7 @@ SELECT s.id AS shipment_id,
     coalesce(s.eta < CURRENT_DATE AND (s.status = ANY (ARRAY['planned'::public.shipment_status, 'booked'::public.shipment_status, 'loaded'::public.shipment_status,
                                                            'in_transit'::public.shipment_status, 'at_customs'::public.shipment_status])), FALSE) AS overdue,
     s.warehouse_name,
+    s.delivery_address,
     s.dispute_deadline_at
 FROM api.shipment_overview s
 WHERE s.status <> ALL (ARRAY['accepted'::public.shipment_status, 'cancelled'::public.shipment_status]);
@@ -484,8 +469,6 @@ CREATE OR REPLACE VIEW api.dashboard_task_due WITH (security_invoker = true) AS
 SELECT t.id AS task_id,
     p.id AS project_id,
     p.code AS project_code,
-    p.customer_id,
-    c.code::TEXT AS customer_code,
     p.tenant_id,
     t.display_name,
     t.role,
@@ -496,13 +479,11 @@ SELECT t.id AS task_id,
     t.blocks_gate
 FROM api.project_task t
 JOIN api.project p ON p.id = t.project_id AND p.tenant_id = t.tenant_id
-LEFT JOIN api.customer c ON c.id = p.customer_id AND c.tenant_id = p.tenant_id
 WHERE t.status <> 'done'::public.task_status AND t.due_on IS NOT NULL AND t.due_on <= (CURRENT_DATE + 5) AND p.status = 'active'::public.project_status;
 
 CREATE OR REPLACE VIEW api.market_cell_overview WITH (security_invoker = true) AS
 SELECT m.id,
     m.tenant_id,
-    m.customer_id,
     m.product_id,
     m.project_id,
     m.platform_id,
@@ -529,7 +510,6 @@ SELECT m.id,
     m.listing_language,
     m.fulfillment_channel,
     m.listing_match,
-    c.code::TEXT AS customer_code,
     pj.code AS project_code,
     p.sku,
     p.display_name AS product_name,
@@ -537,7 +517,6 @@ SELECT m.id,
     pl.display_name AS platform_name,
     (m.platform_id || '_'::TEXT) || m.country AS cell_key
 FROM api.market_cell m
-LEFT JOIN api.customer c ON c.id = m.customer_id AND c.tenant_id = m.tenant_id
 LEFT JOIN api.project pj ON pj.id = m.project_id AND pj.tenant_id = m.tenant_id
 LEFT JOIN api.product p ON p.id = m.product_id AND p.tenant_id = m.tenant_id
 LEFT JOIN api.platform pl ON pl.id = m.platform_id;
@@ -545,7 +524,6 @@ LEFT JOIN api.platform pl ON pl.id = m.platform_id;
 CREATE OR REPLACE VIEW api.media_library WITH (security_invoker = true) AS
 SELECT m.id,
     m.tenant_id,
-    m.customer_id,
     m.storage_path,
     m.thumbnail_path,
     m.file_name,
@@ -585,7 +563,6 @@ CROSS JOIN LATERAL (
 CREATE OR REPLACE VIEW api.product_with_evidence WITH (security_invoker = true) AS
 SELECT p.id,
     p.tenant_id,
-    p.customer_id,
     p.parent_id,
     p.sku,
     p.display_name,
@@ -594,9 +571,6 @@ SELECT p.id,
     p.brand,
     p.gtin,
     p.gs1_prefix_owner,
-    p.supplier_id,
-    p.supplier_product_code,
-    p.manufacturer_art_no,
     p.status,
     p.golden_sample_on,
     p.golden_sample_locations,
@@ -617,14 +591,6 @@ SELECT p.id,
     p.pallet_carton_qty,
     p.pallet_type,
     p.lot_rule,
-    p.purchase_price,
-    p.purchase_currency,
-    p.purchase_incoterm,
-    p.landed_cost_eur,
-    p.landed_cost_on,
-    p.target_price_eur,
-    p.company_price_eur,
-    p.price_list_version,
     p.notes,
     p.created_at,
     p.updated_at,
@@ -683,13 +649,6 @@ BEGIN
 END;
 $$;
 
--- R4 across the derived views: the app embeds the supplier of a product list row (supplier(code)),
--- which the view's masked supplier_id cannot infer. As the generated ones (053, step 4).
-CREATE OR REPLACE FUNCTION api.supplier (api.product_with_evidence) RETURNS SETOF api.supplier ROWS 1 STABLE LANGUAGE sql SECURITY INVOKER AS
-    'SELECT x.* FROM api.supplier x WHERE x.id = $1.supplier_id AND x.tenant_id = $1.tenant_id';
-REVOKE ALL ON FUNCTION api.supplier (api.product_with_evidence) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION api.supplier (api.product_with_evidence) TO authenticated;
-
 -- 2. RPCs.
 
 -- S1 for RPCs: refuses a sensitive field the request's user may not write in the tenant, before any
@@ -713,36 +672,44 @@ REVOKE ALL ON FUNCTION private.require_field_write (TEXT, TEXT, UUID) FROM PUBLI
 
 GRANT EXECUTE ON FUNCTION private.require_field_write (TEXT, TEXT, UUID) TO api_owner;
 
--- The import of 039, as api_owner, with the S1 check of every row before any write (see the header).
+-- The import of 020, as api_owner, with the S1 check of every row before any write (see the header).
+-- Every other line is as in 020.
 CREATE OR REPLACE FUNCTION public.import_products (rows JSONB) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    -- The product columns a row may set, in table order. The supplier comes as supplier_code, the
-    -- parent as parent_sku.
-    value_columns CONSTANT TEXT[] := ARRAY[
-        'display_name', 'variant_label', 'category', 'brand', 'gtin', 'gs1_prefix_owner',
-        'supplier_product_code', 'manufacturer_art_no', 'status', 'golden_sample_on',
-        'golden_sample_locations', 'is_hazmat', 'compliance_status', 'eu_responsible_person',
-        'hs_code', 'origin_country', 'unit_dims_mm', 'unit_net_g', 'pack_qty', 'pack_dims_mm',
-        'pack_gross_g', 'carton_pack_qty', 'carton_dims_mm', 'carton_net_kg', 'carton_gross_kg',
-        'pallet_carton_qty', 'pallet_type', 'lot_rule', 'purchase_price', 'purchase_currency',
-        'purchase_incoterm', 'landed_cost_eur', 'landed_cost_on', 'target_price_eur',
-        'company_price_eur', 'price_list_version', 'notes'
+    -- The product columns a row may set, in table order. The parent comes as parent_sku.
+    product_columns CONSTANT TEXT[] := ARRAY[
+        'display_name', 'variant_label', 'category', 'brand', 'gtin', 'gs1_prefix_owner', 'status',
+        'golden_sample_on', 'golden_sample_locations', 'is_hazmat', 'compliance_status',
+        'eu_responsible_person', 'hs_code', 'origin_country', 'unit_dims_mm', 'unit_net_g', 'pack_qty',
+        'pack_dims_mm', 'pack_gross_g', 'carton_pack_qty', 'carton_dims_mm', 'carton_net_kg',
+        'carton_gross_kg', 'pallet_carton_qty', 'pallet_type', 'lot_rule', 'notes'
+    ];
+    -- The sourcing columns a row may set, in table order. The supplier comes as supplier_code.
+    sourcing_columns CONSTANT TEXT[] := ARRAY[
+        'supplier_product_code', 'manufacturer_art_no', 'purchase_price', 'purchase_currency',
+        'purchase_incoterm', 'landed_cost_eur', 'landed_cost_on', 'target_price_eur', 'sell_price_eur',
+        'price_list_version'
     ];
     -- Columns that cannot be empty: an empty value keeps the product's own (or the default).
     not_null_columns CONSTANT TEXT[] := ARRAY['status', 'is_hazmat', 'compliance_status'];
-    written_columns CONSTANT TEXT[] := value_columns || ARRAY['supplier_id'];
+    sourcing_written CONSTANT TEXT[] := sourcing_columns || ARRAY['supplier_id'];
     defaults CONSTANT JSONB := '{"status": "concept", "is_hazmat": false, "compliance_status": "none"}';
+    tenant CONSTANT UUID := coalesce(
+        nullif(nullif(current_setting('request.headers', TRUE), '')::JSONB ->> 'x-tenant-id', '')::UUID,
+        (nullif(current_setting('request.jwt.claims', TRUE), '')::JSONB -> 'user_metadata' ->> 'current_tenant_id')::UUID
+    );
     errors JSONB := '[]';
     sku_duplicates BIGINT[];
     gtin_duplicates BIGINT[];
     item JSONB;
     n BIGINT;
     row_values JSONB;
-    customer UUID;
-    tenant UUID;
+    sourcing_values JSONB;
+    product UUID;
     holder TEXT;
+    resource_name TEXT;
     column_name TEXT;
     written INT;
     inserted INT := 0;
@@ -754,10 +721,16 @@ BEGIN
             DETAIL = json_build_object('status', 400, 'headers', json_build_object())::TEXT;
     END IF;
 
-    -- The rows repeating an earlier row's (customer, sku), or an earlier active row's GTIN.
+    IF tenant IS NULL THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
+            DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
+    END IF;
+
+    -- The rows repeating an earlier row's SKU, or an earlier active row's GTIN.
     SELECT array_agg(d.n) INTO sku_duplicates
     FROM (
-        SELECT e.n, row_number() OVER (PARTITION BY e.v ->> 'customer_code', e.v ->> 'sku' ORDER BY e.n) AS seen
+        SELECT e.n, row_number() OVER (PARTITION BY e.v ->> 'sku' ORDER BY e.n) AS seen
         FROM jsonb_array_elements(import_products.rows) WITH ORDINALITY AS e (v, n)
         WHERE coalesce(e.v ->> 'sku', '') <> ''
     ) d
@@ -773,30 +746,19 @@ BEGIN
 
     -- 1. Check every row.
     FOR item, n IN SELECT e.v, e.n FROM jsonb_array_elements(import_products.rows) WITH ORDINALITY AS e (v, n) LOOP
-        -- One customer of that code: of several tenants read together, none is guessed.
-        SELECT c.id, c.tenant_id INTO customer, tenant
-        FROM public.customer c
-        WHERE c.code = item ->> 'customer_code'
-            AND (SELECT count(*) FROM public.customer o WHERE o.code = c.code) = 1;
-
-        -- S1, before any write: every key given for a sensitive product field must be writable in the
-        -- customer's tenant; supplier_code sets supplier_id. Present, not compared: a JSON null is a
-        -- write too (it clears the field), so it is checked like any value; otherwise whether the
-        -- call succeeds would tell whether the stored value is NULL.
-        IF tenant IS NOT NULL THEN
-            FOR column_name IN
-                SELECT CASE WHEN e.key = 'supplier_code' THEN 'supplier_id' ELSE e.key END
-                FROM jsonb_each(item) AS e
-                WHERE e.key = ANY (value_columns) OR e.key = 'supplier_code'
-                ORDER BY 1
-            LOOP
-                PERFORM private.require_field_write('public.product', column_name, tenant);
-            END LOOP;
-        END IF;
-
-        IF customer IS NULL THEN
-            errors := errors || jsonb_build_object('row', n, 'field', 'customer_code', 'code', 'customer_unknown');
-        END IF;
+        -- S1, before any write: every key given for a sensitive product or sourcing field must be
+        -- writable in the tenant; supplier_code sets sourcing.supplier_id. Present, not compared: a
+        -- JSON null is a write too (it clears the field), so it is checked like any value; otherwise
+        -- whether the call succeeds would tell whether the stored value is NULL.
+        FOR resource_name, column_name IN
+            SELECT CASE WHEN e.key = ANY (product_columns) THEN 'public.product' ELSE 'public.sourcing' END,
+                   CASE WHEN e.key = 'supplier_code' THEN 'supplier_id' ELSE e.key END
+            FROM jsonb_each(item) AS e
+            WHERE e.key = ANY (product_columns) OR e.key = ANY (sourcing_columns) OR e.key = 'supplier_code'
+            ORDER BY 1, 2
+        LOOP
+            PERFORM private.require_field_write(resource_name, column_name, tenant);
+        END LOOP;
 
         IF coalesce(item ->> 'sku', '') = '' THEN
             errors := errors || jsonb_build_object('row', n, 'field', 'sku', 'code', 'invalid_value');
@@ -804,20 +766,20 @@ BEGIN
             errors := errors || jsonb_build_object('row', n, 'field', 'sku', 'code', 'sku_duplicate');
         END IF;
 
-        IF item ->> 'supplier_code' IS NOT NULL AND customer IS NOT NULL AND NOT EXISTS (
+        IF item ->> 'supplier_code' IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
         ) THEN
             errors := errors || jsonb_build_object('row', n, 'field', 'supplier_code', 'code', 'supplier_unknown');
         END IF;
 
-        -- The parent is another product of the same customer, already saved or in the file.
+        -- The parent is another product of the tenant, already saved or in the file.
         IF item ->> 'parent_sku' IS NOT NULL AND (
             item ->> 'parent_sku' = item ->> 'sku'
             OR NOT (
-                EXISTS (SELECT 1 FROM public.product p WHERE p.customer_id = customer AND p.sku = item ->> 'parent_sku')
+                EXISTS (SELECT 1 FROM public.product p WHERE p.tenant_id = tenant AND p.sku = item ->> 'parent_sku')
                 OR EXISTS (
                     SELECT 1 FROM jsonb_array_elements(import_products.rows) AS e (v)
-                    WHERE e.v ->> 'customer_code' = item ->> 'customer_code' AND e.v ->> 'sku' = item ->> 'parent_sku'
+                    WHERE e.v ->> 'sku' = item ->> 'parent_sku'
                 )
             )
         ) THEN
@@ -839,7 +801,7 @@ BEGIN
                 SELECT p.sku INTO holder
                 FROM public.product p
                 WHERE p.gtin = item ->> 'gtin' AND p.status <> 'archived'
-                    AND NOT (p.customer_id IS NOT DISTINCT FROM customer AND p.sku = item ->> 'sku')
+                    AND NOT (p.tenant_id = tenant AND p.sku = item ->> 'sku')
                 LIMIT 1;
 
                 IF holder IS NOT NULL THEN
@@ -849,16 +811,33 @@ BEGIN
         END IF;
 
         -- Values the columns cannot hold (enums, numbers, dates, booleans, currency codes): read
-        -- as a whole first, then column by column to name the ones that fail.
-        row_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (value_columns)), '{}');
+        -- as a whole first, then column by column to name the ones that fail. Product columns
+        -- first, then sourcing columns.
+        row_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (product_columns)), '{}');
         BEGIN
             PERFORM jsonb_populate_record(NULL::public.product, row_values);
         EXCEPTION
             WHEN data_exception OR integrity_constraint_violation THEN
-                FOREACH column_name IN ARRAY value_columns LOOP
+                FOREACH column_name IN ARRAY product_columns LOOP
                     CONTINUE WHEN NOT row_values ? column_name;
                     BEGIN
                         PERFORM jsonb_populate_record(NULL::public.product, jsonb_build_object(column_name, row_values -> column_name));
+                    EXCEPTION
+                        WHEN data_exception OR integrity_constraint_violation THEN
+                            errors := errors || jsonb_build_object('row', n, 'field', column_name, 'code', 'invalid_value');
+                    END;
+                END LOOP;
+        END;
+
+        sourcing_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (sourcing_columns)), '{}');
+        BEGIN
+            PERFORM jsonb_populate_record(NULL::public.sourcing, sourcing_values);
+        EXCEPTION
+            WHEN data_exception OR integrity_constraint_violation THEN
+                FOREACH column_name IN ARRAY sourcing_columns LOOP
+                    CONTINUE WHEN NOT sourcing_values ? column_name;
+                    BEGIN
+                        PERFORM jsonb_populate_record(NULL::public.sourcing, jsonb_build_object(column_name, sourcing_values -> column_name));
                     EXCEPTION
                         WHEN data_exception OR integrity_constraint_violation THEN
                             errors := errors || jsonb_build_object('row', n, 'field', column_name, 'code', 'invalid_value');
@@ -871,43 +850,64 @@ BEGIN
         RETURN jsonb_build_object('ok', FALSE, 'errors', errors);
     END IF;
 
-    -- 2. Write every row: the product of the same (customer, sku) is updated, otherwise one is made.
+    -- 2. Write every row: the product of the same SKU is updated, otherwise one is made; then its
+    -- sourcing row, when the row names a sourcing column or the supplier.
     FOR item IN SELECT e.v FROM jsonb_array_elements(import_products.rows) AS e (v) LOOP
-        SELECT c.id, c.tenant_id INTO customer, tenant
-        FROM public.customer c
-        WHERE c.code = item ->> 'customer_code';
-
         row_values := coalesce((
             SELECT jsonb_object_agg(e.key, e.value)
             FROM jsonb_each(item) AS e
-            WHERE e.key = ANY (value_columns)
+            WHERE e.key = ANY (product_columns)
                 AND NOT (e.key = ANY (not_null_columns) AND jsonb_typeof(e.value) = 'null')
         ), '{}');
 
-        IF item ? 'supplier_code' THEN
-            row_values := row_values || jsonb_build_object('supplier_id', (
-                SELECT s.id FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
-            ));
-        END IF;
-
         EXECUTE format(
-            'UPDATE public.product p SET (%s) = (SELECT %s FROM jsonb_populate_record(p, $1) AS r) WHERE p.customer_id = $2 AND p.sku = $3',
-            array_to_string(written_columns, ', '),
-            'r.' || array_to_string(written_columns, ', r.')
+            'UPDATE public.product p SET (%s) = (SELECT %s FROM jsonb_populate_record(p, $1) AS r) WHERE p.tenant_id = $2 AND p.sku = $3 RETURNING p.id',
+            array_to_string(product_columns, ', '),
+            'r.' || array_to_string(product_columns, ', r.')
         )
-        USING row_values, customer, item ->> 'sku';
+        INTO product
+        USING row_values, tenant, item ->> 'sku';
         GET DIAGNOSTICS written = ROW_COUNT;
 
         IF written > 0 THEN
             updated := updated + 1;
         ELSE
             EXECUTE format(
-                'INSERT INTO public.product (tenant_id, customer_id, sku, %s) SELECT $2, $3, $4, %s FROM jsonb_populate_record(jsonb_populate_record(NULL::public.product, $5), $1) AS r',
-                array_to_string(written_columns, ', '),
-                'r.' || array_to_string(written_columns, ', r.')
+                'INSERT INTO public.product (tenant_id, sku, %s) SELECT $2, $3, %s FROM jsonb_populate_record(jsonb_populate_record(NULL::public.product, $4), $1) AS r RETURNING id',
+                array_to_string(product_columns, ', '),
+                'r.' || array_to_string(product_columns, ', r.')
             )
-            USING row_values, tenant, customer, item ->> 'sku', defaults;
+            INTO product
+            USING row_values, tenant, item ->> 'sku', defaults;
             inserted := inserted + 1;
+        END IF;
+
+        sourcing_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (sourcing_columns)), '{}');
+
+        IF item ? 'supplier_code' THEN
+            sourcing_values := sourcing_values || jsonb_build_object('supplier_id', (
+                SELECT s.id FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
+            ));
+        END IF;
+
+        CONTINUE WHEN sourcing_values = '{}';
+
+        EXECUTE format(
+            'UPDATE public.sourcing s SET (%s) = (SELECT %s FROM jsonb_populate_record(s, $1) AS r) WHERE s.tenant_id = $2 AND s.product_id = $3',
+            array_to_string(sourcing_written, ', '),
+            'r.' || array_to_string(sourcing_written, ', r.')
+        )
+        USING sourcing_values, tenant, product;
+        GET DIAGNOSTICS written = ROW_COUNT;
+
+        IF written = 0 THEN
+            -- product_sku and product_name are filled by the link guard (019), from the product.
+            EXECUTE format(
+                'INSERT INTO public.sourcing (tenant_id, product_id, %s) SELECT $2, $3, %s FROM jsonb_populate_record(NULL::public.sourcing, $1) AS r',
+                array_to_string(sourcing_written, ', '),
+                'r.' || array_to_string(sourcing_written, ', r.')
+            )
+            USING sourcing_values, tenant, product;
         END IF;
     END LOOP;
 
@@ -916,10 +916,9 @@ BEGIN
     UPDATE public.product c
     SET parent_id = parent.id
     FROM jsonb_array_elements(import_products.rows) AS e (v)
-    JOIN public.customer cu ON cu.code = e.v ->> 'customer_code'
-    LEFT JOIN public.product parent ON parent.customer_id = cu.id AND parent.sku = e.v ->> 'parent_sku'
+    LEFT JOIN public.product parent ON parent.tenant_id = tenant AND parent.sku = e.v ->> 'parent_sku'
     WHERE e.v ? 'parent_sku'
-        AND c.customer_id = cu.id
+        AND c.tenant_id = tenant
         AND c.sku = e.v ->> 'sku'
         AND c.parent_id IS DISTINCT FROM parent.id;
 
@@ -998,14 +997,14 @@ BEGIN
                    OR (d.entity_type = 'purchase_order' AND EXISTS (
                        SELECT 1 FROM public.purchase_order po
                        WHERE po.id = d.entity_id AND po.tenant_id = passed.tenant_id
-                         AND po.project_id = passed.project_id
+                         AND po.project_id = passed.project_id AND po.project_tenant_id = passed.tenant_id
                    ))
                    OR (d.entity_type = 'shipment' AND EXISTS (
                        SELECT 1 FROM public.shipment_purchase_order spo
                        JOIN public.purchase_order po
                          ON po.id = spo.purchase_order_id AND po.tenant_id = spo.tenant_id
                        WHERE spo.shipment_id = d.entity_id AND spo.tenant_id = passed.tenant_id
-                         AND po.project_id = passed.project_id
+                         AND po.project_id = passed.project_id AND po.project_tenant_id = passed.tenant_id
                    )))
         )
     ) THEN

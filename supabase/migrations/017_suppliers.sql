@@ -1,7 +1,7 @@
 -- Suppliers (M2): the factories and traders goods are bought from, with the commercial terms agreed
 -- with them and the people to contact.
 --
--- supplier          Shared by every customer of the tenant, so it has no customer_id. Its code
+-- supplier          A tenant's own supplier, used for every client it sources for. Its code
 --                   (country + number, e.g. CN1) is unique per tenant and names its documents.
 --                   Suppliers are suspended (status), never deleted: there is no delete permission.
 -- supplier_contact  The supplier's people; removed with their supplier.
