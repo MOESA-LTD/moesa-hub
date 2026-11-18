@@ -2,7 +2,16 @@
 // run `pnpm dev:supabase-types` after a change of the classification.
 export const MASKED_FIELDS = {
    change_request: ['decision_note'],
-   customer: [
+   contact: ['email', 'name', 'phone'],
+   document: ['notes'],
+   incident: ['affected_parties', 'impact_note', 'lessons', 'root_cause_note'],
+   incident_log: ['cost_amount', 'cost_currency', 'cost_payer', 'counterparty', 'note'],
+   market_cell: ['notes'],
+   platform_account: ['account_holder', 'notes'],
+   product: ['notes'],
+   project: ['notes'],
+   project_gate: ['note'],
+   provider_relationship: [
       'contract_accepted_on',
       'contract_document_id',
       'deposit_rate',
@@ -11,29 +20,6 @@ export const MASKED_FIELDS = {
       'restricted_drive_url',
       'start_on'
    ],
-   customer_contact: ['email', 'name', 'phone'],
-   customer_platform_account: ['account_holder', 'notes'],
-   customer_warehouse: ['receiving_person'],
-   document: ['notes'],
-   incident: ['affected_parties', 'impact_note', 'lessons', 'root_cause_note'],
-   incident_log: ['cost_amount', 'cost_currency', 'cost_payer', 'counterparty', 'note'],
-   market_cell: ['notes'],
-   product: [
-      'company_price_eur',
-      'landed_cost_eur',
-      'landed_cost_on',
-      'manufacturer_art_no',
-      'notes',
-      'price_list_version',
-      'purchase_currency',
-      'purchase_incoterm',
-      'purchase_price',
-      'supplier_id',
-      'supplier_product_code',
-      'target_price_eur'
-   ],
-   project: ['notes'],
-   project_gate: ['note'],
    purchase_order: [
       'deposit_rate',
       'incoterm',
@@ -52,10 +38,24 @@ export const MASKED_FIELDS = {
       'supplier_id',
       'tolerance_pct'
    ],
-   purchase_order_line: ['line_total', 'notes', 'pi_line_total', 'unit_price'],
+   purchase_order_line: ['line_total', 'notes', 'pi_line_total', 'sell_price_eur', 'unit_price'],
    purchase_order_payment: ['amount', 'currency', 'notes'],
    shipment: ['incoterm_buy', 'notes'],
    shipment_event: ['from_party', 'note', 'to_party'],
+   sourcing: [
+      'landed_cost_eur',
+      'landed_cost_on',
+      'manufacturer_art_no',
+      'notes',
+      'price_list_version',
+      'purchase_currency',
+      'purchase_incoterm',
+      'purchase_price',
+      'sell_price_eur',
+      'supplier_id',
+      'supplier_product_code',
+      'target_price_eur'
+   ],
    supplier: [
       'cancellation_rule',
       'damage_notice_hours',
@@ -69,5 +69,6 @@ export const MASKED_FIELDS = {
       'storage_fee_rule'
    ],
    supplier_contact: ['email', 'name', 'phone', 'role'],
-   user: ['email', 'phone', 'user_metadata']
+   user: ['email', 'phone', 'user_metadata'],
+   warehouse: ['receiving_person']
 } as const;

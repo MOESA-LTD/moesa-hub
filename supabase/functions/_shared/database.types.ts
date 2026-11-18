@@ -146,6 +146,48 @@ export type Database = {
           },
         ]
       }
+      brand: {
+        Row: {
+          brand_program_status: string | null
+          gs1_prefix_owner: string | null
+          id: string | null
+          name: string | null
+          registration_status: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          brand_program_status?: string | null
+          gs1_prefix_owner?: string | null
+          id?: string | null
+          name?: string | null
+          registration_status?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          brand_program_status?: string | null
+          gs1_prefix_owner?: string | null
+          id?: string | null
+          name?: string | null
+          registration_status?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       change_request: {
         Row: {
           affected_document_id: string | null
@@ -161,7 +203,6 @@ export type Database = {
           current_value: string | null
           customer_approval_document_id: string | null
           customer_approved_on: string | null
-          customer_id: string | null
           decision_due_on: string | null
           decision_note: string | null
           delay_days: number | null
@@ -203,32 +244,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "change_request_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_result_document_fkey"
@@ -257,59 +291,56 @@ export type Database = {
         Row: {
           change_request_id: string | null
           created_at: string | null
-          customer_id: string | null
           product_id: string | null
           tenant_id: string | null
         }
         Insert: {
           change_request_id?: string | null
           created_at?: string | null
-          customer_id?: string | null
           product_id?: string | null
           tenant_id?: string | null
         }
         Update: {
           change_request_id?: string | null
           created_at?: string | null
-          customer_id?: string | null
           product_id?: string | null
           tenant_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "change_request_product_cr_fkey"
-            columns: ["change_request_id", "customer_id", "tenant_id"]
+            columns: ["change_request_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "change_request"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_cr_fkey"
-            columns: ["change_request_id", "customer_id", "tenant_id"]
+            columns: ["change_request_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_change_request"
-            referencedColumns: ["change_request_id", "customer_id", "tenant_id"]
+            referencedColumns: ["change_request_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_tenant_id_fkey"
@@ -393,103 +424,9 @@ export type Database = {
           },
         ]
       }
-      customer: {
-        Row: {
-          code: string | null
-          commercial_model:
-            | Database["public"]["Enums"]["commercial_model"]
-            | null
-          contract_accepted_on: string | null
-          contract_document_id: string | null
-          country: string | null
-          created_at: string | null
-          deposit_rate: number | null
-          display_name: string | null
-          eu_responsible_person: string | null
-          extra_cost_rule: string | null
-          id: string | null
-          notes: string | null
-          packages: string[] | null
-          restricted_drive_url: string | null
-          start_on: string | null
-          status: Database["public"]["Enums"]["customer_status"] | null
-          tenant_id: string | null
-          updated_at: string | null
-          website: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_brand: {
-        Row: {
-          brand_program_status: string | null
-          customer_id: string | null
-          gs1_prefix_owner: string | null
-          id: string | null
-          name: string | null
-          registration_status: string | null
-          tenant_id: string | null
-        }
-        Insert: {
-          brand_program_status?: string | null
-          customer_id?: string | null
-          gs1_prefix_owner?: string | null
-          id?: string | null
-          name?: string | null
-          registration_status?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          brand_program_status?: string | null
-          customer_id?: string | null
-          gs1_prefix_owner?: string | null
-          id?: string | null
-          name?: string | null
-          registration_status?: string | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_brand_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_brand_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_brand_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_contact: {
+      contact: {
         Row: {
           can_approve: boolean | null
-          customer_id: string | null
           email: string | null
           id: string | null
           name: string | null
@@ -499,107 +436,14 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "customer_contact_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_contact_tenant_id_fkey"
+            foreignKeyName: "contact_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "company_subscription"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "customer_contact_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_platform_account: {
-        Row: {
-          access: Database["public"]["Enums"]["platform_access"] | null
-          account_holder: string | null
-          api_connection: Database["public"]["Enums"]["api_connection"] | null
-          authorized_at: string | null
-          countries: string[] | null
-          customer_id: string | null
-          id: string | null
-          notes: string | null
-          platform_id: string | null
-          seller_id: string | null
-          tenant_id: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_platform_account_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_platform_account_platform_id_fkey"
-            columns: ["platform_id"]
-            isOneToOne: false
-            referencedRelation: "platform"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_platform_account_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_platform_account_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_warehouse: {
-        Row: {
-          address: string | null
-          appointment_rule: string | null
-          city: string | null
-          country: string | null
-          customer_id: string | null
-          display_name: string | null
-          dock_hours: string | null
-          id: string | null
-          is_default: boolean | null
-          pallet_standard: string | null
-          postal_code: string | null
-          receiving_person: string | null
-          tenant_id: string | null
-          type: Database["public"]["Enums"]["warehouse_type"] | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_warehouse_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_warehouse_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_warehouse_tenant_id_fkey"
+            foreignKeyName: "contact_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
@@ -611,8 +455,6 @@ export type Database = {
         Row: {
           change_request_id: string | null
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           decision_due_on: string | null
           overdue: boolean | null
           status: Database["public"]["Enums"]["change_request_status"] | null
@@ -621,13 +463,6 @@ export type Database = {
           urgency: Database["public"]["Enums"]["change_request_urgency"] | null
         }
         Relationships: [
-          {
-            foreignKeyName: "change_request_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "change_request_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -646,8 +481,6 @@ export type Database = {
       }
       dashboard_gate_pending: {
         Row: {
-          customer_code: string | null
-          customer_id: string | null
           gate_code: Database["public"]["Enums"]["gate_code"] | null
           gate_id: string | null
           needs_customer_approval: boolean | null
@@ -661,13 +494,6 @@ export type Database = {
           waiting_days: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "project_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -687,8 +513,6 @@ export type Database = {
       dashboard_incident: {
         Row: {
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           customer_notice_due_at: string | null
           customer_notice_late: boolean | null
           incident_id: string | null
@@ -702,13 +526,6 @@ export type Database = {
           title: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "incident_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -727,8 +544,6 @@ export type Database = {
       }
       dashboard_market: {
         Row: {
-          customer_code: string | null
-          customer_id: string | null
           live_count: number | null
           preparing_count: number | null
           suppressed_count: number | null
@@ -789,20 +604,11 @@ export type Database = {
         Row: {
           active_sku_count: number | null
           compliance_complete_count: number | null
-          customer_code: string | null
-          customer_id: string | null
           signed_spec_count: number | null
           tenant_id: string | null
           unsigned_sku_count: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -822,10 +628,10 @@ export type Database = {
       dashboard_purchase_order: {
         Row: {
           balance_planned_on: string | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           days_to_ready: number | null
           deposit_planned_on: string | null
           purchase_order_id: string | null
@@ -837,11 +643,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_tenant_id_fkey"
@@ -861,10 +667,11 @@ export type Database = {
       }
       dashboard_shipment: {
         Row: {
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           days_to_eta: number | null
+          delivery_address: string | null
           dispute_deadline_at: string | null
           eta: string | null
           etd: string | null
@@ -877,11 +684,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -902,8 +709,6 @@ export type Database = {
       dashboard_task_due: {
         Row: {
           blocks_gate: boolean | null
-          customer_code: string | null
-          customer_id: string | null
           days_left: number | null
           display_name: string | null
           due_on: string | null
@@ -916,13 +721,6 @@ export type Database = {
           tenant_id: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "project_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -943,7 +741,6 @@ export type Database = {
         Row: {
           created_at: string | null
           created_by: string | null
-          customer_id: string | null
           entity_id: string | null
           entity_type: Database["public"]["Enums"]["document_entity"] | null
           file_name: string | null
@@ -962,13 +759,6 @@ export type Database = {
           version: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "document_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "document_media_fkey"
             columns: ["media_id", "tenant_id"]
@@ -1057,7 +847,6 @@ export type Database = {
           created_at: string | null
           current_state: string | null
           customer_closure_notified_on: string | null
-          customer_id: string | null
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
@@ -1090,13 +879,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "user"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "incident_owner_fkey"
@@ -1266,8 +1048,6 @@ export type Database = {
           created_at: string | null
           current_state: string | null
           customer_closure_notified_on: string | null
-          customer_code: string | null
-          customer_id: string | null
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
@@ -1304,13 +1084,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "user"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "incident_owner_fkey"
@@ -1426,7 +1199,6 @@ export type Database = {
           country: string | null
           created_at: string | null
           currency: string | null
-          customer_id: string | null
           fulfillment_channel: string | null
           id: string | null
           last_checked_on: string | null
@@ -1460,45 +1232,45 @@ export type Database = {
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_tenant_id_fkey"
@@ -1525,8 +1297,6 @@ export type Database = {
           country: string | null
           created_at: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           fulfillment_channel: string | null
           gtin: string | null
           id: string | null
@@ -1565,45 +1335,45 @@ export type Database = {
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_tenant_id_fkey"
@@ -1625,7 +1395,6 @@ export type Database = {
         Row: {
           alt_text: string | null
           created_at: string | null
-          customer_id: string | null
           file_name: string | null
           height: number | null
           id: string | null
@@ -1643,7 +1412,6 @@ export type Database = {
         Insert: {
           alt_text?: string | null
           created_at?: string | null
-          customer_id?: string | null
           file_name?: string | null
           height?: number | null
           id?: string | null
@@ -1661,7 +1429,6 @@ export type Database = {
         Update: {
           alt_text?: string | null
           created_at?: string | null
-          customer_id?: string | null
           file_name?: string | null
           height?: number | null
           id?: string | null
@@ -1677,13 +1444,6 @@ export type Database = {
           width?: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "media_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "media_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -1704,7 +1464,6 @@ export type Database = {
         Row: {
           alt_text: string | null
           created_at: string | null
-          customer_id: string | null
           document_count: number | null
           file_name: string | null
           height: number | null
@@ -1725,13 +1484,6 @@ export type Database = {
           width: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "media_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "media_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -2022,6 +1774,43 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_account: {
+        Row: {
+          access: Database["public"]["Enums"]["platform_access"] | null
+          account_holder: string | null
+          api_connection: Database["public"]["Enums"]["api_connection"] | null
+          authorized_at: string | null
+          countries: string[] | null
+          id: string | null
+          notes: string | null
+          platform_id: string | null
+          seller_id: string | null
+          tenant_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_account_platform_id_fkey"
+            columns: ["platform_id"]
+            isOneToOne: false
+            referencedRelation: "platform"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_account_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_account_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product: {
         Row: {
           amazon_product_type: string | null
@@ -2032,12 +1821,10 @@ export type Database = {
           carton_net_kg: number | null
           carton_pack_qty: number | null
           category: string | null
-          company_price_eur: number | null
           compliance_status:
             | Database["public"]["Enums"]["compliance_status"]
             | null
           created_at: string | null
-          customer_id: string | null
           display_name: string | null
           eu_responsible_person: string | null
           golden_sample_locations: string | null
@@ -2047,11 +1834,8 @@ export type Database = {
           hs_code: string | null
           id: string | null
           is_hazmat: boolean | null
-          landed_cost_eur: number | null
-          landed_cost_on: string | null
           listing_attributes: Json | null
           lot_rule: string | null
-          manufacturer_art_no: string | null
           notes: string | null
           origin_country: string | null
           pack_dims_mm: string | null
@@ -2060,15 +1844,8 @@ export type Database = {
           pallet_carton_qty: number | null
           pallet_type: string | null
           parent_id: string | null
-          price_list_version: string | null
-          purchase_currency: string | null
-          purchase_incoterm: string | null
-          purchase_price: number | null
           sku: string | null
           status: Database["public"]["Enums"]["product_status"] | null
-          supplier_id: string | null
-          supplier_product_code: string | null
-          target_price_eur: number | null
           tenant_id: string | null
           unit_dims_mm: string | null
           unit_net_g: number | null
@@ -2076,13 +1853,6 @@ export type Database = {
           variant_label: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_parent_fkey"
             columns: ["parent_id", "tenant_id"]
@@ -2126,7 +1896,6 @@ export type Database = {
           compliance_status:
             | Database["public"]["Enums"]["compliance_status"]
             | null
-          customer_id: string | null
           has_signed_spec: boolean | null
           last_po_code: string | null
           live_cell_count: number | null
@@ -2138,13 +1907,6 @@ export type Database = {
           tenant_id: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -2169,13 +1931,11 @@ export type Database = {
           carton_net_kg: number | null
           carton_pack_qty: number | null
           category: string | null
-          company_price_eur: number | null
           compliance_complete: boolean | null
           compliance_status:
             | Database["public"]["Enums"]["compliance_status"]
             | null
           created_at: string | null
-          customer_id: string | null
           display_name: string | null
           eu_responsible_person: string | null
           golden_sample_locations: string | null
@@ -2186,10 +1946,7 @@ export type Database = {
           hs_code: string | null
           id: string | null
           is_hazmat: boolean | null
-          landed_cost_eur: number | null
-          landed_cost_on: string | null
           lot_rule: string | null
-          manufacturer_art_no: string | null
           notes: string | null
           origin_country: string | null
           pack_dims_mm: string | null
@@ -2198,17 +1955,10 @@ export type Database = {
           pallet_carton_qty: number | null
           pallet_type: string | null
           parent_id: string | null
-          price_list_version: string | null
           primary_image_path: string | null
-          purchase_currency: string | null
-          purchase_incoterm: string | null
-          purchase_price: number | null
           sku: string | null
           spec_version: number | null
           status: Database["public"]["Enums"]["product_status"] | null
-          supplier_id: string | null
-          supplier_product_code: string | null
-          target_price_eur: number | null
           tenant_id: string | null
           unit_dims_mm: string | null
           unit_net_g: number | null
@@ -2216,13 +1966,6 @@ export type Database = {
           variant_label: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_parent_fkey"
             columns: ["parent_id", "tenant_id"]
@@ -2266,7 +2009,6 @@ export type Database = {
           coordinator_id: string | null
           created_at: string | null
           current_phase: Database["public"]["Enums"]["project_phase"] | null
-          customer_id: string | null
           display_name: string | null
           id: string | null
           notes: string | null
@@ -2286,13 +2028,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "user"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "project_tenant_id_fkey"
@@ -2561,12 +2296,73 @@ export type Database = {
           },
         ]
       }
+      provider_relationship: {
+        Row: {
+          accepted_at: string | null
+          client_code: string | null
+          client_name: string | null
+          client_tenant_id: string | null
+          commercial_model:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          contract_accepted_on: string | null
+          contract_document_id: string | null
+          contract_status: Database["public"]["Enums"]["contract_status"] | null
+          created_at: string | null
+          deposit_rate: number | null
+          ended_at: string | null
+          eu_responsible_person: string | null
+          extra_cost_rule: string | null
+          id: string | null
+          notes: string | null
+          packages: string[] | null
+          procurement_model:
+            | Database["public"]["Enums"]["procurement_model"]
+            | null
+          provider_name: string | null
+          restricted_drive_url: string | null
+          start_on: string | null
+          status: Database["public"]["Enums"]["relationship_status"] | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_relationship_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchase_order: {
         Row: {
+          client_tenant_id: string | null
           code: string | null
           created_at: string | null
           currency: string | null
-          customer_id: string | null
           deposit_rate: number | null
           id: string | null
           incoterm: string | null
@@ -2585,7 +2381,9 @@ export type Database = {
           pi_number: string | null
           pi_subtotal: number | null
           pi_total: number | null
+          project_code: string | null
           project_id: string | null
+          project_tenant_id: string | null
           ready_on: string | null
           status: Database["public"]["Enums"]["purchase_order_status"] | null
           supplier_id: string | null
@@ -2594,13 +2392,6 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "purchase_order_packing_document_fkey"
             columns: ["packing_instruction_document_id", "tenant_id"]
@@ -2617,24 +2408,31 @@ export type Database = {
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_tenant_id_fkey"
@@ -2654,16 +2452,20 @@ export type Database = {
       }
       purchase_order_line: {
         Row: {
+          client_tenant_id: string | null
           created_at: string | null
-          customer_id: string | null
           id: string | null
           line_total: number | null
           notes: string | null
           pi_line_total: number | null
           position: number | null
           product_id: string | null
+          product_name: string | null
+          product_sku: string | null
+          product_tenant_id: string | null
           purchase_order_id: string | null
           quantity: number | null
+          sell_price_eur: number | null
           spec_document_id: string | null
           tenant_id: string | null
           unit_price: number | null
@@ -2672,45 +2474,52 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_purchase_order"
-            referencedColumns: ["purchase_order_id", "customer_id", "tenant_id"]
+            referencedColumns: ["purchase_order_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_line_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_spec_fkey"
@@ -2739,11 +2548,11 @@ export type Database = {
         Row: {
           balance_paid_on: string | null
           balance_planned_on: string | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           created_at: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           deposit_paid_on: string | null
           deposit_planned_on: string | null
           deposit_rate: number | null
@@ -2769,6 +2578,7 @@ export type Database = {
           product_ids: string[] | null
           project_code: string | null
           project_id: string | null
+          project_tenant_id: string | null
           ready_on: string | null
           spec_missing_line_ids: string[] | null
           status: Database["public"]["Enums"]["purchase_order_status"] | null
@@ -2785,13 +2595,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "purchase_order_packing_document_fkey"
             columns: ["packing_instruction_document_id", "tenant_id"]
             isOneToOne: false
@@ -2807,24 +2610,31 @@ export type Database = {
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_tenant_id_fkey"
@@ -3133,13 +2943,14 @@ export type Database = {
           booking_confirmed_on: string | null
           carrier: string | null
           carton_count: number | null
+          client_tenant_id: string | null
           code: string | null
           container_no: string | null
           created_at: string | null
-          customer_id: string | null
           customs_broker: string | null
           customs_cleared_on: string | null
           delivered_at: string | null
+          delivery_address: string | null
           delivery_warehouse_id: string | null
           demurrage_note: string | null
           dispute_deadline_at: string | null
@@ -3165,14 +2976,15 @@ export type Database = {
           tenant_id: string | null
           updated_at: string | null
           volume_m3: number | null
+          warehouse_tenant_id: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -3190,16 +3002,17 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_warehouse_fkey"
-            columns: ["delivery_warehouse_id", "customer_id", "tenant_id"]
+            columns: ["delivery_warehouse_id", "warehouse_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer_warehouse"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedRelation: "warehouse"
+            referencedColumns: ["id", "tenant_id"]
           },
         ]
       }
       shipment_event: {
         Row: {
           channel: string | null
+          client_tenant_id: string | null
           created_at: string | null
           created_by: string | null
           from_party: string | null
@@ -3213,6 +3026,13 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "shipment_event_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
+          },
           {
             foreignKeyName: "shipment_event_shipment_fkey"
             columns: ["shipment_id", "tenant_id"]
@@ -3253,6 +3073,7 @@ export type Database = {
       shipment_line: {
         Row: {
           carton_count: number | null
+          client_tenant_id: string | null
           created_at: string | null
           id: string | null
           purchase_order_id: string | null
@@ -3264,6 +3085,7 @@ export type Database = {
         }
         Insert: {
           carton_count?: number | null
+          client_tenant_id?: string | null
           created_at?: string | null
           id?: string | null
           purchase_order_id?: string | null
@@ -3275,6 +3097,7 @@ export type Database = {
         }
         Update: {
           carton_count?: number | null
+          client_tenant_id?: string | null
           created_at?: string | null
           id?: string | null
           purchase_order_id?: string | null
@@ -3302,6 +3125,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "purchase_order_line"
             referencedColumns: ["id", "purchase_order_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "shipment_line_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_line_shipment_fkey"
@@ -3347,14 +3177,15 @@ export type Database = {
           booking_confirmed_on: string | null
           carrier: string | null
           carton_count: number | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           container_no: string | null
           created_at: string | null
-          customer_code: string | null
-          customer_id: string | null
           customs_broker: string | null
           customs_cleared_on: string | null
           delivered_at: string | null
+          delivery_address: string | null
           delivery_warehouse_id: string | null
           demurrage_note: string | null
           dispute_deadline_at: string | null
@@ -3385,14 +3216,15 @@ export type Database = {
           updated_at: string | null
           volume_m3: number | null
           warehouse_name: string | null
+          warehouse_tenant_id: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -3410,31 +3242,31 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_warehouse_fkey"
-            columns: ["delivery_warehouse_id", "customer_id", "tenant_id"]
+            columns: ["delivery_warehouse_id", "warehouse_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer_warehouse"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedRelation: "warehouse"
+            referencedColumns: ["id", "tenant_id"]
           },
         ]
       }
       shipment_purchase_order: {
         Row: {
+          client_tenant_id: string | null
           created_at: string | null
-          customer_id: string | null
           purchase_order_id: string | null
           shipment_id: string | null
           tenant_id: string | null
         }
         Insert: {
+          client_tenant_id?: string | null
           created_at?: string | null
-          customer_id?: string | null
           purchase_order_id?: string | null
           shipment_id?: string | null
           tenant_id?: string | null
         }
         Update: {
+          client_tenant_id?: string | null
           created_at?: string | null
-          customer_id?: string | null
           purchase_order_id?: string | null
           shipment_id?: string | null
           tenant_id?: string | null
@@ -3442,45 +3274,52 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_purchase_order"
-            referencedColumns: ["purchase_order_id", "customer_id", "tenant_id"]
+            referencedColumns: ["purchase_order_id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "shipment_purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_shipment"
-            referencedColumns: ["shipment_id", "customer_id", "tenant_id"]
+            referencedColumns: ["shipment_id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "shipment"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "shipment_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_tenant_id_fkey"
@@ -3491,6 +3330,75 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_purchase_order_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing: {
+        Row: {
+          client_tenant_id: string | null
+          created_at: string | null
+          id: string | null
+          landed_cost_eur: number | null
+          landed_cost_on: string | null
+          manufacturer_art_no: string | null
+          notes: string | null
+          price_list_version: string | null
+          product_id: string | null
+          product_name: string | null
+          product_sku: string | null
+          product_tenant_id: string | null
+          purchase_currency: string | null
+          purchase_incoterm: string | null
+          purchase_price: number | null
+          sell_price_eur: number | null
+          supplier_id: string | null
+          supplier_product_code: string | null
+          target_price_eur: number | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product_evidence"
+            referencedColumns: ["product_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product_with_evidence"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
@@ -3677,6 +3585,7 @@ export type Database = {
         Row: {
           address: string | null
           city: string | null
+          code: string | null
           country: string | null
           created_at: string | null
           display_name: string | null
@@ -3694,6 +3603,7 @@ export type Database = {
         Insert: {
           address?: string | null
           city?: string | null
+          code?: string | null
           country?: string | null
           created_at?: string | null
           display_name?: string | null
@@ -3711,6 +3621,7 @@ export type Database = {
         Update: {
           address?: string | null
           city?: string | null
+          code?: string | null
           country?: string | null
           created_at?: string | null
           display_name?: string | null
@@ -3842,59 +3753,6 @@ export type Database = {
           },
         ]
       }
-      transfer: {
-        Row: {
-          audit_transaction_ids: string[] | null
-          created_at: string | null
-          customer_id: string | null
-          decisions: Json | null
-          files: Json | null
-          files_status: string | null
-          id: string | null
-          id_map: Json | null
-          missing_files: string[] | null
-          mode: string | null
-          path: string | null
-          product_ids: string[] | null
-          report: Json | null
-          source_tenant_id: string | null
-          started_by: string | null
-          target_customer_id: string | null
-          tenant_id: string | null
-          updated_at: string | null
-          xact_id: unknown | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "transfer_source_tenant_id_fkey"
-            columns: ["source_tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_source_tenant_id_fkey"
-            columns: ["source_tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       user: {
         Row: {
           created_at: string | null
@@ -3941,6 +3799,39 @@ export type Database = {
           },
         ]
       }
+      warehouse: {
+        Row: {
+          address: string | null
+          appointment_rule: string | null
+          city: string | null
+          country: string | null
+          display_name: string | null
+          dock_hours: string | null
+          id: string | null
+          is_default: boolean | null
+          pallet_standard: string | null
+          postal_code: string | null
+          receiving_person: string | null
+          tenant_id: string | null
+          type: Database["public"]["Enums"]["warehouse_type"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "warehouse_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "warehouse_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       actor: {
@@ -3962,7 +3853,6 @@ export type Database = {
         Returns: {
           created_at: string | null
           created_by: string | null
-          customer_id: string | null
           entity_id: string | null
           entity_type: Database["public"]["Enums"]["document_entity"] | null
           file_name: string | null
@@ -3979,34 +3869,6 @@ export type Database = {
           updated_at: string | null
           url: string | null
           version: number | null
-        }[]
-      }
-      customer_by_contract_document: {
-        Args: {
-          "": unknown
-        }
-        Returns: {
-          code: string | null
-          commercial_model:
-            | Database["public"]["Enums"]["commercial_model"]
-            | null
-          contract_accepted_on: string | null
-          contract_document_id: string | null
-          country: string | null
-          created_at: string | null
-          deposit_rate: number | null
-          display_name: string | null
-          eu_responsible_person: string | null
-          extra_cost_rule: string | null
-          id: string | null
-          notes: string | null
-          packages: string[] | null
-          restricted_drive_url: string | null
-          start_on: string | null
-          status: Database["public"]["Enums"]["customer_status"] | null
-          tenant_id: string | null
-          updated_at: string | null
-          website: string | null
         }[]
       }
       display_name: {
@@ -4034,7 +3896,6 @@ export type Database = {
         Returns: {
           created_at: string | null
           created_by: string | null
-          customer_id: string | null
           entity_id: string | null
           entity_type: Database["public"]["Enums"]["document_entity"] | null
           file_name: string | null
@@ -4053,61 +3914,38 @@ export type Database = {
           version: number | null
         }[]
       }
-      product_by_supplier: {
+      provider_relationship_by_contract_document: {
         Args: {
           "": unknown
         }
         Returns: {
-          amazon_product_type: string | null
-          amazon_schema_version: string | null
-          brand: string | null
-          carton_dims_mm: string | null
-          carton_gross_kg: number | null
-          carton_net_kg: number | null
-          carton_pack_qty: number | null
-          category: string | null
-          company_price_eur: number | null
-          compliance_status:
-            | Database["public"]["Enums"]["compliance_status"]
+          accepted_at: string | null
+          client_code: string | null
+          client_name: string | null
+          client_tenant_id: string | null
+          commercial_model:
+            | Database["public"]["Enums"]["commercial_model"]
             | null
+          contract_accepted_on: string | null
+          contract_document_id: string | null
+          contract_status: Database["public"]["Enums"]["contract_status"] | null
           created_at: string | null
-          customer_id: string | null
-          display_name: string | null
+          deposit_rate: number | null
+          ended_at: string | null
           eu_responsible_person: string | null
-          golden_sample_locations: string | null
-          golden_sample_on: string | null
-          gs1_prefix_owner: string | null
-          gtin: string | null
-          hs_code: string | null
+          extra_cost_rule: string | null
           id: string | null
-          is_hazmat: boolean | null
-          landed_cost_eur: number | null
-          landed_cost_on: string | null
-          listing_attributes: Json | null
-          lot_rule: string | null
-          manufacturer_art_no: string | null
           notes: string | null
-          origin_country: string | null
-          pack_dims_mm: string | null
-          pack_gross_g: number | null
-          pack_qty: number | null
-          pallet_carton_qty: number | null
-          pallet_type: string | null
-          parent_id: string | null
-          price_list_version: string | null
-          purchase_currency: string | null
-          purchase_incoterm: string | null
-          purchase_price: number | null
-          sku: string | null
-          status: Database["public"]["Enums"]["product_status"] | null
-          supplier_id: string | null
-          supplier_product_code: string | null
-          target_price_eur: number | null
+          packages: string[] | null
+          procurement_model:
+            | Database["public"]["Enums"]["procurement_model"]
+            | null
+          provider_name: string | null
+          restricted_drive_url: string | null
+          start_on: string | null
+          status: Database["public"]["Enums"]["relationship_status"] | null
           tenant_id: string | null
-          unit_dims_mm: string | null
-          unit_net_g: number | null
           updated_at: string | null
-          variant_label: string | null
         }[]
       }
       purchase_order_by_pi_document: {
@@ -4115,10 +3953,10 @@ export type Database = {
           "": unknown
         }
         Returns: {
+          client_tenant_id: string | null
           code: string | null
           created_at: string | null
           currency: string | null
-          customer_id: string | null
           deposit_rate: number | null
           id: string | null
           incoterm: string | null
@@ -4137,7 +3975,9 @@ export type Database = {
           pi_number: string | null
           pi_subtotal: number | null
           pi_total: number | null
+          project_code: string | null
           project_id: string | null
+          project_tenant_id: string | null
           ready_on: string | null
           status: Database["public"]["Enums"]["purchase_order_status"] | null
           supplier_id: string | null
@@ -4151,10 +3991,10 @@ export type Database = {
           "": unknown
         }
         Returns: {
+          client_tenant_id: string | null
           code: string | null
           created_at: string | null
           currency: string | null
-          customer_id: string | null
           deposit_rate: number | null
           id: string | null
           incoterm: string | null
@@ -4173,7 +4013,9 @@ export type Database = {
           pi_number: string | null
           pi_subtotal: number | null
           pi_total: number | null
+          project_code: string | null
           project_id: string | null
+          project_tenant_id: string | null
           ready_on: string | null
           status: Database["public"]["Enums"]["purchase_order_status"] | null
           supplier_id: string | null
@@ -4194,6 +4036,34 @@ export type Database = {
           user_metadata: Json | null
         }[]
       }
+      sourcing_by_supplier: {
+        Args: {
+          "": unknown
+        }
+        Returns: {
+          client_tenant_id: string | null
+          created_at: string | null
+          id: string | null
+          landed_cost_eur: number | null
+          landed_cost_on: string | null
+          manufacturer_art_no: string | null
+          notes: string | null
+          price_list_version: string | null
+          product_id: string | null
+          product_name: string | null
+          product_sku: string | null
+          product_tenant_id: string | null
+          purchase_currency: string | null
+          purchase_incoterm: string | null
+          purchase_price: number | null
+          sell_price_eur: number | null
+          supplier_id: string | null
+          supplier_product_code: string | null
+          target_price_eur: number | null
+          tenant_id: string | null
+          updated_at: string | null
+        }[]
+      }
       status: {
         Args: {
           "": unknown
@@ -4201,35 +4071,6 @@ export type Database = {
         Returns: string
       }
       supplier:
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: {
-              cancellation_rule: string | null
-              capacity_note: string | null
-              city: string | null
-              code: string | null
-              country: string | null
-              created_at: string | null
-              damage_notice_hours: number | null
-              default_incoterm: string | null
-              deposit_rate: number | null
-              display_name: string | null
-              id: string | null
-              last_audit_on: string | null
-              late_payment_penalty: string | null
-              notes: string | null
-              payment_terms: string | null
-              product_groups: string[] | null
-              rating: number | null
-              status: Database["public"]["Enums"]["supplier_status"] | null
-              storage_fee_rule: string | null
-              tenant_id: string | null
-              updated_at: string | null
-              website: string | null
-            }[]
-          }
         | {
             Args: {
               "": unknown
@@ -4458,6 +4299,48 @@ export type Database = {
           },
         ]
       }
+      brand: {
+        Row: {
+          brand_program_status: string | null
+          gs1_prefix_owner: string | null
+          id: string
+          name: string
+          registration_status: string | null
+          tenant_id: string
+        }
+        Insert: {
+          brand_program_status?: string | null
+          gs1_prefix_owner?: string | null
+          id?: string
+          name: string
+          registration_status?: string | null
+          tenant_id: string
+        }
+        Update: {
+          brand_program_status?: string | null
+          gs1_prefix_owner?: string | null
+          id?: string
+          name?: string
+          registration_status?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       change_request: {
         Row: {
           affected_document_id: string | null
@@ -4473,7 +4356,6 @@ export type Database = {
           current_value: string
           customer_approval_document_id: string | null
           customer_approved_on: string | null
-          customer_id: string
           decision_due_on: string | null
           decision_note: string | null
           delay_days: number | null
@@ -4506,7 +4388,6 @@ export type Database = {
           current_value: string
           customer_approval_document_id?: string | null
           customer_approved_on?: string | null
-          customer_id: string
           decision_due_on?: string | null
           decision_note?: string | null
           delay_days?: number | null
@@ -4539,7 +4420,6 @@ export type Database = {
           current_value?: string
           customer_approval_document_id?: string | null
           customer_approved_on?: string | null
-          customer_id?: string
           decision_due_on?: string | null
           decision_note?: string | null
           delay_days?: number | null
@@ -4581,32 +4461,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "change_request_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_result_document_fkey"
@@ -4635,59 +4508,56 @@ export type Database = {
         Row: {
           change_request_id: string
           created_at: string
-          customer_id: string
           product_id: string
           tenant_id: string
         }
         Insert: {
           change_request_id: string
           created_at?: string
-          customer_id: string
           product_id: string
           tenant_id: string
         }
         Update: {
           change_request_id?: string
           created_at?: string
-          customer_id?: string
           product_id?: string
           tenant_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "change_request_product_cr_fkey"
-            columns: ["change_request_id", "customer_id", "tenant_id"]
+            columns: ["change_request_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "change_request"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_cr_fkey"
-            columns: ["change_request_id", "customer_id", "tenant_id"]
+            columns: ["change_request_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_change_request"
-            referencedColumns: ["change_request_id", "customer_id", "tenant_id"]
+            referencedColumns: ["change_request_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "change_request_product_tenant_id_fkey"
@@ -4744,150 +4614,9 @@ export type Database = {
           },
         ]
       }
-      customer: {
-        Row: {
-          code: string
-          commercial_model: Database["public"]["Enums"]["commercial_model"]
-          contract_accepted_on: string | null
-          contract_document_id: string | null
-          country: string | null
-          created_at: string
-          deposit_rate: number | null
-          display_name: string
-          eu_responsible_person: string | null
-          extra_cost_rule: string | null
-          id: string
-          notes: string | null
-          packages: string[]
-          restricted_drive_url: string | null
-          start_on: string | null
-          status: Database["public"]["Enums"]["customer_status"]
-          tenant_id: string
-          updated_at: string
-          website: string | null
-        }
-        Insert: {
-          code: string
-          commercial_model: Database["public"]["Enums"]["commercial_model"]
-          contract_accepted_on?: string | null
-          contract_document_id?: string | null
-          country?: string | null
-          created_at?: string
-          deposit_rate?: number | null
-          display_name: string
-          eu_responsible_person?: string | null
-          extra_cost_rule?: string | null
-          id?: string
-          notes?: string | null
-          packages?: string[]
-          restricted_drive_url?: string | null
-          start_on?: string | null
-          status?: Database["public"]["Enums"]["customer_status"]
-          tenant_id: string
-          updated_at?: string
-          website?: string | null
-        }
-        Update: {
-          code?: string
-          commercial_model?: Database["public"]["Enums"]["commercial_model"]
-          contract_accepted_on?: string | null
-          contract_document_id?: string | null
-          country?: string | null
-          created_at?: string
-          deposit_rate?: number | null
-          display_name?: string
-          eu_responsible_person?: string | null
-          extra_cost_rule?: string | null
-          id?: string
-          notes?: string | null
-          packages?: string[]
-          restricted_drive_url?: string | null
-          start_on?: string | null
-          status?: Database["public"]["Enums"]["customer_status"]
-          tenant_id?: string
-          updated_at?: string
-          website?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_contract_document_fkey"
-            columns: ["contract_document_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "document"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_brand: {
-        Row: {
-          brand_program_status: string | null
-          customer_id: string
-          gs1_prefix_owner: string | null
-          id: string
-          name: string
-          registration_status: string | null
-          tenant_id: string
-        }
-        Insert: {
-          brand_program_status?: string | null
-          customer_id: string
-          gs1_prefix_owner?: string | null
-          id?: string
-          name: string
-          registration_status?: string | null
-          tenant_id: string
-        }
-        Update: {
-          brand_program_status?: string | null
-          customer_id?: string
-          gs1_prefix_owner?: string | null
-          id?: string
-          name?: string
-          registration_status?: string | null
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_brand_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_brand_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_brand_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_contact: {
+      contact: {
         Row: {
           can_approve: boolean
-          customer_id: string
           email: string | null
           id: string
           name: string
@@ -4897,7 +4626,6 @@ export type Database = {
         }
         Insert: {
           can_approve?: boolean
-          customer_id: string
           email?: string | null
           id?: string
           name: string
@@ -4907,7 +4635,6 @@ export type Database = {
         }
         Update: {
           can_approve?: boolean
-          customer_id?: string
           email?: string | null
           id?: string
           name?: string
@@ -4917,155 +4644,14 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "customer_contact_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_contact_tenant_id_fkey"
+            foreignKeyName: "contact_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "company_subscription"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "customer_contact_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      platform_account: {
-        Row: {
-          access: Database["public"]["Enums"]["platform_access"]
-          account_holder: string | null
-          api_connection: Database["public"]["Enums"]["api_connection"]
-          authorized_at: string | null
-          countries: string[]
-          id: string
-          notes: string | null
-          platform_id: string
-          seller_id: string | null
-          tenant_id: string
-        }
-        Insert: {
-          access?: Database["public"]["Enums"]["platform_access"]
-          account_holder?: string | null
-          api_connection?: Database["public"]["Enums"]["api_connection"]
-          authorized_at?: string | null
-          countries?: string[]
-          id?: string
-          notes?: string | null
-          platform_id: string
-          seller_id?: string | null
-          tenant_id: string
-        }
-        Update: {
-          access?: Database["public"]["Enums"]["platform_access"]
-          account_holder?: string | null
-          api_connection?: Database["public"]["Enums"]["api_connection"]
-          authorized_at?: string | null
-          countries?: string[]
-          id?: string
-          notes?: string | null
-          platform_id?: string
-          seller_id?: string | null
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "platform_account_platform_id_fkey"
-            columns: ["platform_id"]
-            isOneToOne: false
-            referencedRelation: "platform"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_account_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_account_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      customer_warehouse: {
-        Row: {
-          address: string | null
-          appointment_rule: string | null
-          city: string | null
-          country: string | null
-          customer_id: string
-          display_name: string
-          dock_hours: string | null
-          id: string
-          is_default: boolean
-          pallet_standard: string | null
-          postal_code: string | null
-          receiving_person: string | null
-          tenant_id: string
-          type: Database["public"]["Enums"]["warehouse_type"]
-        }
-        Insert: {
-          address?: string | null
-          appointment_rule?: string | null
-          city?: string | null
-          country?: string | null
-          customer_id: string
-          display_name: string
-          dock_hours?: string | null
-          id?: string
-          is_default?: boolean
-          pallet_standard?: string | null
-          postal_code?: string | null
-          receiving_person?: string | null
-          tenant_id: string
-          type?: Database["public"]["Enums"]["warehouse_type"]
-        }
-        Update: {
-          address?: string | null
-          appointment_rule?: string | null
-          city?: string | null
-          country?: string | null
-          customer_id?: string
-          display_name?: string
-          dock_hours?: string | null
-          id?: string
-          is_default?: boolean
-          pallet_standard?: string | null
-          postal_code?: string | null
-          receiving_person?: string | null
-          tenant_id?: string
-          type?: Database["public"]["Enums"]["warehouse_type"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "customer_warehouse_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "customer_warehouse_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_warehouse_tenant_id_fkey"
+            foreignKeyName: "contact_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
@@ -5077,7 +4663,6 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
-          customer_id: string | null
           entity_id: string
           entity_type: Database["public"]["Enums"]["document_entity"]
           file_name: string | null
@@ -5098,7 +4683,6 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
-          customer_id?: string | null
           entity_id: string
           entity_type: Database["public"]["Enums"]["document_entity"]
           file_name?: string | null
@@ -5119,7 +4703,6 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
-          customer_id?: string | null
           entity_id?: string
           entity_type?: Database["public"]["Enums"]["document_entity"]
           file_name?: string | null
@@ -5138,13 +4721,6 @@ export type Database = {
           version?: number
         }
         Relationships: [
-          {
-            foreignKeyName: "document_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "document_media_fkey"
             columns: ["media_id", "tenant_id"]
@@ -5231,7 +4807,6 @@ export type Database = {
           created_at: string
           current_state: string | null
           customer_closure_notified_on: string | null
-          customer_id: string
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
@@ -5265,7 +4840,6 @@ export type Database = {
           created_at?: string
           current_state?: string | null
           customer_closure_notified_on?: string | null
-          customer_id: string
           customer_notice_due_at?: string | null
           customer_notified_at?: string | null
           entity_id?: string | null
@@ -5299,7 +4873,6 @@ export type Database = {
           created_at?: string
           current_state?: string | null
           customer_closure_notified_on?: string | null
-          customer_id?: string
           customer_notice_due_at?: string | null
           customer_notified_at?: string | null
           entity_id?: string | null
@@ -5332,13 +4905,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "user"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "incident_owner_fkey"
@@ -5707,45 +5273,45 @@ export type Database = {
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_tenant_id_fkey"
@@ -5767,7 +5333,6 @@ export type Database = {
         Row: {
           alt_text: string | null
           created_at: string
-          customer_id: string | null
           file_name: string
           height: number | null
           id: string
@@ -5785,7 +5350,6 @@ export type Database = {
         Insert: {
           alt_text?: string | null
           created_at?: string
-          customer_id?: string | null
           file_name: string
           height?: number | null
           id?: string
@@ -5803,7 +5367,6 @@ export type Database = {
         Update: {
           alt_text?: string | null
           created_at?: string
-          customer_id?: string | null
           file_name?: string
           height?: number | null
           id?: string
@@ -5819,13 +5382,6 @@ export type Database = {
           width?: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "media_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "media_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -6112,6 +5668,67 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_account: {
+        Row: {
+          access: Database["public"]["Enums"]["platform_access"]
+          account_holder: string | null
+          api_connection: Database["public"]["Enums"]["api_connection"]
+          authorized_at: string | null
+          countries: string[]
+          id: string
+          notes: string | null
+          platform_id: string
+          seller_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          access?: Database["public"]["Enums"]["platform_access"]
+          account_holder?: string | null
+          api_connection?: Database["public"]["Enums"]["api_connection"]
+          authorized_at?: string | null
+          countries?: string[]
+          id?: string
+          notes?: string | null
+          platform_id: string
+          seller_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          access?: Database["public"]["Enums"]["platform_access"]
+          account_holder?: string | null
+          api_connection?: Database["public"]["Enums"]["api_connection"]
+          authorized_at?: string | null
+          countries?: string[]
+          id?: string
+          notes?: string | null
+          platform_id?: string
+          seller_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_account_platform_id_fkey"
+            columns: ["platform_id"]
+            isOneToOne: false
+            referencedRelation: "platform"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_account_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_account_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product: {
         Row: {
           amazon_product_type: string | null
@@ -6122,10 +5739,8 @@ export type Database = {
           carton_net_kg: number | null
           carton_pack_qty: number | null
           category: string | null
-          company_price_eur: number | null
           compliance_status: Database["public"]["Enums"]["compliance_status"]
           created_at: string
-          customer_id: string
           display_name: string | null
           eu_responsible_person: string | null
           golden_sample_locations: string | null
@@ -6135,11 +5750,8 @@ export type Database = {
           hs_code: string | null
           id: string
           is_hazmat: boolean
-          landed_cost_eur: number | null
-          landed_cost_on: string | null
           listing_attributes: Json
           lot_rule: string | null
-          manufacturer_art_no: string | null
           notes: string | null
           origin_country: string | null
           pack_dims_mm: string | null
@@ -6148,15 +5760,8 @@ export type Database = {
           pallet_carton_qty: number | null
           pallet_type: string | null
           parent_id: string | null
-          price_list_version: string | null
-          purchase_currency: string | null
-          purchase_incoterm: string | null
-          purchase_price: number | null
           sku: string
           status: Database["public"]["Enums"]["product_status"]
-          supplier_id: string | null
-          supplier_product_code: string | null
-          target_price_eur: number | null
           tenant_id: string
           unit_dims_mm: string | null
           unit_net_g: number | null
@@ -6172,10 +5777,8 @@ export type Database = {
           carton_net_kg?: number | null
           carton_pack_qty?: number | null
           category?: string | null
-          company_price_eur?: number | null
           compliance_status?: Database["public"]["Enums"]["compliance_status"]
           created_at?: string
-          customer_id: string
           display_name?: string | null
           eu_responsible_person?: string | null
           golden_sample_locations?: string | null
@@ -6185,11 +5788,8 @@ export type Database = {
           hs_code?: string | null
           id?: string
           is_hazmat?: boolean
-          landed_cost_eur?: number | null
-          landed_cost_on?: string | null
           listing_attributes?: Json
           lot_rule?: string | null
-          manufacturer_art_no?: string | null
           notes?: string | null
           origin_country?: string | null
           pack_dims_mm?: string | null
@@ -6198,15 +5798,8 @@ export type Database = {
           pallet_carton_qty?: number | null
           pallet_type?: string | null
           parent_id?: string | null
-          price_list_version?: string | null
-          purchase_currency?: string | null
-          purchase_incoterm?: string | null
-          purchase_price?: number | null
           sku: string
           status?: Database["public"]["Enums"]["product_status"]
-          supplier_id?: string | null
-          supplier_product_code?: string | null
-          target_price_eur?: number | null
           tenant_id: string
           unit_dims_mm?: string | null
           unit_net_g?: number | null
@@ -6222,10 +5815,8 @@ export type Database = {
           carton_net_kg?: number | null
           carton_pack_qty?: number | null
           category?: string | null
-          company_price_eur?: number | null
           compliance_status?: Database["public"]["Enums"]["compliance_status"]
           created_at?: string
-          customer_id?: string
           display_name?: string | null
           eu_responsible_person?: string | null
           golden_sample_locations?: string | null
@@ -6235,11 +5826,8 @@ export type Database = {
           hs_code?: string | null
           id?: string
           is_hazmat?: boolean
-          landed_cost_eur?: number | null
-          landed_cost_on?: string | null
           listing_attributes?: Json
           lot_rule?: string | null
-          manufacturer_art_no?: string | null
           notes?: string | null
           origin_country?: string | null
           pack_dims_mm?: string | null
@@ -6248,15 +5836,8 @@ export type Database = {
           pallet_carton_qty?: number | null
           pallet_type?: string | null
           parent_id?: string | null
-          price_list_version?: string | null
-          purchase_currency?: string | null
-          purchase_incoterm?: string | null
-          purchase_price?: number | null
           sku?: string
           status?: Database["public"]["Enums"]["product_status"]
-          supplier_id?: string | null
-          supplier_product_code?: string | null
-          target_price_eur?: number | null
           tenant_id?: string
           unit_dims_mm?: string | null
           unit_net_g?: number | null
@@ -6264,13 +5845,6 @@ export type Database = {
           variant_label?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_parent_fkey"
             columns: ["parent_id", "tenant_id"]
@@ -6290,13 +5864,6 @@ export type Database = {
             columns: ["parent_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
-            foreignKeyName: "product_supplier_fkey"
-            columns: ["supplier_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "supplier"
             referencedColumns: ["id", "tenant_id"]
           },
           {
@@ -6321,7 +5888,6 @@ export type Database = {
           coordinator_id: string | null
           created_at: string
           current_phase: Database["public"]["Enums"]["project_phase"]
-          customer_id: string
           display_name: string
           id: string
           notes: string | null
@@ -6339,7 +5905,6 @@ export type Database = {
           coordinator_id?: string | null
           created_at?: string
           current_phase?: Database["public"]["Enums"]["project_phase"]
-          customer_id: string
           display_name: string
           id?: string
           notes?: string | null
@@ -6357,7 +5922,6 @@ export type Database = {
           coordinator_id?: string | null
           created_at?: string
           current_phase?: Database["public"]["Enums"]["project_phase"]
-          customer_id?: string
           display_name?: string
           id?: string
           notes?: string | null
@@ -6377,13 +5941,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "user"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "project_tenant_id_fkey"
@@ -6688,12 +6245,132 @@ export type Database = {
           },
         ]
       }
+      provider_relationship: {
+        Row: {
+          accepted_at: string
+          client_code: string
+          client_name: string
+          client_tenant_id: string
+          commercial_model:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          contract_accepted_on: string | null
+          contract_document_id: string | null
+          contract_status: Database["public"]["Enums"]["contract_status"]
+          created_at: string
+          deposit_rate: number | null
+          ended_at: string | null
+          eu_responsible_person: string | null
+          extra_cost_rule: string | null
+          id: string
+          notes: string | null
+          packages: string[]
+          procurement_model: Database["public"]["Enums"]["procurement_model"]
+          provider_name: string
+          restricted_drive_url: string | null
+          start_on: string | null
+          status: Database["public"]["Enums"]["relationship_status"]
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string
+          client_code: string
+          client_name: string
+          client_tenant_id: string
+          commercial_model?:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          contract_accepted_on?: string | null
+          contract_document_id?: string | null
+          contract_status?: Database["public"]["Enums"]["contract_status"]
+          created_at?: string
+          deposit_rate?: number | null
+          ended_at?: string | null
+          eu_responsible_person?: string | null
+          extra_cost_rule?: string | null
+          id?: string
+          notes?: string | null
+          packages?: string[]
+          procurement_model: Database["public"]["Enums"]["procurement_model"]
+          provider_name: string
+          restricted_drive_url?: string | null
+          start_on?: string | null
+          status?: Database["public"]["Enums"]["relationship_status"]
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string
+          client_code?: string
+          client_name?: string
+          client_tenant_id?: string
+          commercial_model?:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          contract_accepted_on?: string | null
+          contract_document_id?: string | null
+          contract_status?: Database["public"]["Enums"]["contract_status"]
+          created_at?: string
+          deposit_rate?: number | null
+          ended_at?: string | null
+          eu_responsible_person?: string | null
+          extra_cost_rule?: string | null
+          id?: string
+          notes?: string | null
+          packages?: string[]
+          procurement_model?: Database["public"]["Enums"]["procurement_model"]
+          provider_name?: string
+          restricted_drive_url?: string | null
+          start_on?: string | null
+          status?: Database["public"]["Enums"]["relationship_status"]
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_relationship_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_contract_document_fkey"
+            columns: ["contract_document_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "document"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_relationship_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchase_order: {
         Row: {
+          client_tenant_id: string | null
           code: string | null
           created_at: string
           currency: string
-          customer_id: string
           deposit_rate: number
           id: string
           incoterm: string
@@ -6712,7 +6389,9 @@ export type Database = {
           pi_number: string | null
           pi_subtotal: number | null
           pi_total: number | null
+          project_code: string | null
           project_id: string | null
+          project_tenant_id: string
           ready_on: string | null
           status: Database["public"]["Enums"]["purchase_order_status"]
           supplier_id: string
@@ -6721,10 +6400,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_tenant_id?: string | null
           code?: string | null
           created_at?: string
           currency: string
-          customer_id: string
           deposit_rate: number
           id?: string
           incoterm: string
@@ -6743,7 +6422,9 @@ export type Database = {
           pi_number?: string | null
           pi_subtotal?: number | null
           pi_total?: number | null
+          project_code?: string | null
           project_id?: string | null
+          project_tenant_id: string
           ready_on?: string | null
           status?: Database["public"]["Enums"]["purchase_order_status"]
           supplier_id: string
@@ -6752,10 +6433,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_tenant_id?: string | null
           code?: string | null
           created_at?: string
           currency?: string
-          customer_id?: string
           deposit_rate?: number
           id?: string
           incoterm?: string
@@ -6774,7 +6455,9 @@ export type Database = {
           pi_number?: string | null
           pi_subtotal?: number | null
           pi_total?: number | null
+          project_code?: string | null
           project_id?: string | null
+          project_tenant_id?: string
           ready_on?: string | null
           status?: Database["public"]["Enums"]["purchase_order_status"]
           supplier_id?: string
@@ -6783,13 +6466,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "purchase_order_packing_document_fkey"
             columns: ["packing_instruction_document_id", "tenant_id"]
@@ -6813,24 +6489,31 @@ export type Database = {
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_supplier_fkey"
@@ -6857,48 +6540,60 @@ export type Database = {
       }
       purchase_order_line: {
         Row: {
+          client_tenant_id: string | null
           created_at: string
-          customer_id: string
           id: string
           line_total: number | null
           notes: string | null
           pi_line_total: number | null
           position: number
-          product_id: string
+          product_id: string | null
+          product_name: string
+          product_sku: string
+          product_tenant_id: string
           purchase_order_id: string
           quantity: number
+          sell_price_eur: number | null
           spec_document_id: string | null
           tenant_id: string
           unit_price: number
           updated_at: string
         }
         Insert: {
+          client_tenant_id?: string | null
           created_at?: string
-          customer_id: string
           id?: string
           line_total?: number | null
           notes?: string | null
           pi_line_total?: number | null
           position?: number
-          product_id: string
+          product_id?: string | null
+          product_name: string
+          product_sku: string
+          product_tenant_id: string
           purchase_order_id: string
           quantity: number
+          sell_price_eur?: number | null
           spec_document_id?: string | null
           tenant_id: string
           unit_price: number
           updated_at?: string
         }
         Update: {
+          client_tenant_id?: string | null
           created_at?: string
-          customer_id?: string
           id?: string
           line_total?: number | null
           notes?: string | null
           pi_line_total?: number | null
           position?: number
-          product_id?: string
+          product_id?: string | null
+          product_name?: string
+          product_sku?: string
+          product_tenant_id?: string
           purchase_order_id?: string
           quantity?: number
+          sell_price_eur?: number | null
           spec_document_id?: string | null
           tenant_id?: string
           unit_price?: number
@@ -6907,45 +6602,52 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_purchase_order"
-            referencedColumns: ["purchase_order_id", "customer_id", "tenant_id"]
+            referencedColumns: ["purchase_order_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "product_tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_line_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_line_spec_fkey"
@@ -7289,14 +6991,15 @@ export type Database = {
           booking_confirmed_on: string | null
           carrier: string | null
           carton_count: number | null
+          client_tenant_id: string | null
           code: string | null
           container_no: string | null
           created_at: string
-          customer_id: string
           customs_broker: string | null
           customs_cleared_on: string | null
           delivered_at: string | null
-          delivery_warehouse_id: string
+          delivery_address: string | null
+          delivery_warehouse_id: string | null
           demurrage_note: string | null
           dispute_deadline_at: string | null
           eta: string | null
@@ -7321,6 +7024,7 @@ export type Database = {
           tenant_id: string
           updated_at: string
           volume_m3: number | null
+          warehouse_tenant_id: string
         }
         Insert: {
           accepted_by?: string | null
@@ -7328,14 +7032,15 @@ export type Database = {
           booking_confirmed_on?: string | null
           carrier?: string | null
           carton_count?: number | null
+          client_tenant_id?: string | null
           code?: string | null
           container_no?: string | null
           created_at?: string
-          customer_id: string
           customs_broker?: string | null
           customs_cleared_on?: string | null
           delivered_at?: string | null
-          delivery_warehouse_id: string
+          delivery_address?: string | null
+          delivery_warehouse_id?: string | null
           demurrage_note?: string | null
           dispute_deadline_at?: string | null
           eta?: string | null
@@ -7360,6 +7065,7 @@ export type Database = {
           tenant_id: string
           updated_at?: string
           volume_m3?: number | null
+          warehouse_tenant_id: string
         }
         Update: {
           accepted_by?: string | null
@@ -7367,14 +7073,15 @@ export type Database = {
           booking_confirmed_on?: string | null
           carrier?: string | null
           carton_count?: number | null
+          client_tenant_id?: string | null
           code?: string | null
           container_no?: string | null
           created_at?: string
-          customer_id?: string
           customs_broker?: string | null
           customs_cleared_on?: string | null
           delivered_at?: string | null
-          delivery_warehouse_id?: string
+          delivery_address?: string | null
+          delivery_warehouse_id?: string | null
           demurrage_note?: string | null
           dispute_deadline_at?: string | null
           eta?: string | null
@@ -7399,14 +7106,15 @@ export type Database = {
           tenant_id?: string
           updated_at?: string
           volume_m3?: number | null
+          warehouse_tenant_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -7424,16 +7132,17 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_warehouse_fkey"
-            columns: ["delivery_warehouse_id", "customer_id", "tenant_id"]
+            columns: ["delivery_warehouse_id", "warehouse_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer_warehouse"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedRelation: "warehouse"
+            referencedColumns: ["id", "tenant_id"]
           },
         ]
       }
       shipment_event: {
         Row: {
           channel: string | null
+          client_tenant_id: string | null
           created_at: string
           created_by: string | null
           from_party: string | null
@@ -7448,6 +7157,7 @@ export type Database = {
         }
         Insert: {
           channel?: string | null
+          client_tenant_id?: string | null
           created_at?: string
           created_by?: string | null
           from_party?: string | null
@@ -7462,6 +7172,7 @@ export type Database = {
         }
         Update: {
           channel?: string | null
+          client_tenant_id?: string | null
           created_at?: string
           created_by?: string | null
           from_party?: string | null
@@ -7475,6 +7186,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "shipment_event_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
+          },
           {
             foreignKeyName: "shipment_event_shipment_fkey"
             columns: ["shipment_id", "tenant_id"]
@@ -7515,6 +7233,7 @@ export type Database = {
       shipment_line: {
         Row: {
           carton_count: number | null
+          client_tenant_id: string | null
           created_at: string
           id: string
           purchase_order_id: string
@@ -7526,6 +7245,7 @@ export type Database = {
         }
         Insert: {
           carton_count?: number | null
+          client_tenant_id?: string | null
           created_at?: string
           id?: string
           purchase_order_id: string
@@ -7537,6 +7257,7 @@ export type Database = {
         }
         Update: {
           carton_count?: number | null
+          client_tenant_id?: string | null
           created_at?: string
           id?: string
           purchase_order_id?: string
@@ -7564,6 +7285,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "purchase_order_line"
             referencedColumns: ["id", "purchase_order_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "shipment_line_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_line_shipment_fkey"
@@ -7604,22 +7332,22 @@ export type Database = {
       }
       shipment_purchase_order: {
         Row: {
+          client_tenant_id: string | null
           created_at: string
-          customer_id: string
           purchase_order_id: string
           shipment_id: string
           tenant_id: string
         }
         Insert: {
+          client_tenant_id?: string | null
           created_at?: string
-          customer_id: string
           purchase_order_id: string
           shipment_id: string
           tenant_id: string
         }
         Update: {
+          client_tenant_id?: string | null
           created_at?: string
-          customer_id?: string
           purchase_order_id?: string
           shipment_id?: string
           tenant_id?: string
@@ -7627,45 +7355,52 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_purchase_order"
-            referencedColumns: ["purchase_order_id", "customer_id", "tenant_id"]
+            referencedColumns: ["purchase_order_id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_po_fkey"
-            columns: ["purchase_order_id", "customer_id", "tenant_id"]
+            columns: ["purchase_order_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "purchase_order_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "shipment_purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_shipment"
-            referencedColumns: ["shipment_id", "customer_id", "tenant_id"]
+            referencedColumns: ["shipment_id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "shipment"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_shipment_fkey"
-            columns: ["shipment_id", "customer_id", "tenant_id"]
+            columns: ["shipment_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "shipment_overview"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "shipment_purchase_order_tenant_id_fkey"
@@ -7676,6 +7411,128 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_purchase_order_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sourcing: {
+        Row: {
+          client_tenant_id: string | null
+          created_at: string
+          id: string
+          landed_cost_eur: number | null
+          landed_cost_on: string | null
+          manufacturer_art_no: string | null
+          notes: string | null
+          price_list_version: string | null
+          product_id: string | null
+          product_name: string
+          product_sku: string
+          product_tenant_id: string
+          purchase_currency: string | null
+          purchase_incoterm: string | null
+          purchase_price: number | null
+          sell_price_eur: number | null
+          supplier_id: string | null
+          supplier_product_code: string | null
+          target_price_eur: number | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          client_tenant_id?: string | null
+          created_at?: string
+          id?: string
+          landed_cost_eur?: number | null
+          landed_cost_on?: string | null
+          manufacturer_art_no?: string | null
+          notes?: string | null
+          price_list_version?: string | null
+          product_id?: string | null
+          product_name: string
+          product_sku: string
+          product_tenant_id: string
+          purchase_currency?: string | null
+          purchase_incoterm?: string | null
+          purchase_price?: number | null
+          sell_price_eur?: number | null
+          supplier_id?: string | null
+          supplier_product_code?: string | null
+          target_price_eur?: number | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          client_tenant_id?: string | null
+          created_at?: string
+          id?: string
+          landed_cost_eur?: number | null
+          landed_cost_on?: string | null
+          manufacturer_art_no?: string | null
+          notes?: string | null
+          price_list_version?: string | null
+          product_id?: string | null
+          product_name?: string
+          product_sku?: string
+          product_tenant_id?: string
+          purchase_currency?: string | null
+          purchase_incoterm?: string | null
+          purchase_price?: number | null
+          sell_price_eur?: number | null
+          supplier_id?: string | null
+          supplier_product_code?: string | null
+          target_price_eur?: number | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product_evidence"
+            referencedColumns: ["product_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_product_fkey"
+            columns: ["product_id", "product_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "product_with_evidence"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_supplier_fkey"
+            columns: ["supplier_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "supplier"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "sourcing_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sourcing_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
@@ -7931,6 +7788,7 @@ export type Database = {
         Row: {
           address: string | null
           city: string | null
+          code: string
           country: string | null
           created_at: string | null
           display_name: string
@@ -7948,6 +7806,7 @@ export type Database = {
         Insert: {
           address?: string | null
           city?: string | null
+          code: string
           country?: string | null
           created_at?: string | null
           display_name: string
@@ -7965,6 +7824,7 @@ export type Database = {
         Update: {
           address?: string | null
           city?: string | null
+          code?: string
           country?: string | null
           created_at?: string | null
           display_name?: string
@@ -8082,101 +7942,6 @@ export type Database = {
           },
         ]
       }
-      transfer: {
-        Row: {
-          audit_transaction_ids: string[]
-          created_at: string
-          customer_id: string
-          decisions: Json
-          files: Json
-          files_status: string
-          id: string
-          id_map: Json
-          missing_files: string[]
-          mode: string
-          path: string
-          product_ids: string[] | null
-          report: Json
-          source_tenant_id: string
-          started_by: string
-          target_customer_id: string | null
-          tenant_id: string
-          updated_at: string
-          xact_id: unknown
-        }
-        Insert: {
-          audit_transaction_ids?: string[]
-          created_at?: string
-          customer_id: string
-          decisions?: Json
-          files?: Json
-          files_status?: string
-          id?: string
-          id_map?: Json
-          missing_files?: string[]
-          mode: string
-          path: string
-          product_ids?: string[] | null
-          report: Json
-          source_tenant_id: string
-          started_by: string
-          target_customer_id?: string | null
-          tenant_id: string
-          updated_at?: string
-          xact_id?: unknown
-        }
-        Update: {
-          audit_transaction_ids?: string[]
-          created_at?: string
-          customer_id?: string
-          decisions?: Json
-          files?: Json
-          files_status?: string
-          id?: string
-          id_map?: Json
-          missing_files?: string[]
-          mode?: string
-          path?: string
-          product_ids?: string[] | null
-          report?: Json
-          source_tenant_id?: string
-          started_by?: string
-          target_customer_id?: string | null
-          tenant_id?: string
-          updated_at?: string
-          xact_id?: unknown
-        }
-        Relationships: [
-          {
-            foreignKeyName: "transfer_source_tenant_id_fkey"
-            columns: ["source_tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_source_tenant_id_fkey"
-            columns: ["source_tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "company_subscription"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       user: {
         Row: {
           created_at: string | null
@@ -8237,6 +8002,69 @@ export type Database = {
           },
         ]
       }
+      warehouse: {
+        Row: {
+          address: string | null
+          appointment_rule: string | null
+          city: string | null
+          country: string | null
+          display_name: string
+          dock_hours: string | null
+          id: string
+          is_default: boolean
+          pallet_standard: string | null
+          postal_code: string | null
+          receiving_person: string | null
+          tenant_id: string
+          type: Database["public"]["Enums"]["warehouse_type"]
+        }
+        Insert: {
+          address?: string | null
+          appointment_rule?: string | null
+          city?: string | null
+          country?: string | null
+          display_name: string
+          dock_hours?: string | null
+          id?: string
+          is_default?: boolean
+          pallet_standard?: string | null
+          postal_code?: string | null
+          receiving_person?: string | null
+          tenant_id: string
+          type?: Database["public"]["Enums"]["warehouse_type"]
+        }
+        Update: {
+          address?: string | null
+          appointment_rule?: string | null
+          city?: string | null
+          country?: string | null
+          display_name?: string
+          dock_hours?: string | null
+          id?: string
+          is_default?: boolean
+          pallet_standard?: string | null
+          postal_code?: string | null
+          receiving_person?: string | null
+          tenant_id?: string
+          type?: Database["public"]["Enums"]["warehouse_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "warehouse_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "warehouse_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       company_subscription: {
@@ -8270,8 +8098,6 @@ export type Database = {
         Row: {
           change_request_id: string | null
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           decision_due_on: string | null
           overdue: boolean | null
           status: Database["public"]["Enums"]["change_request_status"] | null
@@ -8279,14 +8105,27 @@ export type Database = {
           title: string | null
           urgency: Database["public"]["Enums"]["change_request_urgency"] | null
         }
+        Insert: {
+          change_request_id?: string | null
+          code?: string | null
+          decision_due_on?: string | null
+          overdue?: never
+          status?: Database["public"]["Enums"]["change_request_status"] | null
+          tenant_id?: string | null
+          title?: string | null
+          urgency?: Database["public"]["Enums"]["change_request_urgency"] | null
+        }
+        Update: {
+          change_request_id?: string | null
+          code?: string | null
+          decision_due_on?: string | null
+          overdue?: never
+          status?: Database["public"]["Enums"]["change_request_status"] | null
+          tenant_id?: string | null
+          title?: string | null
+          urgency?: Database["public"]["Enums"]["change_request_urgency"] | null
+        }
         Relationships: [
-          {
-            foreignKeyName: "change_request_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "change_request_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8305,8 +8144,6 @@ export type Database = {
       }
       dashboard_gate_pending: {
         Row: {
-          customer_code: string | null
-          customer_id: string | null
           gate_code: Database["public"]["Enums"]["gate_code"] | null
           gate_id: string | null
           needs_customer_approval: boolean | null
@@ -8320,13 +8157,6 @@ export type Database = {
           waiting_days: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "project_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8346,8 +8176,6 @@ export type Database = {
       dashboard_incident: {
         Row: {
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           customer_notice_due_at: string | null
           customer_notice_late: boolean | null
           incident_id: string | null
@@ -8361,13 +8189,6 @@ export type Database = {
           title: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "incident_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8386,8 +8207,6 @@ export type Database = {
       }
       dashboard_market: {
         Row: {
-          customer_code: string | null
-          customer_id: string | null
           live_count: number | null
           preparing_count: number | null
           suppressed_count: number | null
@@ -8448,20 +8267,11 @@ export type Database = {
         Row: {
           active_sku_count: number | null
           compliance_complete_count: number | null
-          customer_code: string | null
-          customer_id: string | null
           signed_spec_count: number | null
           tenant_id: string | null
           unsigned_sku_count: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8481,10 +8291,10 @@ export type Database = {
       dashboard_purchase_order: {
         Row: {
           balance_planned_on: string | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           days_to_ready: number | null
           deposit_planned_on: string | null
           purchase_order_id: string | null
@@ -8496,11 +8306,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_tenant_id_fkey"
@@ -8520,10 +8330,11 @@ export type Database = {
       }
       dashboard_shipment: {
         Row: {
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
-          customer_code: string | null
-          customer_id: string | null
           days_to_eta: number | null
+          delivery_address: string | null
           dispute_deadline_at: string | null
           eta: string | null
           etd: string | null
@@ -8536,11 +8347,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -8561,8 +8372,6 @@ export type Database = {
       dashboard_task_due: {
         Row: {
           blocks_gate: boolean | null
-          customer_code: string | null
-          customer_id: string | null
           days_left: number | null
           display_name: string | null
           due_on: string | null
@@ -8575,13 +8384,6 @@ export type Database = {
           tenant_id: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "project_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "project_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8609,8 +8411,6 @@ export type Database = {
           created_at: string | null
           current_state: string | null
           customer_closure_notified_on: string | null
-          customer_code: string | null
-          customer_id: string | null
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
@@ -8649,13 +8449,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "incident_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "incident_owner_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -8687,8 +8480,6 @@ export type Database = {
           country: string | null
           created_at: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           fulfillment_channel: string | null
           gtin: string | null
           id: string | null
@@ -8727,45 +8518,45 @@ export type Database = {
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_evidence"
-            referencedColumns: ["product_id", "customer_id", "tenant_id"]
+            referencedColumns: ["product_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_product_fkey"
-            columns: ["product_id", "customer_id", "tenant_id"]
+            columns: ["product_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "product_with_evidence"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
           },
           {
             foreignKeyName: "market_cell_tenant_id_fkey"
@@ -8787,7 +8578,6 @@ export type Database = {
         Row: {
           alt_text: string | null
           created_at: string | null
-          customer_id: string | null
           document_count: number | null
           file_name: string | null
           height: number | null
@@ -8808,13 +8598,6 @@ export type Database = {
           width: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "media_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "media_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8837,7 +8620,6 @@ export type Database = {
           compliance_status:
             | Database["public"]["Enums"]["compliance_status"]
             | null
-          customer_id: string | null
           has_signed_spec: boolean | null
           last_po_code: string | null
           live_cell_count: number | null
@@ -8849,13 +8631,6 @@ export type Database = {
           tenant_id: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -8880,13 +8655,11 @@ export type Database = {
           carton_net_kg: number | null
           carton_pack_qty: number | null
           category: string | null
-          company_price_eur: number | null
           compliance_complete: boolean | null
           compliance_status:
             | Database["public"]["Enums"]["compliance_status"]
             | null
           created_at: string | null
-          customer_id: string | null
           display_name: string | null
           eu_responsible_person: string | null
           golden_sample_locations: string | null
@@ -8897,10 +8670,7 @@ export type Database = {
           hs_code: string | null
           id: string | null
           is_hazmat: boolean | null
-          landed_cost_eur: number | null
-          landed_cost_on: string | null
           lot_rule: string | null
-          manufacturer_art_no: string | null
           notes: string | null
           origin_country: string | null
           pack_dims_mm: string | null
@@ -8909,17 +8679,10 @@ export type Database = {
           pallet_carton_qty: number | null
           pallet_type: string | null
           parent_id: string | null
-          price_list_version: string | null
           primary_image_path: string | null
-          purchase_currency: string | null
-          purchase_incoterm: string | null
-          purchase_price: number | null
           sku: string | null
           spec_version: number | null
           status: Database["public"]["Enums"]["product_status"] | null
-          supplier_id: string | null
-          supplier_product_code: string | null
-          target_price_eur: number | null
           tenant_id: string | null
           unit_dims_mm: string | null
           unit_net_g: number | null
@@ -8927,13 +8690,6 @@ export type Database = {
           variant_label: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "product_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "product_parent_fkey"
             columns: ["parent_id", "tenant_id"]
@@ -8956,13 +8712,6 @@ export type Database = {
             referencedColumns: ["id", "tenant_id"]
           },
           {
-            foreignKeyName: "product_supplier_fkey"
-            columns: ["supplier_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "supplier"
-            referencedColumns: ["id", "tenant_id"]
-          },
-          {
             foreignKeyName: "product_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
@@ -8982,11 +8731,11 @@ export type Database = {
         Row: {
           balance_paid_on: string | null
           balance_planned_on: string | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           created_at: string | null
           currency: string | null
-          customer_code: string | null
-          customer_id: string | null
           deposit_paid_on: string | null
           deposit_planned_on: string | null
           deposit_rate: number | null
@@ -9012,6 +8761,7 @@ export type Database = {
           product_ids: string[] | null
           project_code: string | null
           project_id: string | null
+          project_tenant_id: string | null
           ready_on: string | null
           spec_missing_line_ids: string[] | null
           status: Database["public"]["Enums"]["purchase_order_status"] | null
@@ -9027,13 +8777,6 @@ export type Database = {
           updated_at: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "purchase_order_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
-            isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
-          },
           {
             foreignKeyName: "purchase_order_packing_document_fkey"
             columns: ["packing_instruction_document_id", "tenant_id"]
@@ -9057,24 +8800,31 @@ export type Database = {
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_gate_pending"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "dashboard_task_due"
-            referencedColumns: ["project_id", "customer_id", "tenant_id"]
+            referencedColumns: ["project_id", "tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_project_fkey"
-            columns: ["project_id", "customer_id", "tenant_id"]
+            columns: ["project_id", "project_tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "purchase_order_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "purchase_order_supplier_fkey"
@@ -9106,14 +8856,15 @@ export type Database = {
           booking_confirmed_on: string | null
           carrier: string | null
           carton_count: number | null
+          client_code: string | null
+          client_tenant_id: string | null
           code: string | null
           container_no: string | null
           created_at: string | null
-          customer_code: string | null
-          customer_id: string | null
           customs_broker: string | null
           customs_cleared_on: string | null
           delivered_at: string | null
+          delivery_address: string | null
           delivery_warehouse_id: string | null
           demurrage_note: string | null
           dispute_deadline_at: string | null
@@ -9144,14 +8895,15 @@ export type Database = {
           updated_at: string | null
           volume_m3: number | null
           warehouse_name: string | null
+          warehouse_tenant_id: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "shipment_customer_fkey"
-            columns: ["customer_id", "tenant_id"]
+            foreignKeyName: "shipment_relationship_fkey"
+            columns: ["tenant_id", "client_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer"
-            referencedColumns: ["id", "tenant_id"]
+            referencedRelation: "provider_relationship"
+            referencedColumns: ["tenant_id", "client_tenant_id"]
           },
           {
             foreignKeyName: "shipment_tenant_id_fkey"
@@ -9169,10 +8921,10 @@ export type Database = {
           },
           {
             foreignKeyName: "shipment_warehouse_fkey"
-            columns: ["delivery_warehouse_id", "customer_id", "tenant_id"]
+            columns: ["delivery_warehouse_id", "warehouse_tenant_id"]
             isOneToOne: false
-            referencedRelation: "customer_warehouse"
-            referencedColumns: ["id", "customer_id", "tenant_id"]
+            referencedRelation: "warehouse"
+            referencedColumns: ["id", "tenant_id"]
           },
         ]
       }
@@ -9223,7 +8975,6 @@ export type Database = {
           api_connection: Database["public"]["Enums"]["api_connection"]
           authorized_at: string | null
           countries: string[]
-          customer_id: string
           id: string
           notes: string | null
           platform_id: string
@@ -9244,12 +8995,6 @@ export type Database = {
         }
         Returns: string
       }
-      audit_transfer_locked: {
-        Args: {
-          transaction_id: string
-        }
-        Returns: boolean
-      }
       can_write_user_field: {
         Args: {
           p_user: string
@@ -9265,6 +9010,7 @@ export type Database = {
         Returns: {
           address: string | null
           city: string | null
+          code: string
           country: string | null
           created_at: string | null
           display_name: string
@@ -9283,6 +9029,12 @@ export type Database = {
       delete_branch: {
         Args: {
           branch_id: string
+        }
+        Returns: undefined
+      }
+      end_provider_relationship: {
+        Args: {
+          relationship_id: string
         }
         Returns: undefined
       }
@@ -9331,7 +9083,6 @@ export type Database = {
           country: string
           created_at: string
           currency: string | null
-          customer_id: string
           fulfillment_channel: string | null
           id: string
           last_checked_on: string | null
@@ -9399,7 +9150,6 @@ export type Database = {
           country: string
           created_at: string
           currency: string | null
-          customer_id: string
           fulfillment_channel: string | null
           id: string
           last_checked_on: string | null
@@ -9533,6 +9283,7 @@ export type Database = {
         Returns: {
           address: string | null
           city: string | null
+          code: string
           country: string | null
           created_at: string | null
           display_name: string
@@ -9642,52 +9393,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      transfer_check_files: {
-        Args: {
-          transfer_id: string
-        }
-        Returns: {
-          audit_transaction_ids: string[] | null
-          created_at: string | null
-          customer_id: string | null
-          decisions: Json | null
-          files: Json | null
-          files_status: string | null
-          id: string | null
-          id_map: Json | null
-          missing_files: string[] | null
-          mode: string | null
-          path: string | null
-          product_ids: string[] | null
-          report: Json | null
-          source_tenant_id: string | null
-          started_by: string | null
-          target_customer_id: string | null
-          tenant_id: string | null
-          updated_at: string | null
-          xact_id: unknown | null
-        }
-      }
-      transfer_customer: {
-        Args: {
-          source_tenant: string
-          target_tenant: string
-          customer_id: string
-          mode: string
-          decisions?: Json
-          dry_run?: boolean
-          report_hash?: string
-          product_ids?: string[]
-        }
-        Returns: Json
-      }
-      transfer_options: {
-        Args: {
-          source_tenant: string
-          customer_id?: string
-        }
-        Returns: Json
-      }
     }
     Enums: {
       api_connection: "none" | "connected" | "revoked"
@@ -9708,12 +9413,13 @@ export type Database = {
         | "operations_partner"
       compliance_status: "none" | "partial" | "complete"
       content_status: "none" | "en_master" | "translated" | "approved"
+      contract_status: "lead" | "onboarding" | "active" | "paused" | "closed"
       cost_payer: "company" | "customer" | "supplier" | "carrier_insurance"
-      customer_status: "lead" | "onboarding" | "active" | "paused" | "closed"
       document_entity:
-        | "customer"
+        | "provider_relationship"
         | "supplier"
         | "product"
+        | "sourcing"
         | "project"
         | "project_gate"
         | "purchase_order"
@@ -9807,6 +9513,7 @@ export type Database = {
       payment_kind: "deposit" | "balance" | "other"
       payment_payer: "company" | "customer"
       platform_access: "authorized_user" | "none"
+      procurement_model: "client" | "provider"
       product_status:
         | "concept"
         | "development"
@@ -9849,6 +9556,7 @@ export type Database = {
         | "balance_paid"
         | "closed"
         | "cancelled"
+      relationship_status: "active" | "ended"
       shipment_mode: "fcl20" | "fcl40" | "lcl" | "road" | "courier" | "air"
       shipment_status:
         | "planned"
