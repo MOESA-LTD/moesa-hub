@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(92);
+SELECT plan(94);
 
 SELECT private.create_test_helpers();
 
@@ -29,6 +29,7 @@ SELECT private.create_test_helpers();
 --   pm          ...6716  P management (every right, every field); invited into C (product reader)
 --   pu          ...6717  P member only (the coordinator role), not in C
 --   dw          ...6718  D owner
+--   px          ...6719  P member whose P role (...6737) selects products only; in C with the viewer role
 --   sup ...6781 (P's supplier); products in C: client_product ...6741, line product ...6743; in D ...6742
 --   sourcing src_c ...6744 (P for C: sell 9.90, art no ART-1, supplier, purchase price 1.10, S-NOTE), src_d ...6745 (P for D)
 --   orders po_c ...6751 (client C: pi_total 1234.56, notes P-NOTE, USD), po_d ...6752 (client D),
@@ -52,7 +53,8 @@ INSERT INTO public.user (id, email) VALUES
    ('00000000-0000-4000-8000-000000006715', 'pc-invited@shared.test'),
    ('00000000-0000-4000-8000-000000006716', 'pm@shared.test'),
    ('00000000-0000-4000-8000-000000006717', 'pu@shared.test'),
-   ('00000000-0000-4000-8000-000000006718', 'dw@shared.test');
+   ('00000000-0000-4000-8000-000000006718', 'dw@shared.test'),
+   ('00000000-0000-4000-8000-000000006719', 'px@shared.test');
 
 INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006712', '00000000-0000-4000-8000-000000006702'),
@@ -69,7 +71,9 @@ INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006701'),
    ('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006702'),
    ('00000000-0000-4000-8000-000000006717', '00000000-0000-4000-8000-000000006701'),
-   ('00000000-0000-4000-8000-000000006718', '00000000-0000-4000-8000-000000006703');
+   ('00000000-0000-4000-8000-000000006718', '00000000-0000-4000-8000-000000006703'),
+   ('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006701'),
+   ('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006702');
 
 INSERT INTO public.role (id, tenant_id, display_name) VALUES
    ('00000000-0000-4000-8000-000000006731', '00000000-0000-4000-8000-000000006701', 'Coordinator'),
@@ -77,7 +81,8 @@ INSERT INTO public.role (id, tenant_id, display_name) VALUES
    ('00000000-0000-4000-8000-000000006733', '00000000-0000-4000-8000-000000006701', 'Management'),
    ('00000000-0000-4000-8000-000000006734', '00000000-0000-4000-8000-000000006702', 'viewer'),
    ('00000000-0000-4000-8000-000000006735', '00000000-0000-4000-8000-000000006702', 'Product reader'),
-   ('00000000-0000-4000-8000-000000006736', '00000000-0000-4000-8000-000000006702', 'Everything');
+   ('00000000-0000-4000-8000-000000006736', '00000000-0000-4000-8000-000000006702', 'Everything'),
+   ('00000000-0000-4000-8000-000000006737', '00000000-0000-4000-8000-000000006701', 'Products only');
 
 INSERT INTO public.role_permission (role_id, permission_id)
 SELECT r.id, p.id
@@ -98,8 +103,9 @@ WHERE p.command = 'select'
                           'public.provider_relationship');
 
 INSERT INTO public.role_permission (role_id, permission_id)
-SELECT '00000000-0000-4000-8000-000000006735', p.id
-FROM public.permission p
+SELECT r.id, p.id
+FROM (VALUES ('00000000-0000-4000-8000-000000006735'::UUID), ('00000000-0000-4000-8000-000000006737'::UUID)) AS r (id)
+CROSS JOIN public.permission p
 WHERE p.command = 'select' AND p.resource_name = 'public.product';
 
 INSERT INTO public.user_role (user_id, role_id) VALUES
@@ -111,7 +117,9 @@ INSERT INTO public.user_role (user_id, role_id) VALUES
    ('00000000-0000-4000-8000-000000006715', '00000000-0000-4000-8000-000000006736'),
    ('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006733'),
    ('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006735'),
-   ('00000000-0000-4000-8000-000000006717', '00000000-0000-4000-8000-000000006731');
+   ('00000000-0000-4000-8000-000000006717', '00000000-0000-4000-8000-000000006731'),
+   ('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006737'),
+   ('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006734');
 
 SELECT private.grant_all_fields(r)
 FROM unnest(ARRAY['00000000-0000-4000-8000-000000006731', '00000000-0000-4000-8000-000000006733',
@@ -607,6 +615,18 @@ SELECT is(pg_temp.sentinel_hits(ARRAY['purchase_order_overview', 'dashboard_purc
 SELECT ok(private.field_calls_only_in_initplans('SELECT * FROM api.purchase_order ORDER BY created_at DESC LIMIT 50'),
           'the rights and scope of a shared view are InitPlans, never per row');
 
+-- A provider member whose provider role cannot select orders or shipments, reading them as a client
+-- member with both tenants in scope: the open provider-only columns follow the select right in the
+-- row's own tenant, not the scope.
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006702',
+                                 ARRAY['00000000-0000-4000-8000-000000006702', '00000000-0000-4000-8000-000000006701']::UUID[]);
+SELECT results_eq($$ SELECT o.status::TEXT, o.client_status::TEXT, s.forwarder, s.notes, s.eta
+                     FROM api.purchase_order o, api.shipment s
+                     WHERE o.id = '00000000-0000-4000-8000-000000006751' AND s.id = '00000000-0000-4000-8000-000000006771' $$,
+                  $$ VALUES (NULL::TEXT, 'pending', NULL::TEXT, NULL::TEXT, '2026-12-24'::DATE) $$,
+                  'provider member without the provider select right: open provider-only fields NULL with both tenants in scope');
+
 -- The client owner grants its viewer every field: neither its own nor the viewer's rights unmask.
 RESET ROLE;
 SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006712', '00000000-0000-4000-8000-000000006702',
@@ -811,6 +831,25 @@ SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006712', '000000
 SELECT is(pg_temp.client_write_hits(), '{}'::TEXT[], 'after the end the client still writes no shared row');
 RESET ROLE;
 SELECT is(pg_temp.shared_state(), (SELECT s FROM state_before), 'and the shared rows are unchanged');
+
+-- permitted_tenants keeps its results for the statement only until access changes: px loses the
+-- product select in P, and the same statement reads it lost (notify_access_changed empties the cache).
+CREATE FUNCTION pg_temp.cache_follows_access () RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+    before UUID[];
+    after UUID[];
+BEGIN
+    PERFORM private.impersonate_scope('00000000-0000-4000-8000-000000006719', '00000000-0000-4000-8000-000000006701',
+                                      ARRAY['00000000-0000-4000-8000-000000006701']::UUID[]);
+    PERFORM pg_catalog.set_config('role', 'none', true);
+    before := private.permitted_tenants('public.product', 'select');
+    DELETE FROM public.role_permission WHERE role_id = '00000000-0000-4000-8000-000000006737';
+    after := private.permitted_tenants('public.product', 'select');
+    RETURN before::TEXT || ' ' || after::TEXT;
+END;
+$$;
+SELECT is(pg_temp.cache_follows_access(), '{00000000-0000-4000-8000-000000006701} {}',
+          'permitted_tenants: an access change within the statement is not read from the cache');
 
 SELECT * FROM finish();
 ROLLBACK;

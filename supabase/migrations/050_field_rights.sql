@@ -576,6 +576,8 @@ BEGIN
         pg_catalog.json_build_object('x-tenant-id', p_active, 'x-tenant-ids', pg_catalog.array_to_string(p_scope, ','))::TEXT,
         true
     );
+    -- A sign-in reads afresh (067's permitted_tenants cache), also within one statement.
+    PERFORM pg_catalog.set_config('access.permitted_tenants', '', true);
     PERFORM pg_catalog.set_config('role', 'authenticated', true);
 END;
 $$;
@@ -934,8 +936,10 @@ BEGIN
     ) affected
     WHERE affected.user_id IS NOT NULL;
 
-    -- What the transaction's later statements may use is no longer what private.tenant_scope kept.
+    -- What the transaction's later statements may use is no longer what private.tenant_scope (and
+    -- 067's private.permitted_tenants) kept.
     PERFORM set_config('access.tenant_scope', '', true);
+    PERFORM set_config('access.permitted_tenants', '', true);
 
     PERFORM realtime.send(
         jsonb_build_object('table', TG_TABLE_NAME),

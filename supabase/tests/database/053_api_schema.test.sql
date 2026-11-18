@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- compared against the masked OLD, so a correct guess is refused like a wrong one (S1).
 BEGIN;
 
-SELECT plan(86);
+SELECT plan(87);
 
 -- The role and the generated objects.
 SELECT ok(NOT (SELECT rolbypassrls OR rolcanlogin FROM pg_roles WHERE rolname = 'api_owner'), 'api_owner cannot log in and does not bypass RLS');
@@ -253,8 +253,10 @@ SELECT ok('anon or public execute supplier' = ANY (t.drift_after('GRANT EXECUTE 
 -- scope, is reported.
 SELECT ok('unshared notes' = ANY (t.drift_after(t.tampered_view('notes', 't.tenant_id = ANY (m.t', 't.client_tenant_id = ANY (m.t'))),
    'drift: a provider-only column gated on the client tenant is reported');
-SELECT ok('shared without s' = ANY (t.drift_after(t.tampered_view('', ', (SELECT coalesce(private.tenant_scope(), ''{}'')) AS s', ''))),
+SELECT ok('shared without s' = ANY (t.drift_after(t.tampered_view('', ', (SELECT coalesce(private.permitted_tenants(''public.sourcing'', ''select''), ''{}'')) AS s', ''))),
    'drift: a shared view without the scope entry is reported');
+SELECT ok('shared without s' = ANY (t.drift_after(t.tampered_view('', 'private.permitted_tenants(''public.sourcing'', ''select'')', 'private.tenant_scope()'))),
+   'drift: open provider-only columns gated on the scope, not the select right, are reported');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'every tamper was undone');
 
 -- S1 at the column type: elif reads t_cost's cost fields in MOESA Europe but may no longer write them.

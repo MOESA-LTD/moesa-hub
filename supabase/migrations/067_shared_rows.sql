@@ -151,15 +151,17 @@ ORDER BY c.relname;
 -- A column outside the client-visible set is read only with rights in the row's own tenant (the
 -- provider): m.a<n> ("readable in every tenant of the scope") would unmask it for a client owner
 -- (the owner bypass), and t.client_tenant_id would let a right the client grants itself (save_role)
--- reach it, so neither appears. Open and system columns too: m.s is the request's tenant scope
--- (x-tenant-ids within the user's tenants), so they read only for a member of the provider. A
+-- reach it, so neither appears. Open and system columns too: m.s is the tenants of the request's
+-- scope where the user may select the table (private.permitted_tenants(<table>, 'select')), so they
+-- read only with the select right in the provider: a provider member whose provider role cannot
+-- select the table, reading the row as a client member with both tenants in scope, reads NULL. A
 -- client-visible sensitive field is read through either tenant's right; a client role without it
 -- reads NULL (the client narrows, never widens). The open mask's ELSE keeps the column's type (a
 -- domain, a typmod) as a constant, so the view's column type does not change and nothing is cast per
 -- row. The rights tenant of a write is never this generated column (F1): the triggers and the
 -- forwarder read base columns.
 --
--- api_view_from adds (SELECT coalesce(private.tenant_scope(), '{}')) AS s to m on a shared table (an
+-- api_view_from adds (SELECT coalesce(private.permitted_tenants(<table>, 'select'), '{}')) AS s to m on a shared table (an
 -- InitPlan like the rights pairs). api_view_query appends the derived columns of
 -- private.api_view_derived_columns after the base columns. api_view_drift reports 'unshared <c>' (a
 -- provider-only column of a shared table not gated on t.tenant_id alone) and 'shared without s', and
@@ -200,6 +202,39 @@ ORDER BY c.relname;
 -- api_view_from (053's), api_view_query (053's), api_view_drift (059's) and enable_field_security
 -- (057's: the R4 functions across a provider-only link, which PostgREST no longer sees as a foreign
 -- key once masked), each plus only this delta.
+--
+-- s repeats the select policy's permitted_tenants call (~0.5 ms each, R10). Restated (pinned in 052):
+-- private.permitted_tenants (004's body) plus a cache of its results in access.permitted_tenants,
+-- one statement long: keyed by the caller, the active tenant, x-tenant-ids (what tenant_scope
+-- reads) and statement_timestamp(), so the policies and the view of one query share one lookup.
+-- private.notify_access_changed and private.impersonate_scope (050) empty it, as they do
+-- access.tenant_scope, so an access change or a new test sign-in never reads a stale result.
+
+-- 004's permitted_tenants; 067: its results are kept for the statement (see above).
+CREATE OR REPLACE FUNCTION private.permitted_tenants (p_resource_name TEXT, p_command TEXT) RETURNS UUID[] LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+    search_path = '' AS $$
+DECLARE
+    cache_key TEXT := concat_ws('|', auth.uid(), private.requested_tenant(),
+                                nullif(current_setting('request.headers', true), '')::JSONB ->> 'x-tenant-ids',
+                                statement_timestamp());
+    cached TEXT := current_setting('access.permitted_tenants', true);
+    entries JSONB := '{}';
+    entry TEXT := p_resource_name || ' ' || p_command;
+    permitted UUID[];
+BEGIN
+    IF left(cached, length(cache_key) + 1) = cache_key || '=' THEN
+        entries := substr(cached, length(cache_key) + 2)::JSONB;
+        IF entries ? entry THEN
+            RETURN (entries ->> entry)::UUID[];
+        END IF;
+    END IF;
+    permitted := private.tenants_permitting(auth.uid(), private.tenant_scope(), p_resource_name, p_command);
+    PERFORM set_config('access.permitted_tenants',
+                       cache_key || '=' || (entries || jsonb_build_object(entry, permitted::TEXT))::TEXT, true);
+    RETURN permitted;
+END;
+$$;
 
 CREATE TYPE public.purchase_order_client_status AS ENUM ('pending', 'confirmed', 'in_production', 'shipped', 'delivered', 'cancelled');
 
@@ -414,9 +449,10 @@ BEGIN
         GROUP BY x.e
         ORDER BY min(a.attnum * 100 + x.k)
     );
-    -- 067: the request's tenant scope, once per view, for the open provider-only columns.
+    -- 067: the tenants of the request's scope where the user may select the table, once per view,
+    -- for the open provider-only columns.
     IF private.is_shared_table(p_table) THEN
-        entries := entries || $e$(SELECT coalesce(private.tenant_scope(), '{}')) AS s$e$::TEXT;
+        entries := entries || format($e$(SELECT coalesce(private.permitted_tenants(%L, 'select'), '{}')) AS s$e$, resource);
     END IF;
     IF cardinality(entries) = 0 THEN
         RETURN format('%s t', base);
@@ -524,7 +560,7 @@ BEGIN
                     RETURN NEXT;
                 END IF;
                 -- 067: a provider-only column of a shared table reads only through the row's own tenant:
-                -- its rights pair (sensitive) or the scope s (open), nothing else in the condition.
+                -- its rights pair (sensitive) or s (open: the select right's tenants), nothing else in the condition.
                 IF shared AND NOT c.derived AND NOT c.cv AND c.rc IS NULL
                    AND c.expr !~ format('^CASE\s+WHEN \(t\.tenant_id = ANY \(m\.%1$s\)\) THEN (t\.%2$s|\(t\.%2$s\)::[^\s]+)\s+ELSE [^\n]+\s+END$',
                                         CASE WHEN c.sensitive THEN 't' || c.n ELSE 's' END, quote_ident(c.name)) THEN
@@ -537,8 +573,8 @@ BEGIN
                     RETURN NEXT;
                 END IF;
             END LOOP;
-            -- 067: a shared view's m carries the scope s.
-            IF shared AND pg_catalog.pg_get_viewdef(v.view) !~ '\(\s*SELECT COALESCE\(private\.tenant_scope\(\), ''\{\}''::uuid\[\]\) AS "coalesce"\)\s+AS s\M' THEN
+            -- 067: a shared view's m carries s, the tenants where the user may select the table.
+            IF shared AND pg_catalog.pg_get_viewdef(v.view) !~ format('\(\s*SELECT COALESCE\(private\.permitted_tenants\(''public\.%s''::text, ''select''::text\), ''\{\}''::uuid\[\]\) AS "coalesce"\)\s+AS s\M', v.name) THEN
                 problem := 'shared without s';
                 RETURN NEXT;
             END IF;

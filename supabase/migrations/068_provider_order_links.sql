@@ -614,9 +614,10 @@ BEGIN
         GROUP BY x.e
         ORDER BY min(a.attnum * 100 + x.k)
     );
-    -- 067: the request's tenant scope, once per view, for the open provider-only columns.
+    -- 067: the tenants of the request's scope where the user may select the table, once per view,
+    -- for the open provider-only columns.
     IF private.is_shared_table(p_table) THEN
-        entries := entries || $e$(SELECT coalesce(private.tenant_scope(), '{}')) AS s$e$::TEXT;
+        entries := entries || format($e$(SELECT coalesce(private.permitted_tenants(%L, 'select'), '{}')) AS s$e$, resource);
     END IF;
     -- 068: the rights columns, for the audit snapshots' masking.
     IF p_table = 'audit_log' THEN
