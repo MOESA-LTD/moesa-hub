@@ -2128,6 +2128,7 @@
             "content": "İçerik / listing"
          },
          "fields": {
+            "purchase_order": "Sipariş",
             "code": "Değişiklik talebi no",
             "project": "Proje",
             "products": "SKU'lar",

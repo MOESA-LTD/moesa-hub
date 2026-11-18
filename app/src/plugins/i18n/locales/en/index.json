@@ -2128,6 +2128,7 @@
             "content": "Content or listing"
          },
          "fields": {
+            "purchase_order": "Order",
             "code": "Request no",
             "project": "Project",
             "products": "SKUs",

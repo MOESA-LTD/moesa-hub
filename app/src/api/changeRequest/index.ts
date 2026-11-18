@@ -177,6 +177,10 @@ export const changeRequestSchema = z.object({
    reason: requiredText(),
    affected_gate_code: optional(z.enum(GATE_CODES)),
    affected_document_id: optional(z.uuid()),
+   // The order the request is about; order_tenant_id is its tenant for a shared provider order, and
+   // empty for an own order (the database fills it).
+   purchase_order_id: optional(z.uuid()),
+   order_tenant_id: optional(z.uuid()),
    other_documents: text(),
    cost_impact: text(),
    cost_payer: optional(z.enum(COST_PAYERS)),
@@ -208,6 +212,8 @@ export const toChangeRequestFormValues = (
    reason: cr?.reason ?? '',
    affected_gate_code: cr?.affected_gate_code ?? null,
    affected_document_id: cr?.affected_document_id ?? null,
+   purchase_order_id: cr?.purchase_order_id ?? null,
+   order_tenant_id: cr?.order_tenant_id ?? null,
    other_documents: cr?.other_documents ?? '',
    cost_impact: cr?.cost_impact ?? '',
    cost_payer: cr?.cost_payer ?? null,
@@ -228,7 +234,8 @@ export const toChangeRequestFormValues = (
  */
 export function toChangeRequestPayload(
    { id: valuesId, ...values }: ChangeRequestValues,
-   id?: string | null
+   id?: string | null,
+   { costLocked = false }: { costLocked?: boolean } = {}
 ): ResourceInput<'change_request'> {
    const rowId = id ?? valuesId;
    const editable = {
@@ -242,9 +249,13 @@ export function toChangeRequestPayload(
       reason: values.reason,
       affected_gate_code: values.affected_gate_code ?? null,
       affected_document_id: values.affected_document_id ?? null,
+      purchase_order_id: values.purchase_order_id ?? null,
+      order_tenant_id: values.purchase_order_id ? (values.order_tenant_id ?? null) : null,
       other_documents: values.other_documents ?? null,
-      cost_impact: values.cost_impact ?? null,
-      cost_payer: values.cost_payer ?? null,
+      // The cost of a request on a provider's order is the provider's (cost_link_forbidden).
+      ...(costLocked
+         ? {}
+         : { cost_impact: values.cost_impact ?? null, cost_payer: values.cost_payer ?? null }),
       delay_days: values.delay_days ?? null,
       quality_impact: values.quality_impact ?? null,
       listing_impact: values.listing_impact ?? null,

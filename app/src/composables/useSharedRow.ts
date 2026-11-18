@@ -22,6 +22,15 @@ export const isSharedRow = (
    !!row.client_tenant_id &&
    scope.has(row.client_tenant_id);
 
+/**
+ * The tenant link a picked record gets: the record's tenant when it is another tenant's (a shared
+ * provider record), NULL for the form tenant's own record. The link is immutable once saved.
+ */
+export const linkTenantOf = (
+   recordTenantId: string | null | undefined,
+   formTenantId: string | null | undefined
+): string | null => (recordTenantId && recordTenantId !== formTenantId ? recordTenantId : null);
+
 export type ClientVisibleTable = keyof typeof CLIENT_VISIBLE_FIELDS;
 
 /** Whether a client tenant reads `field` of a shared `table` (every other column reads NULL). */

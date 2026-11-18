@@ -8,7 +8,12 @@ import PermissionCheckbox from './PermissionCheckbox.vue';
 import type { FieldRightInput } from '@/api/role';
 
 type Kind = 'read' | 'write';
-type FieldRef = { resource_name: string; field: string };
+type FieldRef = {
+   resource_name: string;
+   field: string;
+   group_name?: string | null;
+   client_visible?: boolean;
+};
 
 const props = defineProps<{
    /** The role belongs to another tenant than the active one: save_role checks the rights there. */
@@ -50,7 +55,7 @@ const rowOf = (resource_name: string, rows: FieldRef[], shared: boolean): Row =>
    resource_name,
    shared,
    fields: rows,
-   groups: Object.entries(_groupBy(rows, ({ group_name }) => (group_name as string | null) ?? ''))
+   groups: Object.entries(_groupBy(rows, ({ group_name }) => group_name ?? ''))
       .map(([id, own]) => ({ id, fields: own as FieldRef[] }))
       .sort((a, b) => (position.value.get(a.id) ?? 99) - (position.value.get(b.id) ?? 99))
 });
@@ -67,9 +72,7 @@ const resources = computed(() => {
    for (const [resource_name, rows] of Object.entries(byResource)) {
       result.push(rowOf(resource_name, rows as FieldRef[], false));
       if (!sharedTables.has(resource_name)) continue;
-      const visible = (rows as (FieldRef & { client_visible?: boolean })[]).filter(
-         (r) => r.client_visible
-      );
+      const visible = (rows as FieldRef[]).filter((r) => r.client_visible);
       if (visible.length) result.push(rowOf(resource_name, visible, true));
    }
    return result;

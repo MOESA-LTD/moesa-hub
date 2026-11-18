@@ -404,6 +404,42 @@ describe('toIncidentPayload', () => {
    });
 });
 
+describe('provider order links', () => {
+   it('payload sets entity_tenant_id from the picked shared record', () => {
+      const values = incidentSchema.parse({
+         ...base,
+         entity_type: 'purchase_order',
+         entity_id: E,
+         entity_tenant_id: T
+      });
+      expect(toIncidentPayload(values, I)).toMatchObject({ entity_id: E, entity_tenant_id: T });
+   });
+
+   it('payload leaves entity_tenant_id null for an own order', () => {
+      const values = incidentSchema.parse({ ...base, entity_type: 'purchase_order', entity_id: E });
+      expect(toIncidentPayload(values, I)).toMatchObject({ entity_id: E, entity_tenant_id: null });
+   });
+
+   it('round-trips a stored provider link', () => {
+      expect(toIncidentFormValues({ entity_id: E, entity_tenant_id: T })).toMatchObject({
+         entity_tenant_id: T
+      });
+   });
+
+   it('leaves the cost of a line out when it is the provider’s', () => {
+      const values = incidentLogSchema.parse({
+         incident_id: I,
+         logged_at: new Date(),
+         note: 'x',
+         cost_amount: 5,
+         cost_currency: 'EUR',
+         cost_payer: 'company'
+      });
+      expect(toIncidentLogPayload(values, { costLocked: true })).not.toHaveProperty('cost_amount');
+      expect(toIncidentLogPayload(values)).toMatchObject({ cost_amount: 5 });
+   });
+});
+
 describe('incident log', () => {
    const now = new Date('2026-11-06T14:00:00Z');
 
@@ -563,8 +599,6 @@ describe('incident queries', () => {
          { id: E, code: 'PRJ-1', display_name: 'Mop' },
          'PRJ-1 — Mop'
       ],
-      ['purchase_order', 'purchase_order', 'id, code', 'code', { id: E, code: 'PO-1' }, 'PO-1'],
-      ['shipment', 'shipment', 'id, code', 'code', { id: E, code: 'SHP-1' }, 'SHP-1'],
       [
          'product',
          'product',
@@ -597,6 +631,30 @@ describe('incident queries', () => {
       ]);
       expect(options.value).toEqual([{ value: E, label }]);
    });
+
+   it.each(['purchase_order', 'shipment'] as const)(
+      'lists own and shared provider %s records, each with its tenant',
+      async (entityType) => {
+         response = [
+            { id: E, code: 'X-1', tenant_id: T },
+            { id: I, code: 'X-2', tenant_id: 'p-tenant' }
+         ];
+         const options = withSetup(() => useIncidentEntityOptions({ entityType, tenantId: T }));
+         await flushPromises();
+         expect(recorded).toEqual([
+            ['from', entityType],
+            ['select', 'id, code, tenant_id'],
+            ['or', `tenant_id.eq.${T},client_tenant_id.eq.${T}`],
+            ['order', 'code'],
+            ['abortSignal', expect.anything()],
+            ['throwOnError']
+         ]);
+         expect(options.value).toEqual([
+            { value: E, label: 'X-1', tenantId: T },
+            { value: I, label: 'X-2', tenantId: 'p-tenant' }
+         ]);
+      }
+   );
 
    it('asks for no records without a type or a tenant', async () => {
       const options = withSetup(() => useIncidentEntityOptions({ entityType: null, tenantId: T }));

@@ -2148,7 +2148,8 @@
             "customer_approved_on": "Customer approved on",
             "customer_approval_document": "Customer approval document",
             "result_document": "New version",
-            "closed_on": "Closed on"
+            "closed_on": "Closed on",
+            "purchase_order": "Order"
          },
          "customer_approval_hint": "It touches a passed (M) gate: the customer's written approval is required (S08).",
          "overdue": "Decision overdue",

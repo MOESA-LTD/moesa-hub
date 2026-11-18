@@ -14,6 +14,7 @@ import {
    type IncidentFamily
 } from '@/api/incident';
 import { useMemberOptions } from '@/api/project';
+import { linkTenantOf } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { useAbility } from '@casl/vue';
 import dayjs from 'dayjs';
@@ -75,9 +76,22 @@ const entityOptions = useIncidentEntityOptions(() => ({
    tenantId: formTenant?.value ?? null
 }));
 
+// A saved link to a provider's record (entity_tenant_id) is immutable: the record and its kind stay.
+const linkLocked = computed(() => !!row.value?.entity_tenant_id);
+
 const setEntityType = (entityType: string | string[] | null | undefined) => {
    values.value.entity_type = (entityType || null) as IncidentEntityType | null;
    values.value.entity_id = null;
+   values.value.entity_tenant_id = null;
+};
+
+// A shared provider record carries its tenant; an own record leaves the link NULL.
+const setEntity = (entityId: string | null | undefined) => {
+   values.value.entity_id = entityId ?? null;
+   const option = entityOptions.value.find(({ value }) => value === entityId);
+   values.value.entity_tenant_id = entityId
+      ? linkTenantOf(option?.tenantId, formTenant?.value)
+      : null;
 };
 
 // --- classification ---
@@ -228,6 +242,7 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
             :values="INCIDENT_ENTITY_TYPES"
             i18n-prefix="ops.document.entity"
             showClear
+            :disabled="linkLocked"
             data-field="entity_type"
          />
       </FormField>
@@ -240,13 +255,14 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
       >
          <Select
             v-bind="slotProps"
-            v-model="values.entity_id"
+            :model-value="values.entity_id"
+            @update:model-value="setEntity"
             :options="entityOptions"
             option-value="value"
             option-label="label"
             showClear
             filter
-            :disabled="!values.entity_type"
+            :disabled="!values.entity_type || linkLocked"
             data-field="entity_id"
          />
       </FormField>

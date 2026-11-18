@@ -278,7 +278,8 @@ export function useIncidentOverview(id: MaybeRefOrGetter<string | null>) {
    });
 }
 
-export type IncidentOption = { value: string; label: string };
+/** `tenantId` is the tenant of the record: a shared provider order or shipment is the provider's. */
+export type IncidentOption = { value: string; label: string; tenantId?: string };
 
 /** The table each linked record's options are read from. */
 const ENTITY_TABLES = {
@@ -310,14 +311,20 @@ const fetchEntityOptions = async (
       }
       case 'purchase_order':
       case 'shipment': {
+         // Own records and the provider's records shared with this tenant (client_select): the
+         // request's scope lets both through, and the tenant picks them.
          const { data } = await supabase
             .from(entityType)
-            .select('id, code')
-            .eq('tenant_id', tenantId)
+            .select('id, code, tenant_id')
+            .or(`tenant_id.eq.${tenantId},client_tenant_id.eq.${tenantId}`)
             .order('code')
             .abortSignal(signal)
             .throwOnError();
-         return data.map(({ id, code }) => ({ value: id, label: code ?? '' }));
+         return data.map(({ id, code, tenant_id }) => ({
+            value: id,
+            label: code ?? '',
+            tenantId: tenant_id
+         }));
       }
       case 'product': {
          const { data } = await supabase
@@ -433,6 +440,8 @@ export const incidentSchema = z
       preventive_action: text(),
       entity_type: optional(z.enum(INCIDENT_ENTITY_TYPES)),
       entity_id: optional(z.uuid()),
+      // The tenant of a shared provider order or shipment; NULL for the tenant's own record.
+      entity_tenant_id: optional(z.uuid()),
       owner_id: optional(z.uuid()),
       affected_parties: sensitive(
          'incident',
@@ -487,6 +496,7 @@ export const toIncidentFormValues = (
    preventive_action: incident?.preventive_action ?? '',
    entity_type: (incident?.entity_type ?? null) as IncidentFormValues['entity_type'],
    entity_id: incident?.entity_id ?? null,
+   entity_tenant_id: incident?.entity_tenant_id ?? null,
    owner_id: incident?.owner_id ?? null,
    affected_parties: incident?.affected_parties ?? [],
    opened_at: parseInstant(incident?.opened_at),
@@ -522,6 +532,7 @@ export function toIncidentPayload(
       preventive_action: values.preventive_action ?? null,
       entity_type: values.entity_type ?? null,
       entity_id: values.entity_id ?? null,
+      entity_tenant_id: values.entity_id ? (values.entity_tenant_id ?? null) : null,
       owner_id: values.owner_id ?? null,
       affected_parties: values.affected_parties,
       ...(opened_at ? { opened_at: opened_at.toISOString() } : {}),
@@ -603,19 +614,23 @@ export const toIncidentLogFormValues = (
  * The line to save, empty fields as NULL. A line stays on its incident, so the incident goes with
  * a new line only; the author is the database's (auth.uid()).
  */
-export const toIncidentLogPayload = ({
-   id,
-   incident_id,
-   ...values
-}: z.output<typeof incidentLogSchema>): ResourceInput<'incident_log'> => {
+export const toIncidentLogPayload = (
+   { id, incident_id, ...values }: z.output<typeof incidentLogSchema>,
+   { costLocked = false }: { costLocked?: boolean } = {}
+): ResourceInput<'incident_log'> => {
    const editable = {
       logged_at: values.logged_at.toISOString(),
       note: values.note,
       counterparty: values.counterparty ?? null,
       decision: values.decision ?? null,
-      cost_amount: values.cost_amount ?? null,
-      cost_currency: values.cost_currency ?? null,
-      cost_payer: values.cost_payer ?? null,
+      // The cost of a line of an incident on a provider's order is the provider's (cost_link_forbidden).
+      ...(costLocked
+         ? {}
+         : {
+              cost_amount: values.cost_amount ?? null,
+              cost_currency: values.cost_currency ?? null,
+              cost_payer: values.cost_payer ?? null
+           }),
       customer_approved: values.customer_approved
    };
    if (id) return { id, ...editable } as ResourceInput<'incident_log'>;

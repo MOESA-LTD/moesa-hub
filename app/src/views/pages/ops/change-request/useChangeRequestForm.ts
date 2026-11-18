@@ -133,7 +133,9 @@ export function useChangeRequestForm(
       schema: changeRequestSchema,
       toFormValues: toChangeRequestFormValues,
       toPayload: (values): ChangeRequestSave => ({
-         row: toChangeRequestPayload(values),
+         row: toChangeRequestPayload(values, null, {
+            costLocked: isCostLocked(values.order_tenant_id, form.row.value?.tenant_id)
+         }),
          productIds: values.product_ids
       }),
       onSaved: (cr) => {
@@ -143,6 +145,17 @@ export function useChangeRequestForm(
    });
    return form;
 }
+
+/**
+ * Whether the cost of a request is the provider's: its order is another tenant's (a shared
+ * provider order). The form leaves order_tenant_id empty for an own pick, so a value on a new
+ * request is always a provider's; a saved request's own order carries its own tenant. The database
+ * refuses a client's write of it (cost_link_forbidden), and masks it.
+ */
+export const isCostLocked = (
+   orderTenantId: string | null | undefined,
+   rowTenantId: string | null | undefined
+) => !!orderTenantId && orderTenantId !== rowTenantId;
 
 /** A new request's project, when a link names it. */
 export type ChangeRequestPrefill = { project_id?: string | null };

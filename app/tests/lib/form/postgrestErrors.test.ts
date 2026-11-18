@@ -558,4 +558,20 @@ describe('mapPostgrestError', () => {
    it('names no transfer error any more', () => {
       expect(NAMED_ERRORS.filter(({ name }) => /transfer/.test(name))).toEqual([]);
    });
+
+   it.each([
+      ['provider_link_forbidden', '23514'],
+      ['order_tenant_immutable', '23514'],
+      ['incident_entity_tenant_immutable', '23514'],
+      ['cost_link_forbidden', '42501']
+   ])('maps the provider link error %s to a toast, in Turkish and English', (name, code) => {
+      const [entry] = NAMED_ERRORS.filter((error) => error.name === name);
+      expect(entry).toMatchObject({ code, message: `errors.${name}` });
+      expect(entry?.field).toBeUndefined();
+      for (const locale of [en, tr]) {
+         const text = (locale as { errors: Record<string, string> }).errors[name];
+         expect(typeof text === 'string' && text.length > 0).toBe(true);
+      }
+      expect(mapPostgrestError({ code, message: name }, ['entity_id'])).toBeNull();
+   });
 });

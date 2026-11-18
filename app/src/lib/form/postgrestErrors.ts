@@ -452,13 +452,18 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'relationship_ended_final',
       'relationship_contract_restricted',
       'procurement_model_widen_forbidden',
-      'sourcing_in_client_forbidden'
+      'sourcing_in_client_forbidden',
+      'provider_link_forbidden',
+      'order_tenant_immutable',
+      'incident_entity_tenant_immutable'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
    {
       code: '42501',
       name: 'relationship_end_forbidden',
       message: 'errors.relationship_end_forbidden'
-   }
+   },
+   // A client may not write the cost of a request or an incident line on a provider's order.
+   { code: '42501', name: 'cost_link_forbidden', message: 'errors.cost_link_forbidden' }
 ];
 
 /**

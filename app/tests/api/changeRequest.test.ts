@@ -214,6 +214,35 @@ describe('changeRequestSchema', () => {
 
 describe('toChangeRequestPayload', () => {
    const values = toChangeRequestFormValues();
+   const PO = '00000000-0000-4000-8000-0000000000a1';
+   const PT = '00000000-0000-4000-8000-0000000000a2';
+   const parsed = (extra: object) =>
+      changeRequestSchema.parse({ ...values, ...filled, change_kinds: ['price'], ...extra });
+
+   it('payload sets order_tenant_id from the picked shared order', () => {
+      expect(
+         toChangeRequestPayload(parsed({ purchase_order_id: PO, order_tenant_id: PT }))
+      ).toMatchObject({ purchase_order_id: PO, order_tenant_id: PT });
+   });
+
+   it('leaves order_tenant_id null for an own order and without an order', () => {
+      expect(toChangeRequestPayload(parsed({ purchase_order_id: PO }))).toMatchObject({
+         purchase_order_id: PO,
+         order_tenant_id: null
+      });
+      expect(toChangeRequestPayload(parsed({ order_tenant_id: PT }))).toMatchObject({
+         purchase_order_id: null,
+         order_tenant_id: null
+      });
+   });
+
+   it('leaves the cost out when it is the provider’s', () => {
+      const cost = { cost_impact: '5', cost_payer: 'company' };
+      const locked = toChangeRequestPayload(parsed(cost), 'r1', { costLocked: true });
+      expect(locked).not.toHaveProperty('cost_impact');
+      expect(locked).not.toHaveProperty('cost_payer');
+      expect(toChangeRequestPayload(parsed(cost), 'r1')).toMatchObject({ cost_impact: '5' });
+   });
 
    it('never sends the server-set columns or the products', () => {
       const payload = toChangeRequestPayload(

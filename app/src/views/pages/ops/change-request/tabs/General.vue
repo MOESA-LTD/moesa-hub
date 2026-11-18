@@ -4,7 +4,10 @@ import {
    CHANGE_REQUEST_SOURCES,
    CHANGE_REQUEST_URGENCIES
 } from '@/api/changeRequest';
+import { useFormTenant } from '@/api/formTenant';
+import { useIncidentEntityOptions } from '@/api/incident';
 import type { ProductRow } from '@/api/product';
+import { linkTenantOf } from '@/composables/useSharedRow';
 import { useEntityDocumentOptions } from '@/api/purchaseOrder';
 import { useLookup } from '@/api/useLookup';
 import ProductMultiSelect from '@/components/service-components/product-multi-select/ProductMultiSelect.vue';
@@ -25,6 +28,26 @@ const setProject = (project: string | null | undefined) => {
    if ((project ?? null) === (values.value.project_id ?? null)) return;
    values.value.project_id = project ?? null;
    values.value.affected_gate_code = null;
+};
+
+// The order the request is about: the tenant's own orders and its provider's shared ones. A saved
+// link to a provider's order (order_tenant_id) is immutable (order_tenant_immutable).
+const formTenant = useFormTenant();
+const orderOptions = useIncidentEntityOptions(() => ({
+   entityType: 'purchase_order',
+   tenantId: formTenant?.value ?? null
+}));
+const orderLocked = computed(
+   () =>
+      !!form.row.value?.order_tenant_id &&
+      form.row.value.order_tenant_id !== form.row.value.tenant_id
+);
+const setOrder = (orderId: string | null | undefined) => {
+   values.value.purchase_order_id = orderId ?? null;
+   const option = orderOptions.value.find(({ value }) => value === orderId);
+   values.value.order_tenant_id = orderId
+      ? linkTenantOf(option?.tenantId, formTenant?.value)
+      : null;
 };
 
 const TEXTS = ['current_value', 'requested_value', 'reason'] as const;
@@ -134,6 +157,26 @@ const documentOptions = useEntityDocumentOptions(() => ({
             :model-value="values.project_id ?? null"
             @update:model-value="setProject"
             data-field="project_id"
+         />
+      </FormField>
+      <FormField
+         fluid
+         :label="$t('ops.change_request.fields.purchase_order')"
+         :error="errors.purchase_order_id"
+         :readonly
+         v-slot="slotProps"
+      >
+         <Select
+            v-bind="slotProps"
+            :model-value="values.purchase_order_id ?? null"
+            @update:model-value="setOrder"
+            :options="orderOptions"
+            option-value="value"
+            option-label="label"
+            showClear
+            filter
+            :disabled="orderLocked"
+            data-field="purchase_order_id"
          />
       </FormField>
       <FormField
