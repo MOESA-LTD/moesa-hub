@@ -2,41 +2,31 @@
 import { provideFieldAccess } from '@/composables/useFieldAccess';
 import {
    PLATFORM_ACCESSES,
-   customerPlatformAccountResource,
-   customerPlatformAccountSchema,
-   toCustomerPlatformAccountFormValues,
-   toCustomerPlatformAccountPayload,
-   usePlatformOptions
-} from '@/api/customer';
+   platformAccountResource,
+   platformAccountSchema,
+   toPlatformAccountFormValues,
+   toPlatformAccountPayload
+} from '@/api/company';
+import { usePlatformOptions } from '@/api/platform';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import dayjs from 'dayjs';
 import AmazonConnection from './AmazonConnection.vue';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
-provideFieldAccess('customer_platform_account');
+provideFieldAccess('platform_account');
 
-// Opened as a dialog from a customer's platform accounts: a new account belongs to the route's
-// customer. Only who holds the account and whether the tenant has access are kept: no passwords
-// or tokens.
-const props = defineProps<{
-   id?: string | null;
-   customerId?: string | null;
-}>();
+// Opened as a dialog from the company profile: a new row goes to the active tenant.
+const props = defineProps<{ id?: string | null }>();
 
 const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, draft, row } =
    useUpsertForm({
       id: () => props.id,
-      prefill: () => ({ customer_id: props.customerId ?? undefined }),
-      useRow: customerPlatformAccountResource.useOne,
-      useSaveRow: customerPlatformAccountResource.useSave,
-      subject: 'customer_platform_account',
-      schema: customerPlatformAccountSchema,
-      toFormValues: toCustomerPlatformAccountFormValues,
-      // Every add dialog shares one draft, so a new account takes the customer from the route.
-      toPayload: (data) =>
-         toCustomerPlatformAccountPayload(
-            data.id || !props.customerId ? data : { ...data, customer_id: props.customerId }
-         )
+      useRow: platformAccountResource.useOne,
+      useSaveRow: platformAccountResource.useSave,
+      subject: 'platform_account',
+      schema: platformAccountSchema,
+      toFormValues: toPlatformAccountFormValues,
+      toPayload: toPlatformAccountPayload
    });
 await ready;
 
@@ -76,7 +66,7 @@ const countryOptions = computed(
       >
          <FormField
             fluid
-            :label="$t('ops.customer.platform.fields.platform_id')"
+            :label="$t('ops.company.platform.fields.platform_id')"
             :error="errors.platform_id"
             :readonly
             v-slot="slotProps"
@@ -85,7 +75,7 @@ const countryOptions = computed(
          </FormField>
          <FormField
             fluid
-            :label="$t('ops.customer.platform.fields.countries')"
+            :label="$t('ops.company.platform.fields.countries')"
             :error="errors.countries"
             :readonly
             v-slot="slotProps"
@@ -100,7 +90,7 @@ const countryOptions = computed(
          <FormField
             field="account_holder"
             fluid
-            :label="$t('ops.customer.platform.fields.account_holder')"
+            :label="$t('ops.company.platform.fields.account_holder')"
             :error="errors.account_holder"
             :readonly
             v-slot="slotProps"
@@ -109,7 +99,7 @@ const countryOptions = computed(
          </FormField>
          <FormField
             fluid
-            :label="$t('ops.customer.platform.fields.access')"
+            :label="$t('ops.company.platform.fields.access')"
             :error="errors.access"
             :readonly
             v-slot="slotProps"
@@ -118,14 +108,14 @@ const countryOptions = computed(
                v-bind="slotProps"
                v-model="values.access"
                :values="PLATFORM_ACCESSES"
-               i18n-prefix="ops.customer.platform.access"
+               i18n-prefix="ops.company.platform.access"
             />
          </FormField>
          <FormField
             field="notes"
             class="!flex-auto !max-w-none w-full"
             fluid
-            :label="$t('ops.customer.platform.fields.notes')"
+            :label="$t('ops.company.platform.fields.notes')"
             :error="errors.notes"
             :readonly
             v-slot="slotProps"

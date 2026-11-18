@@ -1,11 +1,9 @@
 <script setup lang="ts">
+import { canInsertFields } from '@/composables/useFieldAccess';
 import type { ResourceTableProps } from '@/components/service-components/resource-table/ResourceTable.vue';
-import {
-   createFilters,
-   equalsFilter
-} from '@/components/service-components/resource-table/createFilters';
+import { createFilters } from '@/components/service-components/resource-table/createFilters';
 import { amazonErrorText } from '@/api/amazon';
-import { usePlatformOptions } from '@/api/customer';
+import { usePlatformOptions } from '@/api/platform';
 import { useDeleteAction } from '@/composables/useDeleteAction';
 import { formatEmpty } from '@/constants/format';
 import { DIALOG_POSITIONS } from '@/constants/router';
@@ -14,10 +12,9 @@ import dayjs from 'dayjs';
 import { useToast } from 'primevue/usetoast';
 import AmazonConnection from '../AmazonConnection.vue';
 
-// The marketplaces one customer sells on; added and edited in a dialog.
-const props = defineProps<{ id: string }>();
+// The marketplaces the active tenant sells on; added and edited in a dialog.
 
-type Props = ResourceTableProps<'customer_platform_account'>;
+type Props = ResourceTableProps<'platform_account'>;
 
 const router = useRouter();
 const route = useRoute();
@@ -25,10 +22,10 @@ const toast = useToast();
 const { t, te } = useI18n();
 
 const columns = computed<Props['columns']>(() => [
-   { field: 'platform_id', sortable: true, header: t('ops.customer.platform.fields.platform_id') },
-   { field: 'countries', header: t('ops.customer.platform.fields.countries') },
-   { field: 'account_holder', header: t('ops.customer.platform.fields.account_holder') },
-   { field: 'access', sortable: true, header: t('ops.customer.platform.fields.access') },
+   { field: 'platform_id', sortable: true, header: t('ops.company.platform.fields.platform_id') },
+   { field: 'countries', header: t('ops.company.platform.fields.countries') },
+   { field: 'account_holder', header: t('ops.company.platform.fields.account_holder') },
+   { field: 'access', sortable: true, header: t('ops.company.platform.fields.access') },
    { field: 'api_connection', header: t('ops.amazon.platform.api_connection') },
    { field: 'authorized_at', header: t('ops.amazon.platform.authorized_at') }
 ]);
@@ -61,26 +58,24 @@ onMounted(() => {
    router.replace({ query: rest });
 });
 
-const filters = ref<NonNullable<Props['filters']>>(
-   createFilters({ customer_id: equalsFilter(props.id) })
-);
+const filters = ref<NonNullable<Props['filters']>>(createFilters({}));
 
 const { data: platforms } = usePlatformOptions();
 const platformName = (id: string) =>
    platforms.value?.find((platform) => platform.id === id)?.display_name ?? id;
 
-const deleteAction = useDeleteAction('customer_platform_account');
+const deleteAction = useDeleteAction('platform_account');
 const rowActions: Props['rowActions'] = [
    deleteAction,
    {
       label: t('action.edit'),
       icon: PrimeIcons.PENCIL,
-      requires: { action: 'modify', subject: 'customer_platform_account' },
+      requires: { action: 'modify', subject: 'platform_account' },
       command:
          ({ data }) =>
          () =>
             router.push({
-               name: 'ops-customer-platform-edit',
+               name: 'ops-company-platform-edit',
                params: { id: data.id },
                query: { showDialog: DIALOG_POSITIONS.CENTER }
             })
@@ -90,8 +85,8 @@ const rowActions: Props['rowActions'] = [
 
 <template>
    <ResourceTable
-      stateKey="customer-platform-account"
-      from="customer_platform_account"
+      stateKey="company-platform-account"
+      from="platform_account"
       select="*"
       :useMeta="false"
       :columns
@@ -102,12 +97,11 @@ const rowActions: Props['rowActions'] = [
    >
       <template #header>
          <span class="flex items-center justify-between gap-4">
-            <span class="font-semibold">{{ $t('ops.customer.tabs.platforms') }}</span>
+            <span class="font-semibold">{{ $t('ops.company.tabs.platforms') }}</span>
             <CustomLink
-               v-if="$can('create', 'customer_platform_account')"
+               v-if="$can('create', 'platform_account') && canInsertFields('platform_account')"
                :to="{
-                  name: 'ops-customer-platform-add',
-                  params: { customerId: id },
+                  name: 'ops-company-platform-add',
                   query: { showDialog: DIALOG_POSITIONS.CENTER }
                }"
             >
@@ -124,7 +118,7 @@ const rowActions: Props['rowActions'] = [
          {{ data.countries.join(', ') }}
       </template>
       <template #access_body="{ data }">
-         {{ $t(`ops.customer.platform.access.${data.access}`) }}
+         {{ $t(`ops.company.platform.access.${data.access}`) }}
       </template>
       <template #api_connection_body="{ data }">
          <AmazonConnection v-if="data.platform_id === 'amazon'" :account="data" />

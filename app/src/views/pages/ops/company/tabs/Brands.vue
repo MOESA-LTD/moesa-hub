@@ -1,45 +1,44 @@
 <script setup lang="ts">
 import { canInsertFields } from '@/composables/useFieldAccess';
 import type { ResourceTableProps } from '@/components/service-components/resource-table/ResourceTable.vue';
-import {
-   createFilters,
-   equalsFilter
-} from '@/components/service-components/resource-table/createFilters';
+import { createFilters } from '@/components/service-components/resource-table/createFilters';
 import { useDeleteAction } from '@/composables/useDeleteAction';
 import { DIALOG_POSITIONS } from '@/constants/router';
 
-// The people of one customer; added and edited in a dialog.
-const props = defineProps<{ id: string }>();
+// The brands of the active tenant; added and edited in a dialog.
 
-type Props = ResourceTableProps<'customer_contact'>;
+type Props = ResourceTableProps<'brand'>;
 
 const router = useRouter();
 const { t } = useI18n();
 
 const columns = computed<Props['columns']>(() => [
-   { field: 'name', sortable: true, header: t('ops.customer.contact.fields.name') },
-   { field: 'role', sortable: true, header: t('ops.customer.contact.fields.role') },
-   { field: 'email', header: t('ops.customer.contact.fields.email') },
-   { field: 'phone', header: t('ops.customer.contact.fields.phone') },
-   { field: 'can_approve', header: t('ops.customer.contact.fields.can_approve') }
+   { field: 'name', sortable: true, header: t('ops.company.brand.fields.name') },
+   {
+      field: 'registration_status',
+      header: t('ops.company.brand.fields.registration_status')
+   },
+   {
+      field: 'brand_program_status',
+      header: t('ops.company.brand.fields.brand_program_status')
+   },
+   { field: 'gs1_prefix_owner', header: t('ops.company.brand.fields.gs1_prefix_owner') }
 ]);
 
-const filters = ref<NonNullable<Props['filters']>>(
-   createFilters({ customer_id: equalsFilter(props.id), name: 'text' })
-);
+const filters = ref<NonNullable<Props['filters']>>(createFilters({ name: 'text' }));
 
-const deleteAction = useDeleteAction('customer_contact');
+const deleteAction = useDeleteAction('brand');
 const rowActions: Props['rowActions'] = [
    deleteAction,
    {
       label: t('action.edit'),
       icon: PrimeIcons.PENCIL,
-      requires: { action: 'modify', subject: 'customer_contact' },
+      requires: { action: 'modify', subject: 'brand' },
       command:
          ({ data }) =>
          () =>
             router.push({
-               name: 'ops-customer-contact-edit',
+               name: 'ops-company-brand-edit',
                params: { id: data.id },
                query: { showDialog: DIALOG_POSITIONS.CENTER }
             })
@@ -49,8 +48,8 @@ const rowActions: Props['rowActions'] = [
 
 <template>
    <ResourceTable
-      stateKey="customer-contact"
-      from="customer_contact"
+      stateKey="company-brand"
+      from="brand"
       select="*"
       :useMeta="false"
       :columns
@@ -61,12 +60,11 @@ const rowActions: Props['rowActions'] = [
    >
       <template #header>
          <span class="flex items-center justify-between gap-4">
-            <span class="font-semibold">{{ $t('ops.customer.tabs.contacts') }}</span>
+            <span class="font-semibold">{{ $t('ops.company.tabs.brands') }}</span>
             <CustomLink
-               v-if="$can('create', 'customer_contact') && canInsertFields('customer_contact')"
+               v-if="$can('create', 'brand') && canInsertFields('brand')"
                :to="{
-                  name: 'ops-customer-contact-add',
-                  params: { customerId: id },
+                  name: 'ops-company-brand-add',
                   query: { showDialog: DIALOG_POSITIONS.CENTER }
                }"
             >
@@ -75,9 +73,6 @@ const rowActions: Props['rowActions'] = [
                </template>
             </CustomLink>
          </span>
-      </template>
-      <template #can_approve_body="{ data }">
-         <i v-if="data.can_approve" :class="PrimeIcons.CHECK" />
       </template>
    </ResourceTable>
 </template>

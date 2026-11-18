@@ -2,36 +2,28 @@
 import { provideFieldAccess } from '@/composables/useFieldAccess';
 import {
    WAREHOUSE_TYPES,
-   customerWarehouseResource,
-   customerWarehouseSchema,
-   toCustomerWarehouseFormValues,
-   toCustomerWarehousePayload
-} from '@/api/customer';
+   warehouseResource,
+   warehouseSchema,
+   toWarehouseFormValues,
+   toWarehousePayload
+} from '@/api/company';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
-provideFieldAccess('customer_warehouse');
+provideFieldAccess('warehouse');
 
-// Opened as a dialog from a customer's warehouses: a new warehouse belongs to the route's customer.
-const props = defineProps<{
-   id?: string | null;
-   customerId?: string | null;
-}>();
+// Opened as a dialog from the company profile: a new row goes to the active tenant.
+const props = defineProps<{ id?: string | null }>();
 
 const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, draft } =
    useUpsertForm({
       id: () => props.id,
-      prefill: () => ({ customer_id: props.customerId ?? undefined }),
-      useRow: customerWarehouseResource.useOne,
-      useSaveRow: customerWarehouseResource.useSave,
-      subject: 'customer_warehouse',
-      schema: customerWarehouseSchema,
-      toFormValues: toCustomerWarehouseFormValues,
-      // Every add dialog shares one draft, so a new warehouse takes the customer from the route.
-      toPayload: (data) =>
-         toCustomerWarehousePayload(
-            data.id || !props.customerId ? data : { ...data, customer_id: props.customerId }
-         )
+      useRow: warehouseResource.useOne,
+      useSaveRow: warehouseResource.useSave,
+      subject: 'warehouse',
+      schema: warehouseSchema,
+      toFormValues: toWarehouseFormValues,
+      toPayload: toWarehousePayload
    });
 await ready;
 
@@ -57,7 +49,7 @@ const RECEIVING = [
       >
          <FormField
             fluid
-            :label="$t('ops.customer.warehouse.fields.display_name')"
+            :label="$t('ops.company.warehouse.fields.display_name')"
             :error="errors.display_name"
             :readonly
             v-slot="slotProps"
@@ -66,7 +58,7 @@ const RECEIVING = [
          </FormField>
          <FormField
             fluid
-            :label="$t('ops.customer.warehouse.fields.type')"
+            :label="$t('ops.company.warehouse.fields.type')"
             :error="errors.type"
             :readonly
             v-slot="slotProps"
@@ -75,12 +67,12 @@ const RECEIVING = [
                v-bind="slotProps"
                v-model="values.type"
                :values="WAREHOUSE_TYPES"
-               i18n-prefix="ops.customer.warehouse.type"
+               i18n-prefix="ops.company.warehouse.type"
             />
          </FormField>
          <FormField
             fluid
-            :label="$t('ops.customer.warehouse.fields.country')"
+            :label="$t('ops.company.warehouse.fields.country')"
             :error="errors.country"
             :readonly
             v-slot="slotProps"
@@ -92,7 +84,7 @@ const RECEIVING = [
             :field="field"
             :key="field"
             fluid
-            :label="$t(`ops.customer.warehouse.fields.${field}`)"
+            :label="$t(`ops.company.warehouse.fields.${field}`)"
             :error="errors[field]"
             :readonly
             v-slot="slotProps"
@@ -102,11 +94,11 @@ const RECEIVING = [
          <span class="flex items-center gap-2">
             <ToggleSwitch
                v-model="values.is_default"
-               inputId="customer-warehouse-is-default"
+               inputId="warehouse-is-default"
                :disabled="readonly"
             />
-            <label for="customer-warehouse-is-default">
-               {{ $t('ops.customer.warehouse.fields.is_default') }}
+            <label for="warehouse-is-default">
+               {{ $t('ops.company.warehouse.fields.is_default') }}
             </label>
          </span>
       </FormBox>

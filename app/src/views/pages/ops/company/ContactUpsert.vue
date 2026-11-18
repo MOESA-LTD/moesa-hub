@@ -1,36 +1,28 @@
 <script setup lang="ts">
 import { provideFieldAccess } from '@/composables/useFieldAccess';
 import {
-   customerContactResource,
-   customerContactSchema,
-   toCustomerContactFormValues,
-   toCustomerContactPayload
-} from '@/api/customer';
+   contactResource,
+   contactSchema,
+   toContactFormValues,
+   toContactPayload
+} from '@/api/company';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
-provideFieldAccess('customer_contact');
+provideFieldAccess('contact');
 
-// Opened as a dialog from a customer's contacts: a new contact belongs to the route's customer.
-const props = defineProps<{
-   id?: string | null;
-   customerId?: string | null;
-}>();
+// Opened as a dialog from the company profile: a new row goes to the active tenant.
+const props = defineProps<{ id?: string | null }>();
 
 const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, draft } =
    useUpsertForm({
       id: () => props.id,
-      prefill: () => ({ customer_id: props.customerId ?? undefined }),
-      useRow: customerContactResource.useOne,
-      useSaveRow: customerContactResource.useSave,
-      subject: 'customer_contact',
-      schema: customerContactSchema,
-      toFormValues: toCustomerContactFormValues,
-      // Every add dialog shares one draft, so a new contact takes the customer from the route.
-      toPayload: (data) =>
-         toCustomerContactPayload(
-            data.id || !props.customerId ? data : { ...data, customer_id: props.customerId }
-         )
+      useRow: contactResource.useOne,
+      useSaveRow: contactResource.useSave,
+      subject: 'contact',
+      schema: contactSchema,
+      toFormValues: toContactFormValues,
+      toPayload: toContactPayload
    });
 await ready;
 </script>
@@ -49,7 +41,7 @@ await ready;
          <FormField
             field="name"
             fluid
-            :label="$t('ops.customer.contact.fields.name')"
+            :label="$t('ops.company.contact.fields.name')"
             :error="errors.name"
             :readonly
             v-slot="slotProps"
@@ -58,7 +50,7 @@ await ready;
          </FormField>
          <FormField
             fluid
-            :label="$t('ops.customer.contact.fields.role')"
+            :label="$t('ops.company.contact.fields.role')"
             :error="errors.role"
             :readonly
             v-slot="slotProps"
@@ -68,7 +60,7 @@ await ready;
          <FormField
             field="email"
             fluid
-            :label="$t('ops.customer.contact.fields.email')"
+            :label="$t('ops.company.contact.fields.email')"
             :error="errors.email"
             :readonly
             v-slot="slotProps"
@@ -78,7 +70,7 @@ await ready;
          <FormField
             field="phone"
             fluid
-            :label="$t('ops.customer.contact.fields.phone')"
+            :label="$t('ops.company.contact.fields.phone')"
             :error="errors.phone"
             :readonly
             v-slot="slotProps"
@@ -88,11 +80,11 @@ await ready;
          <span class="flex items-center gap-2">
             <ToggleSwitch
                v-model="values.can_approve"
-               inputId="customer-contact-can-approve"
+               inputId="contact-can-approve"
                :disabled="readonly"
             />
-            <label for="customer-contact-can-approve">
-               {{ $t('ops.customer.contact.fields.can_approve') }}
+            <label for="contact-can-approve">
+               {{ $t('ops.company.contact.fields.can_approve') }}
             </label>
          </span>
       </FormBox>

@@ -1,7 +1,7 @@
 import '../setup/mockMain';
 import { ability } from '@/plugins/casl';
 import en from '@/plugins/i18n/locales/en/index.json';
-import Platforms from '@/views/pages/ops/customer/tabs/Platforms.vue';
+import Platforms from '@/views/pages/ops/company/tabs/Platforms.vue';
 import i18n, { i18NPlugin } from '@plugins/i18n';
 import { abilitiesPlugin } from '@casl/vue';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
@@ -10,7 +10,7 @@ import Tooltip from 'primevue/tooltip';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 
-// The customer's Platforms tab: the Amazon row's connection state and its Connect / Disconnect
+// The company profile's Platforms tab: the Amazon row's connection state and its Connect / Disconnect
 // actions, and the toast of the OAuth callback's return (?amazon=connected|error&reason=…).
 const api = vi.hoisted(() => ({
    connect: vi.fn(),
@@ -29,18 +29,18 @@ vi.mock('vue-router', async (importOriginal) => ({
    useRouter: () => ({
       push: vi.fn(),
       replace: api.replace,
-      resolve: ({ params }: { params: { id: string } }) => ({
-         fullPath: `/ops/customers/${params.id}/manage/platforms`
+      resolve: ({ name }: { name: string }) => ({
+         fullPath: name === 'ops-company-platforms' ? '/ops/company/platforms' : '/unexpected'
       })
    })
 }));
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: api.toast }) }));
 vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: api.confirm }) }));
 vi.mock('@/composables/useDeleteAction', () => ({ useDeleteAction: () => ({}) }));
-vi.mock('@/api/customer', async (importOriginal) => {
+vi.mock('@/api/platform', async (importOriginal) => {
    const { ref } = await import('vue');
    return {
-      ...(await importOriginal<typeof import('@/api/customer')>()),
+      ...(await importOriginal<typeof import('@/api/platform')>()),
       usePlatformOptions: () => ({
          data: ref([
             { id: 'amazon', display_name: 'Amazon', countries: ['DE'] },
@@ -82,7 +82,6 @@ const Table = defineComponent({
 
 const account = (id: string, platform_id: string, extra: Record<string, unknown> = {}) => ({
    id,
-   customer_id: 'k1',
    platform_id,
    countries: ['DE'],
    access: 'none',
@@ -94,7 +93,6 @@ const account = (id: string, platform_id: string, extra: Record<string, unknown>
 
 const mountTab = async () => {
    const wrapper = mount(Platforms, {
-      props: { id: 'k1' },
       global: {
          plugins: [i18NPlugin, PrimeVue, [abilitiesPlugin, ability, { useGlobalProperties: true }]],
          directives: { tooltip: Tooltip },
@@ -138,8 +136,8 @@ describe('Platforms tab: Connect Amazon', () => {
       expect(row(wrapper, 'e1').find('[data-api-connection]').exists()).toBe(false);
    });
 
-   it('offers no action without the right to update the customer', async () => {
-      ability.update([{ action: 'select', subject: 'customer' }]);
+   it('offers no action without the right to update the platform account', async () => {
+      ability.update([{ action: 'select', subject: 'platform_account' }]);
       const wrapper = await mountTab();
       expect(row(wrapper, 'a1').find('button').exists()).toBe(false);
       expect(row(wrapper, 'a1').find('[data-api-connection]').exists()).toBe(true);
@@ -156,7 +154,7 @@ describe('Platforms tab: Connect Amazon', () => {
 
       expect(api.connect).toHaveBeenCalledWith({
          accountId: 'a1',
-         returnTo: '/ops/customers/k1/manage/platforms'
+         returnTo: '/ops/company/platforms'
       });
       expect(assign).toHaveBeenCalledWith(consent);
    });

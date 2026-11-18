@@ -11,9 +11,9 @@ import { ToastSeverity } from '@primevue/core/api';
 import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
 
-// The API connection of a customer's Amazon platform account: its state, the seller and the
+// The API connection of a tenant's Amazon platform account: its state, the seller and the
 // actions. Connect answers the Seller Central consent URL (production: the browser goes there and
-// Amazon's callback comes back to the customer's platforms tab with ?amazon=…) or, in the sandbox,
+// Amazon's callback comes back to the company profile's platforms tab with ?amazon=…) or, in the sandbox,
 // the connected account at once. The account holds no credential: the token stays server-side.
 const props = defineProps<{ account: AmazonAccount }>();
 
@@ -50,8 +50,7 @@ const fail = (error: unknown) =>
 
 const startConnect = async () => {
    const returnTo = router.resolve({
-      name: 'ops-customer-manage-platforms',
-      params: { id: props.account.customer_id }
+      name: 'ops-company-platforms'
    }).fullPath;
    try {
       const result = await connect({ accountId: props.account.id, returnTo });
@@ -110,7 +109,7 @@ const askDisconnect = () =>
       <small v-if="state === 'connected' && shown.seller_id" class="text-muted-color">
          {{ $t('ops.amazon.connect.seller_id', { id: shown.seller_id }) }}
       </small>
-      <template v-if="$can('update', 'customer')">
+      <template v-if="$can('update', 'platform_account')">
          <Button
             v-if="state === 'connected'"
             size="small"

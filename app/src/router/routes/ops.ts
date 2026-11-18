@@ -50,6 +50,89 @@ export const changeRequestProps = (route: RouteLocationNormalized) => ({
    project_id: route.query.project_id ?? null
 });
 
+// The company profile of the active tenant: one tab per table, each its own route that renders
+// the profile page on that tab; a row is added and edited in a dialog route beside them.
+const COMPANY_TABS = [
+   { key: 'brands', subject: 'brand', icon: PrimeIcons.TAG },
+   { key: 'contacts', subject: 'contact', icon: PrimeIcons.USERS },
+   { key: 'warehouses', subject: 'warehouse', icon: PrimeIcons.BUILDING },
+   { key: 'platforms', subject: 'platform_account', icon: PrimeIcons.SHOP }
+] as const;
+
+const COMPANY_ROWS = [
+   {
+      key: 'brand',
+      subject: 'brand',
+      load: () => import('@/views/pages/ops/company/BrandUpsert.vue'),
+      path: 'brand'
+   },
+   {
+      key: 'contact',
+      subject: 'contact',
+      load: () => import('@/views/pages/ops/company/ContactUpsert.vue'),
+      path: 'contact'
+   },
+   {
+      key: 'warehouse',
+      subject: 'warehouse',
+      load: () => import('@/views/pages/ops/company/WarehouseUpsert.vue'),
+      path: 'warehouse'
+   },
+   {
+      key: 'platform',
+      subject: 'platform_account',
+      load: () => import('@/views/pages/ops/company/PlatformUpsert.vue'),
+      path: 'platform-account'
+   }
+] as const;
+
+const companyPage = () => import('@/views/pages/ops/company/Index.vue');
+
+const companyRoutes: RouteRecordRaw[] = [
+   ...COMPANY_TABS.map(
+      ({ key, subject, icon }): RouteRecordRaw => ({
+         path: key,
+         name: `ops-company-${key}`,
+         props: { default: { tab: key }, skeleton: { tab: key } },
+         meta: {
+            label: `route.label.ops_company_${key}`,
+            icon,
+            visible: false,
+            requiredPermissions: [{ action: 'select', subject }]
+         },
+         components: { default: companyPage, skeleton: companyPage }
+      })
+   ),
+   ...COMPANY_ROWS.flatMap(({ key, subject, load: upsert, path }): RouteRecordRaw[] => {
+      return [
+         {
+            path: `${path}/add`,
+            name: `ops-company-${key}-add`,
+            props: true,
+            meta: {
+               label: `route.label.ops_company_${key}_add`,
+               icon: PrimeIcons.PLUS,
+               visible: false,
+               requiredPermissions: [{ action: 'create', subject }]
+            },
+            components: { default: upsert, skeleton: upsert }
+         },
+         {
+            path: `${path}/:id/edit`,
+            name: `ops-company-${key}-edit`,
+            props: true,
+            meta: {
+               label: `route.label.ops_company_${key}_edit`,
+               icon: PrimeIcons.FILE_EDIT,
+               visible: false,
+               requiredPermissions: [{ action: 'modify', subject }]
+            },
+            components: { default: upsert, skeleton: upsert }
+         }
+      ];
+   })
+];
+
 const routes: RouteRecordRaw[] = [
    {
       path: 'ops',
@@ -66,6 +149,10 @@ const routes: RouteRecordRaw[] = [
             { action: 'select', subject: 'shipment' },
             { action: 'select', subject: 'supplier' },
             { action: 'select', subject: 'setting' },
+            { action: 'select', subject: 'brand' },
+            { action: 'select', subject: 'contact' },
+            { action: 'select', subject: 'warehouse' },
+            { action: 'select', subject: 'platform_account' },
             { action: 'select', subject: 'media' },
             { action: 'select', subject: 'market_cell' },
             { action: 'select', subject: 'incident' },
@@ -89,6 +176,18 @@ const routes: RouteRecordRaw[] = [
                default: () => import('@/views/pages/ops/setting/Index.vue'),
                skeleton: () => import('@/views/pages/ops/setting/Index.vue')
             }
+         },
+         {
+            path: 'company',
+            name: 'ops-company',
+            meta: {
+               label: 'route.label.ops_company',
+               icon: PrimeIcons.BUILDING,
+               anyPermission: COMPANY_TABS.map(({ subject }) => ({ action: 'select', subject }))
+            },
+            component: CustomRouteView,
+            redirect: { name: 'ops-company-brands' },
+            children: companyRoutes
          },
          {
             path: 'suppliers',

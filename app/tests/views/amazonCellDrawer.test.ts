@@ -367,6 +367,16 @@ describe('CellAmazonDrawer', () => {
       expect(entry.text()).toContain(en.ops.amazon.submission.status.unknown);
    });
 
+   it('links the not-connected notice to the platform accounts of the company profile', async () => {
+      accountsRef.value = [{ ...ACCOUNT, api_connection: 'none' }];
+      const wrapper = await mountDrawer();
+      const link = wrapper.get('[data-open-platforms]');
+      expect(link.text()).toBe(en.ops.amazon.cell.open_platforms);
+      expect(link.getComponent(RouterLinkStub).props('to')).toEqual({
+         name: 'ops-company-platforms'
+      });
+   });
+
    it('Publish is disabled until connected and ready', async () => {
       // N2: the stored state is live, but the account is not connected: shown as draft.
       cellRef.value = { ...CELL, listing_state: 'live' };

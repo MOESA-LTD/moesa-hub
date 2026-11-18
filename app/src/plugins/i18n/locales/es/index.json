@@ -153,6 +153,19 @@
          "ops_setting": "Settings",
          "ops_document_add": "Add document",
          "ops_document_edit": "Edit document",
+         "ops_company": "Company profile",
+         "ops_company_brands": "Brands",
+         "ops_company_contacts": "Contacts",
+         "ops_company_warehouses": "Warehouses",
+         "ops_company_platforms": "Platforms",
+         "ops_company_brand_add": "Add brand",
+         "ops_company_brand_edit": "Edit brand",
+         "ops_company_contact_add": "Add contact",
+         "ops_company_contact_edit": "Edit contact",
+         "ops_company_warehouse_add": "Add warehouse",
+         "ops_company_warehouse_edit": "Edit warehouse",
+         "ops_company_platform_add": "Add platform account",
+         "ops_company_platform_edit": "Edit platform account",
          "ops_supplier": "Suppliers",
          "ops_supplier_list": "Supplier list",
          "ops_supplier_manage": "Supplier card",
@@ -1151,54 +1164,13 @@
             }
          }
       },
-      "customer": {
-         "title": "Customers",
-         "select": "Select a customer",
+      "company": {
+         "title": "Company profile",
          "tabs": {
-            "general": "General",
+            "brands": "Brands",
             "contacts": "Contacts",
             "warehouses": "Warehouses",
-            "platforms": "Platforms",
-            "brands": "Brands",
-            "documents": "Documents",
-            "media": "Media"
-         },
-         "sections": {
-            "general": "Customer",
-            "service": "Service",
-            "contract": "Contract"
-         },
-         "fields": {
-            "code": "Code",
-            "display_name": "Name",
-            "country": "Country",
-            "website": "Website",
-            "commercial_model": "Commercial model",
-            "packages": "Packages",
-            "status": "Status",
-            "contract_accepted_on": "Contract accepted on",
-            "contract_document_id": "Contract document",
-            "start_on": "Start date",
-            "deposit_rate": "Deposit rate (%)",
-            "extra_cost_rule": "Extra costs",
-            "eu_responsible_person": "EU responsible person",
-            "restricted_drive_url": "Restricted Drive folder",
-            "notes": "Notes"
-         },
-         "status": {
-            "lead": "Lead",
-            "onboarding": "Onboarding",
-            "active": "Active",
-            "paused": "Paused",
-            "closed": "Closed"
-         },
-         "commercial_model": {
-            "trading_partner": "Trading partner",
-            "commercial_representative": "Commercial representative",
-            "operations_partner": "Operations partner"
-         },
-         "errors": {
-            "invalid_code": "Three capital letters, e.g. THO"
+            "platforms": "Platforms"
          },
          "contact": {
             "fields": {

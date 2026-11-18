@@ -579,6 +579,9 @@ const askRemove = () =>
                   </span>
                   <Message v-if="notConnected" severity="warn" class="w-full">
                      {{ $t('ops.amazon.cell.not_connected') }}
+                     <RouterLink data-open-platforms :to="{ name: 'ops-company-platforms' }">
+                        {{ $t('ops.amazon.cell.open_platforms') }}
+                     </RouterLink>
                   </Message>
                </section>
 
