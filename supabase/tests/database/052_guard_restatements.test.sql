@@ -2,13 +2,13 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 -- Functions defined in more than one migration. A later migration restates a body an earlier one
 -- owns (052 the guards' cascade exits (R7) and request identity (R6), 058 the RPCs as api_owner
--- definers and the figures over api, 059 the audit revert, 060 the Storage read), or extends it
--- (a chain such as 021 → 032 → 036). A restated body is the owner's current body plus only the
--- restating migration's own delta, so an edit of the owner that is not carried into the restatement
--- would be undone silently, and so would a chain step a later restatement forgot. Each row below
--- names, for the live function, every rule its owner raises (by error code), the logic that matters
--- where no error code shows it (non-error needles), and the markers of each later step; a missing
--- one fails here. Needs no seed rows.
+-- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
+-- policies' shared-row call), or extends it (a chain such as 021 → 032 → 036). A restated body is
+-- the owner's current body plus only the restating migration's own delta, so an edit of the owner
+-- that is not carried into the restatement would be undone silently, and so would a chain step a
+-- later restatement forgot. Each row below names, for the live function, every rule its owner raises
+-- (by error code), the logic that matters where no error code shows it (non-error needles), and the
+-- markers of each later step; a missing one fails here. Needs no seed rows.
 --
 -- Not pinned, on purpose:
 --   private.rules_bypassed (019, 030): 030 restates 019's body unchanged (050 only grants it); the
@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(34);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -106,7 +106,12 @@ VALUES
    ('public.my_access(uuid)', '011', '050',
     ARRAY['''permissions''', '''subscription''', '''is_super_admin''', '''fields''', '''code'', t.code', 'private.field_rights(uid, tenant)']),
    ('private.notify_access_changed()', '011', '050',
-    ARRAY['public.tenant_owner o', 'TG_TABLE_NAME IN (''role_permission'', ''role_field_permission'')']);
+    ARRAY['public.tenant_owner o', 'TG_TABLE_NAME IN (''role_permission'', ''role_field_permission'')']),
+   -- 067: a re-run of the tenant policies keeps a shared table's shared rows.
+   ('private.enable_tenant_level_security(text)', '004', '067',
+    ARRAY['restrict_selects_to_current_tenant', 'restrict_inserts_to_allowed_tenants', 'restrict_updates_to_current_tenant',
+          'restrict_deletes_to_current_tenant', 'private.is_tenant_id_nullable(t_name)', 'tenant_id = ANY ((SELECT private.tenant_scope())::UUID[])',
+          'IF private.is_shared_table(t_name) THEN', 'PERFORM private.enable_shared_rows(t_name)']);
 
 SELECT is_empty(format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n WHERE strpos(pg_get_functiondef(%L::REGPROCEDURE), n) = 0 $q$,
                        r.needle, r.fn),

@@ -230,7 +230,11 @@ SELECT is(
 
 RESET ROLE;
 
--- THO's viewer: reads THO's products, nothing of MOESA LTD, and changes nothing.
+-- THO's viewer: reads THO's products and the provider's sourcing shared with THO (067), nothing
+-- else of MOESA LTD, and changes nothing.
+SELECT set_config('test.tho_sourcing',
+                  (SELECT coalesce(string_agg(s.id::TEXT, ','), '') FROM public.sourcing s WHERE s.client_tenant_id = current_setting('test.tho')::UUID),
+                  TRUE);
 SELECT private.impersonate(
     (SELECT u.id FROM public.user u WHERE u.email = 'portal@moesa-panel.test'),
     current_setting('test.tho')::UUID
@@ -238,7 +242,8 @@ SELECT private.impersonate(
 
 SELECT is((SELECT count(*)::INT FROM api.product), 3, 'the viewer reads THO''s three products');
 
-SELECT is_empty($$ SELECT 1 FROM api.sourcing $$, 'the viewer reads none of the provider''s sourcing');
+SELECT set_eq($$ SELECT id FROM api.sourcing $$, string_to_array(current_setting('test.tho_sourcing'), ',')::UUID[],
+              'the viewer reads the provider''s sourcing shared with THO, nothing else');
 
 SELECT throws_ok(
     $$ UPDATE api.product SET display_name = display_name $$,
