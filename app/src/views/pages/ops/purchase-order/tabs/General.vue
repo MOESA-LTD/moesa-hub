@@ -9,15 +9,17 @@ import {
 import ProjectSelect from '../ProjectSelect.vue';
 import { injectPurchaseOrderForm, useOrderLocked } from '../usePurchaseOrderForm';
 
-// Hides the fields the user may not read, makes read-only those they may not write.
-const fieldAccess = provideFieldAccess('purchase_order');
-
 // The order's parties and terms, in the card's shared form. The supplier and the client (empty for
 // an own order) are chosen on a new order only; the project while the order is a draft
 // (po_project_locked), among the client's projects on a client order; the terms are fixed from
 // pi_approved on (PO_LOCKED_FIELDS).
 const form = injectPurchaseOrderForm();
-const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, linkError } = form;
+const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, linkError, shared } =
+   form;
+
+// Hides the fields the user may not read, makes read-only those they may not write; on a shared
+// order, every field but the client-visible ones (the client is the user's own side: not shown).
+const fieldAccess = provideFieldAccess('purchase_order', shared);
 
 const { t } = useI18n();
 
@@ -87,6 +89,7 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         v-if="!shared"
          fluid
          :label="$t('ops.purchase_order.fields.client')"
          :error="errors.client_tenant_id"
@@ -103,6 +106,7 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         field="project_id"
          fluid
          :label="$t('ops.purchase_order.fields.project')"
          :error="errors.project_id"
@@ -119,6 +123,7 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         field="currency"
          fluid
          :label="$t('ops.purchase_order.fields.currency')"
          :error="errors.currency"
@@ -187,6 +192,7 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         field="ready_on"
          fluid
          :label="$t('ops.purchase_order.fields.ready_on')"
          :error="errors.ready_on"
@@ -230,6 +236,7 @@ const applySupplier = (
          <InputText v-bind="slotProps" v-model="values.penalty_rule" />
       </FormField>
       <FormField
+         field="packing_instruction_document_id"
          fluid
          :label="$t('ops.purchase_order.fields.packing_instruction')"
          :error="errors.packing_instruction_document_id"

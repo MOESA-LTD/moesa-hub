@@ -286,7 +286,8 @@
       "submit": "送信",
       "resend_code": "コードを再送信",
       "back": "戻る",
-      "invite": "招待"
+      "invite": "招待",
+      "view": "View"
    },
    "errors": {
       "audit_already_reverted": "この変更はすでに元に戻されています。",
@@ -880,7 +881,7 @@
    },
    "audit_log": {
       "no_changes_detected": "変更が検出されませんでした",
-      "masked": "変更済み",
+      "masked": "changed",
       "add": "追加",
       "update": "更新",
       "delete": "削除",
@@ -901,8 +902,7 @@
       "added": "追加されました",
       "updated": "更新されました",
       "deleted": "削除されました",
-      "readed": "読み込まれました",
-      "masked": "changed"
+      "readed": "読み込まれました"
    },
    "user": {
       "table": {
@@ -1698,7 +1698,15 @@
          "psi_warning": "No approved PSI report on this order; per G4 the balance is not paid without it.",
          "deposit_differs": "Differs from the PI deposit",
          "no_payments": "No payments.",
-         "no_updates": "No production updates."
+         "no_updates": "No production updates.",
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         }
       },
       "shipment": {
          "title": "Shipments",
@@ -2310,6 +2318,11 @@
                "unknown": "Unknown"
             }
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       }
    },
    "glossary": {

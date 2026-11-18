@@ -14,6 +14,7 @@ import {
    type DashboardShipmentRow,
    type DashboardTaskRow
 } from '@/api/dashboard';
+import { orderStatusLabel } from '@/api/purchaseOrder';
 import type { DashboardBoxId, DashboardRow } from '@/constants/dashboard';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import i18n from '@plugins/i18n';
@@ -147,8 +148,10 @@ const ORDER_GROUPS = { po_action: 'action', po_production: 'production' } as con
 
 /** An order waiting for action shows its status; one in production its ready and balance dates. */
 const orderTag = (row: DashboardPurchaseOrderRow, id: DashboardBoxId) => {
-   if (id === 'po_action')
-      return row.status ? i18n.t(`ops.purchase_order.status.${row.status}`) : '';
+   if (id === 'po_action') {
+      const label = orderStatusLabel(row);
+      return label ? i18n.t(label.key) : '';
+   }
    return joined(
       row.ready_on && i18n.t('dashboard.ops.meta.ready', { date: dayMonth(row.ready_on) }),
       row.balance_planned_on &&

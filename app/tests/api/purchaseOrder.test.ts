@@ -37,6 +37,10 @@ const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
 
 const table = vi.hoisted(() => ({ filters: null as unknown }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),

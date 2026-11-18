@@ -8,6 +8,8 @@ import { injectShipmentForm } from '../useShipmentForm';
 // whom, over which channel, and a note. Entries are added and edited in a dialog.
 const form = injectShipmentForm();
 const shipmentId = computed(() => form.row.value?.id ?? null);
+// A provider's shipment shared with the client side: its log is read, never written.
+const editable = computed(() => !form.shared.value);
 
 const { data: events } = useShipmentEvents(shipmentId);
 
@@ -22,7 +24,7 @@ const time = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm');
       <span class="flex items-center justify-between gap-4">
          <span class="font-semibold">{{ $t('ops.shipment.tabs.events') }}</span>
          <CustomLink
-            v-if="shipmentId && $can('create', 'shipment_event')"
+            v-if="shipmentId && editable && $can('create', 'shipment_event')"
             :to="{
                name: 'ops-shipment-event-add',
                params: { shipmentId },
@@ -49,7 +51,7 @@ const time = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm');
                   </span>
                   <Tag v-if="item.channel" severity="secondary" :value="item.channel" />
                   <CustomLink
-                     v-if="$can('modify', 'shipment_event')"
+                     v-if="editable && $can('modify', 'shipment_event')"
                      :to="{
                         name: 'ops-shipment-event-edit',
                         params: { id: item.id },

@@ -14,6 +14,7 @@ import {
 import { useDeleteRow } from '@/api/tables';
 import { useLookup } from '@/api/useLookup';
 import { useConfirmDelete } from '@/composables/useConfirmDelete';
+import OrderStatusTag from '@/components/service-components/purchase-order-table/OrderStatusTag.vue';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { appErrorHandler } from '@/lib/appErrorHandler';
 import { injectShipmentForm, injectShipmentOverview, useShipmentLocked } from '../useShipmentForm';
@@ -25,7 +26,9 @@ import { injectShipmentForm, injectShipmentOverview, useShipmentLocked } from '.
 // order without an approved PSI is marked; it is a warning only (K3).
 const form = injectShipmentForm();
 const overview = injectShipmentOverview();
-const locked = useShipmentLocked(form);
+// A provider's shipment shared with the client side is read-only: no order or line changes.
+const shipmentLocked = useShipmentLocked(form);
+const locked = computed(() => form.shared.value || shipmentLocked.value);
 
 const shipment = computed(() => form.row.value ?? null);
 const orders = computed(() =>
@@ -146,10 +149,7 @@ const addOrder = async (order: OrderOption) => {
       >
          <span class="flex flex-wrap items-center gap-2">
             <span class="font-semibold">{{ order.code }}</span>
-            <Tag
-               :value="$t(`ops.purchase_order.status.${order.status}`)"
-               :severity="PURCHASE_ORDER_STATUS_SEVERITY[order.status]"
-            />
+            <OrderStatusTag :order />
             <Tag
                v-if="psiMissing.has(order.code ?? '')"
                data-test="psi-missing"

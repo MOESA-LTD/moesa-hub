@@ -22,6 +22,8 @@ import * as z from 'zod';
 
 type Enums = Db['public']['Enums'];
 export type PurchaseOrderStatus = Enums['purchase_order_status'];
+/** The stage a client tenant reads of a shared order instead of its status (067, Q1). */
+export type PurchaseOrderClientStatus = Enums['purchase_order_client_status'];
 export type PaymentKind = Enums['payment_kind'];
 export type PaymentPayer = Enums['payment_payer'];
 export type PurchaseOrderRow = Tables['purchase_order']['Row'];
@@ -75,6 +77,47 @@ export const PURCHASE_ORDER_STATUS_SEVERITY: Record<PurchaseOrderStatus, string>
    closed: 'secondary',
    cancelled: 'danger'
 };
+
+/** Every client status, in their order. */
+export const PURCHASE_ORDER_CLIENT_STATUSES = allValues<PurchaseOrderClientStatus>()([
+   'pending',
+   'confirmed',
+   'in_production',
+   'shipped',
+   'delivered',
+   'cancelled'
+]);
+
+/** The Tag severity of each client status. */
+export const PURCHASE_ORDER_CLIENT_STATUS_SEVERITY: Record<PurchaseOrderClientStatus, string> = {
+   pending: 'secondary',
+   confirmed: 'info',
+   in_production: 'warn',
+   shipped: 'info',
+   delivered: 'success',
+   cancelled: 'danger'
+};
+
+/**
+ * How an order's status shows: its status, or, when that reads NULL (a shared order on the client
+ * side, where raw status is provider-only), its client status. Null when neither is read.
+ */
+export function orderStatusLabel(order: {
+   status?: PurchaseOrderStatus | null;
+   client_status?: PurchaseOrderClientStatus | null;
+}): { key: string; severity: string } | null {
+   if (order.status)
+      return {
+         key: `ops.purchase_order.status.${order.status}`,
+         severity: PURCHASE_ORDER_STATUS_SEVERITY[order.status]
+      };
+   if (order.client_status)
+      return {
+         key: `ops.purchase_order.client_status.${order.client_status}`,
+         severity: PURCHASE_ORDER_CLIENT_STATUS_SEVERITY[order.client_status]
+      };
+   return null;
+}
 
 /** An amount for display, with two decimals and its currency (no arithmetic). */
 export const formatAmount = (value: number | null | undefined, currency?: string | null) =>

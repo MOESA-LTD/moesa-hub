@@ -4,15 +4,27 @@ import { INCOTERMS } from '@/api/purchaseOrder';
 import { SHIPMENT_MODES } from '@/api/shipment';
 import { injectShipmentForm } from '../useShipmentForm';
 
-// Hides the fields the user may not read, makes read-only those they may not write.
-provideFieldAccess('shipment');
-
 // The shipment's warehouse, mode, parties, terms, transport and packed quantities, in the card's
 // shared form. The client (empty for an own shipment) is chosen on a new shipment only. The
 // warehouse is one of the tenant the goods go to (the client's on a client shipment), with its S14
 // receiving rules (dock hours, appointment) shown under it.
 const form = injectShipmentForm();
-const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, warehouses } = form;
+const {
+   values,
+   errors,
+   isDirty,
+   isSubmitting,
+   readonly,
+   reset,
+   submit,
+   draft,
+   warehouses,
+   shared
+} = form;
+
+// Hides the fields the user may not read, makes read-only those they may not write; on a shared
+// shipment, every field but the client-visible ones (the client is the user's own side: not shown).
+const fieldAccess = provideFieldAccess('shipment', shared);
 
 const id = computed(() => values.value.id ?? null);
 
@@ -59,6 +71,7 @@ const PACKED_AMOUNTS = [
       :draft
    >
       <FormField
+         v-if="!shared"
          fluid
          :label="$t('ops.shipment.fields.client')"
          :error="errors.client_tenant_id"
@@ -73,6 +86,7 @@ const PACKED_AMOUNTS = [
          />
       </FormField>
       <FormField
+         field="delivery_warehouse_id"
          fluid
          :label="$t('ops.shipment.fields.delivery_warehouse')"
          :error="errors.delivery_warehouse_id"
@@ -101,6 +115,7 @@ const PACKED_AMOUNTS = [
          </dl>
       </FormField>
       <FormField
+         field="mode"
          fluid
          :label="$t('ops.shipment.fields.mode')"
          :error="errors.mode"
@@ -119,6 +134,7 @@ const PACKED_AMOUNTS = [
       <FormField
          v-for="field in PARTIES"
          :key="field"
+         :field="field"
          fluid
          :label="$t(`ops.shipment.fields.${field}`)"
          :error="errors[field]"
@@ -139,7 +155,7 @@ const PACKED_AMOUNTS = [
       >
          <SelectEnum v-bind="slotProps" v-model="values[field]" :values="INCOTERMS" />
       </FormField>
-      <span class="flex items-center gap-2">
+      <span v-if="fieldAccess.canRead('is_insured')" class="flex items-center gap-2">
          <ToggleSwitch
             v-model="values.is_insured"
             inputId="shipment-is-insured"
@@ -150,6 +166,7 @@ const PACKED_AMOUNTS = [
       <FormField
          v-for="field in TRANSPORT_TEXT"
          :key="field"
+         :field="field"
          fluid
          :label="$t(`ops.shipment.fields.${field}`)"
          :error="errors[field]"
@@ -161,6 +178,7 @@ const PACKED_AMOUNTS = [
       <FormField
          v-for="field in FREE_DAYS"
          :key="field"
+         :field="field"
          fluid
          :label="$t(`ops.shipment.fields.${field}`)"
          :error="errors[field]"
@@ -175,6 +193,7 @@ const PACKED_AMOUNTS = [
          />
       </FormField>
       <FormField
+         field="demurrage_note"
          fluid
          :label="$t('ops.shipment.fields.demurrage_note')"
          :error="errors.demurrage_note"
@@ -189,6 +208,7 @@ const PACKED_AMOUNTS = [
       <FormField
          v-for="field in PACKED_COUNTS"
          :key="field"
+         :field="field"
          fluid
          :label="$t(`ops.shipment.fields.${field}`)"
          :error="errors[field]"
@@ -205,6 +225,7 @@ const PACKED_AMOUNTS = [
       <FormField
          v-for="[field, decimals] in PACKED_AMOUNTS"
          :key="field"
+         :field="field"
          fluid
          :label="$t(`ops.shipment.fields.${field}`)"
          :error="errors[field]"

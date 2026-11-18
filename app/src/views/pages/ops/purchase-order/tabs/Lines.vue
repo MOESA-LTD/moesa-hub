@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatAmount, lineProduct, type PurchaseOrderCardLine } from '@/api/purchaseOrder';
 import { canInsertFields, useFieldAccess } from '@/composables/useFieldAccess';
+import { isClientVisible } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import {
    injectPurchaseOrderForm,
@@ -26,8 +27,13 @@ const specMissing = computed(() => new Set(overview.value?.spec_missing_line_ids
 const specVersion = (line: PurchaseOrderCardLine) =>
    `v${String(line.spec_document?.version ?? 0).padStart(2, '0')}`;
 
-// A user without the cost fields sees the lines without their prices.
-const lineAccess = useFieldAccess('purchase_order_line');
+// A user without the cost fields sees the lines without their prices. A shared order's lines show
+// what the client reads (the sell price, no cost, no spec sheet) and cannot be changed.
+const shared = computed(() => form.shared.value);
+const ownAccess = useFieldAccess('purchase_order_line');
+const canRead = (field: string) =>
+   shared.value ? isClientVisible('purchase_order_line', field) : ownAccess.canRead(field);
+const editable = computed(() => !shared.value && !locked.value);
 </script>
 
 <template>
@@ -38,7 +44,7 @@ const lineAccess = useFieldAccess('purchase_order_line');
             <CustomLink
                v-if="
                   orderId &&
-                  !locked &&
+                  editable &&
                   $can('create', 'purchase_order_line') &&
                   canInsertFields('purchase_order_line')
                "
@@ -63,19 +69,16 @@ const lineAccess = useFieldAccess('purchase_order_line');
          <template #body="{ data }">{{ lineProduct(data).name }}</template>
       </Column>
       <Column field="quantity" :header="$t('ops.purchase_order.fields.quantity')" />
-      <Column
-         v-if="lineAccess.canRead('unit_price')"
-         :header="$t('ops.purchase_order.fields.unit_price')"
-      >
+      <Column v-if="canRead('unit_price')" :header="$t('ops.purchase_order.fields.unit_price')">
          <template #body="{ data }">{{ data.unit_price }} {{ currency }}</template>
       </Column>
-      <Column
-         v-if="lineAccess.canRead('line_total')"
-         :header="$t('ops.purchase_order.fields.line_total')"
-      >
+      <Column v-if="canRead('line_total')" :header="$t('ops.purchase_order.fields.line_total')">
          <template #body="{ data }">{{ formatAmount(data.line_total, currency) }}</template>
       </Column>
-      <Column :header="$t('ops.purchase_order.fields.spec_document')">
+      <Column v-if="shared" :header="$t('ops.product.fields.sell_price_eur')">
+         <template #body="{ data }">{{ formatAmount(data.sell_price_eur, 'EUR') }}</template>
+      </Column>
+      <Column v-if="!shared" :header="$t('ops.purchase_order.fields.spec_document')">
          <template #body="{ data }">
             <Tag
                v-if="data.spec_document"
@@ -92,7 +95,7 @@ const lineAccess = useFieldAccess('purchase_order_line');
             />
          </template>
       </Column>
-      <Column v-if="!locked && $can('modify', 'purchase_order_line')">
+      <Column v-if="editable && $can('modify', 'purchase_order_line')">
          <template #body="{ data }">
             <CustomLink
                :to="{
@@ -112,7 +115,7 @@ const lineAccess = useFieldAccess('purchase_order_line');
             </CustomLink>
          </template>
       </Column>
-      <template #footer>
+      <template v-if="!shared" #footer>
          <span class="flex justify-end gap-2" data-test="subtotal">
             <span>{{ $t('ops.purchase_order.fields.subtotal') }}:</span>
             <span class="font-semibold">

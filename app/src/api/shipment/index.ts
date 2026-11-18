@@ -31,7 +31,7 @@ export type ShipmentOverviewRow = Views['shipment_overview']['Row'];
 /** An order on the shipment as the card loads it: with its lines and their products. */
 export type ShipmentCardOrder = Pick<
    PurchaseOrderRow,
-   'id' | 'code' | 'status' | 'tolerance_pct'
+   'id' | 'code' | 'status' | 'client_status' | 'tolerance_pct'
 > & {
    purchase_order_line: (Pick<
       PurchaseOrderLineRow,
@@ -260,11 +260,14 @@ export function documentChecklist(
 
 // --- shipment ---
 
-/** The card's shipment, its warehouse, its orders with their lines, and its lines. */
+/**
+ * The card's shipment, its warehouse, its orders with their lines, and its lines. An order's raw
+ * status reads NULL on the client side of a shared shipment; its client_status is read alongside.
+ */
 export const SHIPMENT_SELECT = [
    '*',
    'warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
-   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product_sku, product_name, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
+   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, client_status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product_sku, product_name, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
    'shipment_line!shipment_line_shipment_fkey(*)'
 ].join(', ');
 

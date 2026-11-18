@@ -61,6 +61,19 @@ describe('groupPurchaseOrders', () => {
    });
 });
 
+describe('groupPurchaseOrders on the client side', () => {
+   it('groups a shared order (raw status NULL) by its client status', () => {
+      const { action, production } = groupPurchaseOrders([
+         { status: null, client_status: 'pending' as const },
+         { status: null, client_status: 'in_production' as const },
+         { status: null, client_status: 'confirmed' as const },
+         { status: null, client_status: 'shipped' as const }
+      ]);
+      expect(action.map((row) => row.client_status)).toEqual(['pending', 'confirmed']);
+      expect(production.map((row) => row.client_status)).toEqual(['in_production']);
+   });
+});
+
 describe('groupShipments', () => {
    it('lists the shipments on the way and, apart, every late one', () => {
       const { inTransit, late } = groupShipments([

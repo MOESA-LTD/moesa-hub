@@ -52,6 +52,10 @@ const api = vi.hoisted(() => ({
    deleteRow: vi.fn()
 }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
@@ -70,6 +74,7 @@ vi.mock('@/composables/useUpsertForm', async () => {
             isDirty: ref(false),
             isSubmitting: ref(false),
             readonly: ref(false),
+            shared: ref(false),
             reset: vi.fn(),
             save: vi.fn(),
             ready: Promise.resolve(),
@@ -194,6 +199,7 @@ const standInForm = (row: ShipmentCard | null, warehouses: unknown[] = []) => ({
    isDirty: ref(false),
    isSubmitting: ref(false),
    readonly: ref(false),
+   shared: ref(false),
    reset: vi.fn(),
    submit: vi.fn(),
    draft: {},

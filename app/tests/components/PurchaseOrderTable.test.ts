@@ -11,10 +11,22 @@ import { defineComponent, h, ref } from 'vue';
 const api = vi.hoisted(() => ({
    ids: undefined as string[] | undefined,
    idFilters: [] as unknown[],
-   tableFilters: null as null | Record<string, { constraints: unknown[] }>
+   tableFilters: null as null | Record<string, { constraints: unknown[] }>,
+   rows: [] as Record<string, unknown>[]
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('@/store/auth', () => ({
+   useAuthStore: () => ({ scopeTenants: [{ id: 'tho' }] })
+}));
+vi.mock('@/api/relationship', async () => {
+   const { ref } = await import('vue');
+   return {
+      useProviderNames: () => ({
+         data: ref([{ tenant_id: 'moe', client_tenant_id: 'tho', provider_name: 'MOESA LTD' }])
+      })
+   };
+});
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRoute: () => ({ query: {} }),
@@ -31,12 +43,36 @@ vi.mock('@/api/purchaseOrder', async (importOriginal) => {
    };
 });
 
+type Column = { field?: string; header?: string };
+type Action = {
+   label?: string | ((body: { data: unknown }) => string);
+   visible?: boolean | ((body: { data: unknown }) => boolean);
+};
+const evaluate = <V>(value: V | ((body: { data: unknown }) => V), data: unknown) =>
+   typeof value === 'function' ? (value as (body: { data: unknown }) => V)({ data }) : value;
+
+// Renders the column headers, and per row its code cell and its row actions' labels.
 const ResourceTable = defineComponent({
    name: 'ResourceTable',
-   props: ['filters', 'from'],
-   setup: (props) => {
+   props: ['filters', 'from', 'columns', 'rowActions', 'modelValue'],
+   emits: ['update:modelValue'],
+   setup: (props, { emit, slots }) => {
       api.tableFilters = props.filters;
-      return () => h('div', { 'data-table': props.from });
+      emit('update:modelValue', api.rows);
+      return () =>
+         h('div', { 'data-table': props.from }, [
+            ...(props.columns as Column[]).map((column) =>
+               h('th', { 'data-field': column.field }, column.header)
+            ),
+            ...api.rows.map((data) =>
+               h('div', { 'data-row': data.id }, [
+                  h('span', { 'data-cell': 'code' }, slots.code_body?.({ data })),
+                  ...((props.rowActions ?? []) as Action[])
+                     .filter((action) => evaluate(action.visible ?? true, data))
+                     .map((action) => h('button', evaluate(action.label, data)))
+               ])
+            )
+         ]);
    }
 });
 
@@ -56,6 +92,7 @@ describe('purchase order table', () => {
       api.ids = undefined;
       api.idFilters = [];
       api.tableFilters = null;
+      api.rows = [];
    });
 
    it('shows no table, but "no orders", for a product on none', async () => {
@@ -78,6 +115,44 @@ describe('purchase order table', () => {
 
       expect(wrapper.get('[data-table]').attributes('data-table')).toBe('purchase_order_overview');
       expect(api.tableFilters!.id!.constraints[0]).toEqual({ value: ['o1'], matchMode: 'in' });
+   });
+
+   it('hides provider-only columns and actions on a shared row', async () => {
+      api.rows = [
+         {
+            id: 'o1',
+            code: 'PO-1',
+            tenant_id: 'moe',
+            client_tenant_id: 'tho',
+            client_status: 'pending'
+         }
+      ];
+      const wrapper = mount(PurchaseOrderTable, {
+         global: { plugins: [i18NPlugin, PrimeVue], stubs: { ResourceTable } }
+      });
+      await flushPromises();
+
+      const fields = wrapper.findAll('th').map((th) => th.attributes('data-field'));
+      expect(fields).toContain('client_status');
+      for (const field of ['pi_total', 'system_total', 'supplier_id', 'status', 'deposit_paid_on'])
+         expect(fields).not.toContain(field);
+      const row = wrapper.get('[data-row="o1"]');
+      expect(row.text()).toContain('From MOESA LTD');
+      expect(row.findAll('button').map((b) => b.text())).not.toContain(i18n.t('action.edit'));
+   });
+
+   it('keeps every column and the edit action on an own row', async () => {
+      api.rows = [{ id: 'o2', code: 'PO-2', tenant_id: 'tho', client_tenant_id: null }];
+      const wrapper = mount(PurchaseOrderTable, {
+         global: { plugins: [i18NPlugin, PrimeVue], stubs: { ResourceTable } }
+      });
+      await flushPromises();
+
+      const fields = wrapper.findAll('th').map((th) => th.attributes('data-field'));
+      expect(fields).toEqual(expect.arrayContaining(['status', 'system_total', 'supplier_id']));
+      const row = wrapper.get('[data-row="o2"]');
+      expect(row.text()).not.toContain('From');
+      expect(row.findAll('button').map((b) => b.text())).toContain(i18n.t('action.edit'));
    });
 
    it("narrows the table to a supplier's and a project's orders", async () => {

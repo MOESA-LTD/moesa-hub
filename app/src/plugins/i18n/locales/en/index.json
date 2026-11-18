@@ -281,6 +281,7 @@
       "add": "Add",
       "delete": "Delete",
       "edit": "Edit",
+      "view": "View",
       "cancel": "Cancel",
       "send": "Send",
       "submit": "Submit",
@@ -1669,6 +1670,14 @@
             "closed": "Closed",
             "cancelled": "Cancelled"
          },
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         },
          "payment": {
             "kind": {
                "deposit": "Deposit",
@@ -1816,6 +1825,11 @@
             "this_week": "This week",
             "later": "Later"
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       },
       "status_actions": {
          "dirty_hint": "Save or discard your changes first."

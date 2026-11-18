@@ -135,6 +135,7 @@
       "add": "Ekle",
       "delete": "Sil",
       "edit": "Düzenle",
+      "view": "Görüntüle",
       "cancel": "İptal",
       "send": "Gönder",
       "submit": "Gönder",
@@ -1669,6 +1670,14 @@
             "closed": "Kapandı",
             "cancelled": "İptal edildi"
          },
+         "client_status": {
+            "pending": "Bekliyor",
+            "confirmed": "Onaylandı",
+            "in_production": "Üretimde",
+            "shipped": "Yola çıktı",
+            "delivered": "Teslim edildi",
+            "cancelled": "İptal edildi"
+         },
          "payment": {
             "kind": {
                "deposit": "Depozito",
@@ -1816,6 +1825,11 @@
             "this_week": "Bu hafta",
             "later": "Daha sonra"
          }
+      },
+      "shared": {
+         "from": "Sağlayıcı: {provider}",
+         "shared": "Paylaşılan",
+         "read_only": "Sağlayıcınızın paylaştığı kayıt: görüntüleyebilir, değiştiremezsiniz."
       },
       "status_actions": {
          "dirty_hint": "Önce değişikliklerinizi kaydedin ya da geri alın."

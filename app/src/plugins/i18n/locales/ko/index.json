@@ -286,7 +286,8 @@
       "submit": "제출",
       "resend_code": "코드 재전송",
       "back": "뒤로",
-      "invite": "초대"
+      "invite": "초대",
+      "view": "View"
    },
    "errors": {
       "audit_already_reverted": "이 변경은 이미 되돌려졌습니다.",
@@ -880,7 +881,7 @@
    },
    "audit_log": {
       "no_changes_detected": "변경 사항이 감지되지 않았습니다.",
-      "masked": "변경됨",
+      "masked": "changed",
       "add": "추가",
       "update": "수정",
       "delete": "삭제",
@@ -901,8 +902,7 @@
       "added": "추가됨",
       "updated": "수정됨",
       "deleted": "삭제됨",
-      "readed": "읽힘",
-      "masked": "changed"
+      "readed": "읽힘"
    },
    "user": {
       "table": {
@@ -1698,7 +1698,15 @@
          "psi_warning": "No approved PSI report on this order; per G4 the balance is not paid without it.",
          "deposit_differs": "Differs from the PI deposit",
          "no_payments": "No payments.",
-         "no_updates": "No production updates."
+         "no_updates": "No production updates.",
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         }
       },
       "shipment": {
          "title": "Shipments",
@@ -2310,6 +2318,11 @@
                "unknown": "Unknown"
             }
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       }
    },
    "glossary": {

@@ -286,7 +286,8 @@
       "submit": "提交",
       "resend_code": "重新發送驗證碼",
       "back": "返回",
-      "invite": "邀請"
+      "invite": "邀請",
+      "view": "View"
    },
    "errors": {
       "audit_already_reverted": "此更改已被撤销。",
@@ -880,7 +881,7 @@
    },
    "audit_log": {
       "no_changes_detected": "未检测到更改",
-      "masked": "已更改",
+      "masked": "changed",
       "add": "添加",
       "update": "更新",
       "delete": "删除",
@@ -901,8 +902,7 @@
       "added": "已添加",
       "updated": "已更新",
       "deleted": "已删除",
-      "readed": "已查看",
-      "masked": "changed"
+      "readed": "已查看"
    },
    "user": {
       "table": {
@@ -1698,7 +1698,15 @@
          "psi_warning": "No approved PSI report on this order; per G4 the balance is not paid without it.",
          "deposit_differs": "Differs from the PI deposit",
          "no_payments": "No payments.",
-         "no_updates": "No production updates."
+         "no_updates": "No production updates.",
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         }
       },
       "shipment": {
          "title": "Shipments",
@@ -2310,6 +2318,11 @@
                "unknown": "Unknown"
             }
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       }
    },
    "glossary": {

@@ -415,7 +415,8 @@
       "submit": "Enviar",
       "resend_code": "Reenviar código",
       "back": "Atrás",
-      "invite": "Invitar"
+      "invite": "Invitar",
+      "view": "View"
    },
    "errors": {
       "audit_already_reverted": "Este cambio ya se ha revertido.",
@@ -880,7 +881,7 @@
    },
    "audit_log": {
       "no_changes_detected": "No se detectaron cambios",
-      "masked": "cambiado",
+      "masked": "changed",
       "add": "Añadir",
       "update": "Actualizar",
       "delete": "Eliminar",
@@ -901,8 +902,7 @@
       "added": "Añadido",
       "updated": "Actualizado",
       "deleted": "Eliminado",
-      "readed": "Leído",
-      "masked": "changed"
+      "readed": "Leído"
    },
    "user": {
       "table": {
@@ -1698,7 +1698,15 @@
          "psi_warning": "No approved PSI report on this order; per G4 the balance is not paid without it.",
          "deposit_differs": "Differs from the PI deposit",
          "no_payments": "No payments.",
-         "no_updates": "No production updates."
+         "no_updates": "No production updates.",
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         }
       },
       "shipment": {
          "title": "Shipments",
@@ -2310,6 +2318,11 @@
                "unknown": "Unknown"
             }
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       }
    },
    "glossary": {

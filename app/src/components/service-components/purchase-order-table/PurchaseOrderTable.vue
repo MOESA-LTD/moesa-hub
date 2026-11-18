@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import {
    formatAmount,
-   PURCHASE_ORDER_STATUS_SEVERITY,
+   PURCHASE_ORDER_CLIENT_STATUSES,
    PURCHASE_ORDER_STATUSES,
-   usePurchaseOrderIds,
-   type PurchaseOrderStatus
+   usePurchaseOrderIds
 } from '@/api/purchaseOrder';
 import type { ResourceTableProps } from '@/components/service-components/resource-table/ResourceTable.vue';
 import {
@@ -12,11 +11,15 @@ import {
    equalsFilter,
    type FilterSpec
 } from '@/components/service-components/resource-table/createFilters';
+import { clientVisibleColumns, useSharedRow } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
 
 // Purchase orders (public.purchase_order_overview) of the tenants in scope, optionally of one
 // supplier, project or product. Embedded in
 // another card (with filters), the table keeps its state for the session only.
+// A provider's order shared with the client side (useSharedRow) is tagged with its provider and
+// opens read-only; its status is the client status. When every row shown is shared, the columns
+// are the client-visible ones (the others would read empty).
 type Props = ResourceTableProps<'purchase_order_overview'>;
 
 const props = defineProps<{
@@ -40,7 +43,14 @@ const enumFilterColumn = {
    showAddButton: false
 };
 
-const columns = computed<Props['columns']>(() => [
+const { isShared, providerName } = useSharedRow();
+const rows = ref<Views['purchase_order_overview']['Row'][]>([]);
+const allShared = computed(() => rows.value.length > 0 && rows.value.every(isShared));
+
+// The derived columns of the overview that show client-visible data only.
+const SHARED_DERIVED = ['line_count', 'total_quantity'];
+
+const allColumns = computed<Props['columns']>(() => [
    {
       field: 'code',
       sortable: true,
@@ -57,12 +67,15 @@ const columns = computed<Props['columns']>(() => [
    },
    { field: 'project_code', sortable: true, header: t('ops.purchase_order.fields.project') },
    {
-      field: 'status',
+      field: allShared.value ? 'client_status' : 'status',
       sortable: true,
       header: t('ops.purchase_order.fields.status'),
       ...enumFilterColumn
    },
    { field: 'ready_on', sortable: true, header: t('ops.purchase_order.fields.ready_on') },
+   ...(allShared.value
+      ? [{ field: 'total_quantity', header: t('ops.purchase_order.fields.quantity') }]
+      : []),
    { field: 'system_total', sortable: true, header: t('ops.purchase_order.fields.total') },
    {
       field: 'deposit_paid_on',
@@ -76,6 +89,12 @@ const columns = computed<Props['columns']>(() => [
    }
 ]);
 
+const columns = computed<Props['columns']>(() =>
+   allShared.value
+      ? clientVisibleColumns('purchase_order', allColumns.value ?? [], SHARED_DERIVED)
+      : allColumns.value
+);
+
 const idFilter = (ids: readonly string[]) => ({
    operator: FilterOperator.AND,
    constraints: [{ value: [...ids], matchMode: FilterMatchMode.IN }]
@@ -86,6 +105,7 @@ const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
       status: equalsFilter(),
+      client_status: equalsFilter(),
       supplier_id: equalsFilter(props.filters?.supplierId ?? null),
       project_id: equalsFilter(props.filters?.projectId ?? null),
       ...(productId.value ? { id: idFilter([]) as FilterSpec } : {})
@@ -101,10 +121,11 @@ watch(
    { immediate: true }
 );
 
+// A shared order opens read-only: viewed, not edited.
 const rowActions: Props['rowActions'] = [
    {
-      label: t('action.edit'),
-      icon: PrimeIcons.PENCIL,
+      label: ({ data }) => (isShared(data) ? t('action.view') : t('action.edit')),
+      icon: ({ data }) => (isShared(data) ? PrimeIcons.EYE : PrimeIcons.PENCIL),
       command:
          ({ data }) =>
          async () =>
@@ -128,15 +149,29 @@ const rowActions: Props['rowActions'] = [
       :rowActions
       :enableExpansion="false"
       v-model:filters="filters"
+      v-model="rows"
    >
+      <template #code_body="{ data }">
+         <span class="inline-flex flex-wrap items-center gap-2">
+            {{ data.code }}
+            <SharedTag v-if="isShared(data)" :provider="providerName(data)" />
+         </span>
+      </template>
       <template #supplier_id_body="{ data }">{{ data.supplier_code }}</template>
       <template #supplier_id_filter="{ filterModel }">
          <SelectSupplier v-model="filterModel.value" />
       </template>
       <template #status_body="{ data }">
-         <Tag
-            :value="$t(`ops.purchase_order.status.${data.status}`)"
-            :severity="PURCHASE_ORDER_STATUS_SEVERITY[data.status as PurchaseOrderStatus]"
+         <OrderStatusTag :order="data" />
+      </template>
+      <template #client_status_body="{ data }">
+         <OrderStatusTag :order="data" />
+      </template>
+      <template #client_status_filter="{ filterModel }">
+         <SelectEnum
+            v-model="filterModel.value"
+            :values="PURCHASE_ORDER_CLIENT_STATUSES"
+            i18n-prefix="ops.purchase_order.client_status"
          />
       </template>
       <template #status_filter="{ filterModel }">

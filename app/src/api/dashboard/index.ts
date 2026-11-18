@@ -59,7 +59,10 @@ export const useDashboardTasks = () =>
 export const useDashboardEvidence = () =>
    useDashboardView<DashboardEvidenceRow>('dashboard_product_evidence');
 
-/** The open purchase orders (neither draft, closed nor cancelled), the earliest ready date first. */
+/**
+ * The open purchase orders (neither draft, closed nor cancelled; a shared order on the client side
+ * neither delivered nor cancelled), the earliest ready date first.
+ */
 export const useDashboardPurchaseOrders = () =>
    useDashboardView<DashboardPurchaseOrderRow>('dashboard_purchase_order', {
       column: 'ready_on',
@@ -126,6 +129,7 @@ export const evidenceTarget = (
       : { name: 'ops-product-list' };
 
 type PurchaseOrderStatus = NonNullable<DashboardPurchaseOrderRow['status']>;
+type ClientStatus = NonNullable<DashboardPurchaseOrderRow['client_status']>;
 type ShipmentStatus = NonNullable<DashboardShipmentRow['status']>;
 
 /** The order statuses that wait for an action of ours (send, chase or approve the PI, pay). */
@@ -137,16 +141,32 @@ const PO_PRODUCTION: readonly PurchaseOrderStatus[] = [
    'ready',
    'balance_paid'
 ];
+/**
+ * A shared order on the client side reads no raw status (Q1), only its client status: one not yet
+ * in production waits on the provider, so it shows with the orders waiting for action.
+ */
+const PO_CLIENT_WAITING: readonly ClientStatus[] = ['pending', 'confirmed'];
 /** The shipment statuses of goods on the way, from the loading to customs. */
 const SHIPMENT_IN_TRANSIT: readonly ShipmentStatus[] = ['loaded', 'in_transit', 'at_customs'];
 
-/** The open orders waiting for action, and those in production. Each group keeps the rows' order. */
-export function groupPurchaseOrders<Row extends Pick<DashboardPurchaseOrderRow, 'status'>>(
-   rows: readonly Row[]
-) {
-   const has = (statuses: readonly PurchaseOrderStatus[]) => (row: Row) =>
-      !!row.status && statuses.includes(row.status);
-   return { action: rows.filter(has(PO_ACTION)), production: rows.filter(has(PO_PRODUCTION)) };
+/**
+ * The open orders waiting for action, and those in production. Each group keeps the rows' order. A
+ * shared order on the client side is grouped by its client status.
+ */
+export function groupPurchaseOrders<
+   Row extends Pick<DashboardPurchaseOrderRow, 'status'> &
+      Partial<Pick<DashboardPurchaseOrderRow, 'client_status'>>
+>(rows: readonly Row[]) {
+   const has =
+      (statuses: readonly PurchaseOrderStatus[], clientStatuses: readonly ClientStatus[]) =>
+      (row: Row) =>
+         row.status
+            ? statuses.includes(row.status)
+            : !!row.client_status && clientStatuses.includes(row.client_status);
+   return {
+      action: rows.filter(has(PO_ACTION, PO_CLIENT_WAITING)),
+      production: rows.filter(has(PO_PRODUCTION, ['in_production']))
+   };
 }
 
 /**

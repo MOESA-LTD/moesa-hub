@@ -191,7 +191,7 @@
    },
    "audit_log": {
       "no_changes_detected": "لم يتم اكتشاف أي تغييرات",
-      "masked": "تم التغيير",
+      "masked": "changed",
       "add": "إضافة",
       "update": "تحديث",
       "delete": "حذف",
@@ -212,8 +212,7 @@
       "added": "تم الإضافة",
       "updated": "تم التحديث",
       "deleted": "تم الحذف",
-      "readed": "تم القراءة",
-      "masked": "changed"
+      "readed": "تم القراءة"
    },
    "dashboard": {
       "notifications": {
@@ -384,7 +383,8 @@
       "submit": "إرسال",
       "resend_code": "إعادة إرسال الشفرة",
       "back": "العودة",
-      "invite": "دعوة"
+      "invite": "دعوة",
+      "view": "View"
    },
    "errors": {
       "audit_already_reverted": "تم التراجع عن هذا التغيير بالفعل.",
@@ -1698,7 +1698,15 @@
          "psi_warning": "No approved PSI report on this order; per G4 the balance is not paid without it.",
          "deposit_differs": "Differs from the PI deposit",
          "no_payments": "No payments.",
-         "no_updates": "No production updates."
+         "no_updates": "No production updates.",
+         "client_status": {
+            "pending": "Pending",
+            "confirmed": "Confirmed",
+            "in_production": "In production",
+            "shipped": "Shipped",
+            "delivered": "Delivered",
+            "cancelled": "Cancelled"
+         }
       },
       "shipment": {
          "title": "Shipments",
@@ -2310,6 +2318,11 @@
                "unknown": "Unknown"
             }
          }
+      },
+      "shared": {
+         "from": "From {provider}",
+         "shared": "Shared",
+         "read_only": "Shared by your provider: you can view it but not change it."
       }
    },
    "glossary": {

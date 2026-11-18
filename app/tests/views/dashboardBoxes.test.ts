@@ -5,6 +5,7 @@ import {
    type DashboardGateRow,
    type DashboardIncidentRow,
    type DashboardMarketRow,
+   type DashboardPurchaseOrderRow,
    type DashboardTaskRow
 } from '@/api/dashboard';
 import en from '@/plugins/i18n/locales/en/index.json';
@@ -15,6 +16,7 @@ import {
    gatesView,
    incidentsView,
    marketView,
+   ordersView,
    tasksView
 } from '@/views/pages/dashboard/boxes/views';
 import i18n from '@plugins/i18n';
@@ -129,4 +131,18 @@ it('previews the first items of the feed, grouped by period', () => {
       { since: 'today', items: items.slice(0, 2) },
       { since: 'older', items: [items[2]] }
    ]);
+});
+
+it('shows a shared order waiting on the provider with its client status (raw status NULL)', () => {
+   const row = {
+      purchase_order_id: 'o1',
+      code: 'PO-THO-1',
+      status: null,
+      client_status: 'confirmed',
+      client_code: 'THO',
+      supplier_code: null
+   } as DashboardPurchaseOrderRow;
+   const view = ordersView([row], 'po_action');
+   expect(view.count).toBe(1);
+   expect(view.rows[0]).toMatchObject({ code: 'PO-THO-1', tag: 'Confirmed' });
 });

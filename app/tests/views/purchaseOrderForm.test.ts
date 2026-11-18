@@ -40,6 +40,10 @@ const api = vi.hoisted(() => ({
    linkedProjectIds: [] as unknown[]
 }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
@@ -133,6 +137,7 @@ const standInForm = (row: PurchaseOrderCard | null) => ({
    isDirty: ref(false),
    isSubmitting: ref(false),
    readonly: ref(false),
+   shared: ref(false),
    reset: vi.fn(),
    submit: vi.fn(),
    draft: {},
@@ -425,6 +430,26 @@ describe('lines tab', () => {
       });
       expect(wrapper.get('[data-test="spec-version"]').text()).toBe('v03');
       expect(wrapper.find('[data-test="spec-missing"]').exists()).toBe(false);
+   });
+
+   it('shows a shared order its sell prices, read-only, without cost or spec sheets', () => {
+      const shared = [
+         { ...line('l1', 1), unit_price: null, line_total: null, sell_price_eur: 9.9 }
+      ];
+      const form = {
+         ...standInForm(order('sent', shared as PurchaseOrderCardLine[])),
+         shared: ref(true)
+      };
+      const wrapper = mountTab(Lines, form, { spec_missing_line_ids: null, system_subtotal: null });
+
+      const headers = wrapper.findAll('th').map((th) => th.text());
+      expect(headers).toContain(i18n.t('ops.product.fields.sell_price_eur'));
+      for (const key of ['unit_price', 'line_total', 'spec_document'])
+         expect(headers).not.toContain(i18n.t(`ops.purchase_order.fields.${key}`));
+      expect(wrapper.text()).toContain('9.90 EUR');
+      expect(wrapper.find('[data-link="ops-purchase-order-line-add"]').exists()).toBe(false);
+      expect(wrapper.find('[data-link="ops-purchase-order-line-edit"]').exists()).toBe(false);
+      expect(wrapper.find('[data-test="subtotal"]').exists()).toBe(false);
    });
 
    it('offers adding and editing lines while the order is open', () => {

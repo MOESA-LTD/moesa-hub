@@ -7,6 +7,7 @@ import {
    type ShipmentCard,
    type ShipmentStatus
 } from '@/api/shipment';
+import { useSharedRow } from '@/composables/useSharedRow';
 import Acceptance from './tabs/Acceptance.vue';
 import Dates from './tabs/Dates.vue';
 import Documents from './tabs/Documents.vue';
@@ -60,6 +61,21 @@ provide(SHIPMENT_OVERVIEW, overview);
 
 const shipment = computed(() => form.row.value ?? null);
 
+// A provider's shipment shared with the client side opens read-only, with what the client reads:
+// the general data, the dates, the orders and the log. Acceptance (the provider's documents),
+// documents and media stay the provider's.
+const { shared } = form;
+const { providerName } = useSharedRow();
+const SHARED_TABS: readonly ShipmentCardTab[] = ['general', 'dates', 'orders', 'events'];
+const tabs = computed(() => (shared.value ? SHARED_TABS : SHIPMENT_CARD_TABS));
+watch(
+   tabs,
+   (shown) => {
+      if (!shown.includes(activeTab.value)) activeTab.value = 'general';
+   },
+   { immediate: true }
+);
+
 // --- status actions ---
 
 // No move while the form has unsaved edits: saved afterwards, they would overwrite what the move
@@ -97,7 +113,15 @@ const title = computed(() => (shipment.value ? (shipment.value.code ?? null) : n
          :value="$t(`ops.shipment.status.${shipment.status}`)"
          :severity="SHIPMENT_STATUS_SEVERITY[shipment.status]"
       />
-      <span class="ms-auto flex flex-wrap gap-2">
+      <template v-if="shared">
+         <SharedTag :provider="providerName(shipment)" />
+         <small
+            class="ms-auto text-muted-color"
+            data-test="shared-hint"
+            v-text="$t('ops.shared.read_only')"
+         />
+      </template>
+      <span v-else class="ms-auto flex flex-wrap gap-2">
          <slot name="actions" :shipment>
             <StatusActions
                v-if="$can('update', 'shipment')"
@@ -120,12 +144,7 @@ const title = computed(() => (shipment.value ? (shipment.value.code ?? null) : n
    </div>
    <Tabs v-model:value="activeTab">
       <TabList>
-         <Tab
-            v-for="key in SHIPMENT_CARD_TABS"
-            :key
-            :value="key"
-            :disabled="key !== 'general' && !id"
-         >
+         <Tab v-for="key in tabs" :key :value="key" :disabled="key !== 'general' && !id">
             {{ $t(`ops.shipment.tabs.${key}`) }}
          </Tab>
       </TabList>
