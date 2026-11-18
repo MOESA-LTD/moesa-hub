@@ -24,6 +24,7 @@
 - No "MOESA" in schema, error codes or app copy.
 - `private.api_view_drift()` stays empty; every new definer callable by `authenticated` enters the 064 allowlist deliberately.
 
+- pgTAP snippets write fixture values as `:'name'`. psql does not interpolate inside `$$`, so write them as the existing tests do: a fixed UUID literal (`'00000000-0000-4000-8000-0000000NNNNN'`) or `current_setting('test.<name>')::UUID` set by the fixture. Helpers named `tests.*` are added to `private.create_test_helpers()` by the task that first uses them.
 ## Review Focus
 
 - **A client user whose role lacks `select` on `purchase_order` in its own tenant:** sees no shared order at all (table-level narrowing), not an order with NULLs (Task 2 test `client without select sees no shared order`).

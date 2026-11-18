@@ -24,6 +24,7 @@
 - Error codes are snake_case `check_violation` messages (business rules) or 42501 with the existing JSON shape (rights), as the existing guards do.
 - Verification commands: `cd app && pnpm test:db`, `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm dev:seed-story`; `cd supabase/functions && deno task check && deno task test && deno task test:http`; `cd app && pnpm perf:fields`.
 
+- pgTAP snippets write fixture values as `:'name'`. psql does not interpolate inside `$$`, so write them as the existing tests do: a fixed UUID literal (`'00000000-0000-4000-8000-0000000NNNNN'`) or `current_setting('test.<name>')::UUID` set by the fixture. Helpers named `tests.*` are added to `private.create_test_helpers()` by the task that first uses them.
 ## Review Focus
 
 - **A client product deleted under a provider PO line:** the line keeps `product_sku`/`product_name`, `product_id` becomes NULL, and the PO page still renders the line (Task 5 test `client product delete keeps the line snapshot`; Task 16 vitest `renders a line without product_id from its snapshot`).
@@ -223,6 +224,7 @@ SELECT is(private.code_scope(:'provider', :'client'), 'THO', 'code scope of a cl
     `sell_price_eur` default: BEFORE INSERT, when NULL, `sourcing.sell_price_eur` of `(NEW.tenant_id, NEW.product_id)`. It is the provider's selling price per line (spec decision 9); `unit_price`, `line_total`, `pi_line_total` stay the purchase side (group `cost`).
   - `public.purchase_order_payment`, `public.purchase_order_update`: no client column (never shared, decision 15).
   - `private.po_line_needs_spec`, `private.purchase_order_figures`, `private.purchase_order_guard`, `private.purchase_order_line_guard`, `private.purchase_order_child_guard` lose their customer clauses; `private.purchase_order_set_code` uses `private.code_scope(NEW.tenant_id, NEW.client_tenant_id)`.
+  - The 029 header comment no longer names the operator ("what the procuring tenant orders from a supplier, for itself or for a client tenant").
   - `private.purchase_order_defaults()`: `deposit_rate` default from `provider_relationship.deposit_rate` of the pair when `client_tenant_id` is set, else the `deposit_rate_default` setting (was `customer.deposit_rate`).
 
 - [ ] **Step 1: Failing tests** in `029_purchase_orders.test.sql` (plan +10):
