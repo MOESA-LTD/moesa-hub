@@ -4,7 +4,7 @@ Source: the local DB `information_schema.columns` (public base tables, 645 colum
 
 **Result: 81 sensitive columns in 9 field groups.** Per group: cost 17, internal_note 20, supplier_terms 13, personal_data 8, contract 6, supplier_identity 5, finance 5, supplier_contact 4, sell_price 3.
 
-**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 86 columns are sensitive (`049_field_catalog.sql` is the authority): contract 5, cost 18, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts in the line above are the original draft's.
+**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 88 columns are sensitive (`049_field_catalog.sql` is the authority, plus `068`'s two change request cost fields): contract 5, cost 20, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts in the line above are the original draft's.
 
 
 ## Classes
@@ -602,8 +602,8 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | affected_gate_code | enum | public-to-tenant | | | | | |  |
 | affected_document_id | uuid | system | | | | | | FK |
 | other_documents | text | public-to-tenant | | | | | |  |
-| cost_impact | text | public-to-tenant | | | | | | public on purpose: customer must see it to approve the CR (§3) |
-| cost_payer | enum | public-to-tenant | | | | | | public on purpose (customer approves) |
+| cost_impact | text | **sensitive** | `cost` | RW | RW | RW | — | rights column `guard_tenant_id` (Plan 2, 068): on a provider's order, read and written under the provider's rights only (§3 decision 8) |
+| cost_payer | enum | **sensitive** | `cost` | RW | RW | RW | — | rights column `guard_tenant_id`, as cost_impact |
 | delay_days | integer | public-to-tenant | | | | | |  |
 | quality_impact | text | public-to-tenant | | | | | |  |
 | listing_impact | text | public-to-tenant | | | | | |  |
@@ -824,7 +824,7 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 5. **`product.origin_country` stays public.** Needed for customs, labels and compliance; it narrows the supplier to a country only.
 6. **`shipment.forwarder`, `customs_broker`, `carrier`, `container_no` stay public.** The portal tracks shipments; forwarders are not the bypass risk suppliers are. If logistics partners must also be protected, add a `logistics_partner` group.
 7. **`shipment_event.from_party` / `to_party`, `incident.affected_parties`, `product.golden_sample_locations` stay public** although free text may name the supplier. Alternative: a team rule "write the supplier code, never the name", or move them to `supplier_identity`.
-8. **`change_request.cost_impact` and `cost_payer` stay public.** The customer approves CRs and must see the cost; MOESA's internal cost breakdown goes into `decision_note` (internal_note).
+8. **`change_request.cost_impact` and `cost_payer` are `cost` (customer = tenant, Plan 2, 068).** Superseded: they were public so the customer could approve the CR. A change request now lives in the client's tenant, and on a provider's order (`purchase_order_id`, `order_tenant_id`) its cost is the provider's (spec, "Calls made"): the fields carry the rights column `guard_tenant_id` = coalesce(order_tenant_id, tenant_id), so on a provider order only the provider's rights read or write them (the audit history too), and on the client's own order (or none) the client's own `cost` rights apply. `incident.affected_parties` stays public (Plan 2 F6). The internal cost breakdown still goes into `decision_note` (internal_note).
 9. **`incident.what_happened`, `current_state`, `immediate_action`, `root_cause` (enum), `preventive_action` stay public; `root_cause_note`, `impact_note`, `lessons` are internal.** Customers get incident notices (S17), the post-mortem text can name supplier or staff fault.
 10. **`purchase_order_payment` dates (`planned_on`, `paid_on`) and `paid_by` stay public, amounts are `finance`.** Dashboards and the G4 "no balance without PSI" warning use the dates.
 11. **`supplier.rating`, `last_audit_on`, `notes` are `internal_note`** so a future staff/QC role can see the supplier without its evaluation. Supplier identity fields inside `supplier` itself are not toggled: the whole table is already hidden from the portal (D3-3).

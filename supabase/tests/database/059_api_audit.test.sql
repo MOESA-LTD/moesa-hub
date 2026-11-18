@@ -124,13 +124,13 @@ SELECT is(t.peek('setting', 'key', (SELECT id FROM api.setting WHERE key = 'rena
 -- As postgres: the pure functions and the catalog.
 RESET ROLE;
 SELECT private.unimpersonate();
-SELECT is(private.mask_audit_data('sourcing', NULL, '{"product_sku":"A","purchase_price":1}'::JSONB, '{}'::JSONB, private.sensitive_fields_map()),
+SELECT is(private.mask_audit_data('sourcing', NULL, '{"product_sku":"A","purchase_price":1}'::JSONB, '{}'::JSONB, private.sensitive_fields_map(), '{}'::JSONB),
    '{"product_sku":"A","purchase_price":{"masked":true}}'::JSONB, 'a NULL tenant masks every sensitive key (fail closed)');
 SELECT is(private.mask_json_deep('{"rows":[{"table":"sourcing","row":{"product_sku":"A","purchase_price":5}}]}'::JSONB, current_setting('test.moesa')::UUID, '{}'::JSONB, private.sensitive_fields_map()),
    '{"rows":[{"table":"sourcing","row":{"product_sku":"A","purchase_price":{"masked":true}}}]}'::JSONB, 'nested sensitive keys in a JSON document are masked');
 SELECT is((SELECT pg_get_userbyid(proowner)::TEXT FROM pg_proc WHERE oid = 'public.revert_audit_transaction(uuid)'::REGPROCEDURE), 'api_owner', 'R8: revert runs as api_owner');
 SELECT is_empty($$ SELECT p.oid::REGPROCEDURE FROM pg_proc p WHERE p.oid IN ('private.mask_json_keys(jsonb,text[])'::REGPROCEDURE,
-   'private.mask_json_deep(jsonb,uuid,jsonb,jsonb)'::REGPROCEDURE, 'private.mask_audit_data(text,uuid,jsonb,jsonb,jsonb)'::REGPROCEDURE,
+   'private.mask_json_deep(jsonb,uuid,jsonb,jsonb)'::REGPROCEDURE, 'private.mask_audit_data(text,uuid,jsonb,jsonb,jsonb,jsonb,jsonb)'::REGPROCEDURE,
    'api.display_name(api.user)'::REGPROCEDURE) AND pg_get_userbyid(p.proowner) <> 'api_owner' $$, 'R8: the masking definers and display_name are owned by api_owner');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() is empty');
 

@@ -20,7 +20,7 @@ SELECT is((SELECT what_happened FROM api.incident WHERE id = current_setting('te
 SELECT results_eq($$ SELECT note, cost_amount FROM api.incident_log WHERE id = current_setting('test.inc_log')::UUID $$,
    $$ VALUES (NULL::TEXT, NULL::NUMERIC) $$, 'incident log note and cost masked');
 SELECT results_eq($$ SELECT cost_impact, decision_note FROM api.change_request WHERE id = current_setting('test.cr')::UUID $$,
-   $$ VALUES ('99'::TEXT, NULL::TEXT) $$, 'CL 3.8: CR cost impact readable, decision note masked');
+   $$ VALUES (NULL::TEXT, NULL::TEXT) $$, 'CR cost impact (cost since 068, CL 3.8 superseded) and decision note masked');
 SELECT is((SELECT notes FROM api.market_cell WHERE id = current_setting('test.cell')::UUID), NULL, 'market cell notes masked');
 
 RESET ROLE;

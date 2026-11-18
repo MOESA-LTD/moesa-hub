@@ -4,19 +4,25 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- shipment shared with it (client_tenant_id = its tenant), never an unshared one, another client's,
 -- or one of a provider it has no relationship with. After the relationship ends the client may still
 -- cite the rows shared with it (Q4); the provider may still delete its order (F7).
+-- A change request on a provider order keeps its cost (cost_impact, cost_payer) under the provider's
+-- rights: the client reads NULL, cannot write it, cannot unlink or relink out of it, and its audit
+-- history shows it masked; the provider's staff read and write it (Task 6).
 --
--- Sections: links (Task 5).
+-- Sections: links (Task 5), guarded (Task 6).
 --
 -- Signing in (F4): `RESET ROLE; SELECT private.impersonate_scope(user, active, scope);`.
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(44);
 
 -- Fixture, built here as postgres (ids 0000000068xx):
 --   P  ...6801  provider (code LPV); C ...6802 client (rel_c ...6821); D ...6803 another client (rel_d ...6822)
 --   pc ...6811  P coordinator (every purchase order and shipment right, every field)
 --   co ...6812  C owner
 --   cx ...6813  C member whose role holds incidents and change requests, but no purchase order or shipment
+--   pm ...6814  provider management: in P every change request and audit right with every field
+--               (role ...6833), in C change requests and the audit log without the cost (role ...6834)
+--   cr_c ...6892 C's change request on po_c (cost written by pm in the guarded section)
 --   orders: po_c ...6851 (P for C), po_d ...6852 (P for D), po_own ...6853 (P, no client),
 --           po_del ...6854 (P for C, draft, cited by the client's change request cr_del ...6891),
 --           po_cown ...6855 (C's own order, its supplier ...6882)
@@ -29,7 +35,8 @@ INSERT INTO public.tenant (id, display_name, code) VALUES
 INSERT INTO public.user (id, email) VALUES
    ('00000000-0000-4000-8000-000000006811', 'pc@link.test'),
    ('00000000-0000-4000-8000-000000006812', 'co@link.test'),
-   ('00000000-0000-4000-8000-000000006813', 'cx@link.test');
+   ('00000000-0000-4000-8000-000000006813', 'cx@link.test'),
+   ('00000000-0000-4000-8000-000000006814', 'pm@link.test');
 
 INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802');
@@ -37,11 +44,15 @@ INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
 INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006811', '00000000-0000-4000-8000-000000006801'),
    ('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802'),
-   ('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802');
+   ('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802'),
+   ('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006801'),
+   ('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006802');
 
 INSERT INTO public.role (id, tenant_id, display_name) VALUES
    ('00000000-0000-4000-8000-000000006831', '00000000-0000-4000-8000-000000006801', 'Coordinator'),
-   ('00000000-0000-4000-8000-000000006832', '00000000-0000-4000-8000-000000006802', 'Incidents only');
+   ('00000000-0000-4000-8000-000000006832', '00000000-0000-4000-8000-000000006802', 'Incidents only'),
+   ('00000000-0000-4000-8000-000000006833', '00000000-0000-4000-8000-000000006801', 'Management'),
+   ('00000000-0000-4000-8000-000000006834', '00000000-0000-4000-8000-000000006802', 'Provider desk');
 
 INSERT INTO public.role_permission (role_id, permission_id)
 SELECT '00000000-0000-4000-8000-000000006831', p.id FROM public.permission p
@@ -51,11 +62,19 @@ INSERT INTO public.role_permission (role_id, permission_id)
 SELECT '00000000-0000-4000-8000-000000006832', p.id FROM public.permission p
 WHERE p.resource_name IN ('public.incident', 'public.change_request');
 
+INSERT INTO public.role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM public.permission p
+CROSS JOIN (VALUES ('00000000-0000-4000-8000-000000006833'::UUID), ('00000000-0000-4000-8000-000000006834'::UUID)) AS r (id)
+WHERE p.resource_name IN ('public.change_request', 'public.audit_log', 'public.audit_transaction');
+
 INSERT INTO public.user_role (user_id, role_id) VALUES
    ('00000000-0000-4000-8000-000000006811', '00000000-0000-4000-8000-000000006831'),
-   ('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006832');
+   ('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006832'),
+   ('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006833'),
+   ('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006834');
 
 SELECT private.grant_all_fields('00000000-0000-4000-8000-000000006831');
+SELECT private.grant_all_fields('00000000-0000-4000-8000-000000006833');
 
 INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
    ('00000000-0000-4000-8000-000000006821', '00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802',
@@ -95,7 +114,9 @@ INSERT INTO public.shipment (id, tenant_id, client_tenant_id, mode, delivery_war
 INSERT INTO public.change_request (id, tenant_id, title, source, change_kinds, current_value, requested_value, reason,
                                    purchase_order_id, order_tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006891', '00000000-0000-4000-8000-000000006802', 'Cancel draft', 'customer', '{deadline}',
-    'May', 'June', 'x', '00000000-0000-4000-8000-000000006854', '00000000-0000-4000-8000-000000006801');
+    'May', 'June', 'x', '00000000-0000-4000-8000-000000006854', '00000000-0000-4000-8000-000000006801'),
+   ('00000000-0000-4000-8000-000000006892', '00000000-0000-4000-8000-000000006802', 'Guarded', 'customer', '{design}',
+    'Red', 'Blue', 'x', '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801');
 
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 
@@ -210,6 +231,110 @@ SELECT is((SELECT ROW(purchase_order_id, order_tenant_id)::TEXT FROM public.chan
            WHERE id = '00000000-0000-4000-8000-000000006891'),
           ROW(NULL::UUID, '00000000-0000-4000-8000-000000006801'::UUID)::TEXT,
           'the change request loses the order and keeps its tenant');
+
+-- ---------------------------------------------------------------------------------------------------
+-- Guarded (Task 6): cr_c's cost is read and written under P's rights (guard_tenant_id = P), whoever
+-- in C holds the cost right; a change request on C's own order keeps C's rights.
+-- The provider's management, with C in its scope, writes the cost.
+RESET ROLE;
+-- Each write its own audit transaction, in the row's tenant (one test is one transaction).
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006801', ARRAY['00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT lives_ok($$ UPDATE api.change_request SET cost_impact = '500', cost_payer = 'company' WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                'provider management writes the guarded cost');
+SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                  $$ VALUES ('500'::TEXT, 'company'::public.cost_payer) $$, 'provider management reads the guarded cost');
+
+-- The client owner.
+RESET ROLE;
+SELECT set_config('test.cx_permissions', ARRAY(SELECT p.id FROM public.permission p
+                  WHERE p.resource_name IN ('public.incident', 'public.change_request', 'public.audit_log'))::TEXT, TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                  $$ VALUES (NULL::TEXT, NULL::public.cost_payer) $$, 'client owner: cost of a provider-order change request is NULL');
+SELECT throws_ok($$ UPDATE api.change_request SET cost_impact = '1' WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                 '42501', 'field_write_forbidden', 'client owner cannot write the guarded cost');
+SELECT throws_ok($$ UPDATE api.change_request SET cost_payer = 'customer' WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                 '42501', 'field_write_forbidden', 'client owner cannot write the guarded cost payer');
+SELECT throws_ok($$ UPDATE api.change_request SET purchase_order_id = NULL, order_tenant_id = NULL WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                 '42501', 'cost_link_forbidden', 'client cannot unlink to unmask');
+SELECT throws_ok($$ UPDATE api.change_request SET purchase_order_id = '00000000-0000-4000-8000-000000006855', order_tenant_id = NULL
+                    WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                 '23514', 'order_tenant_immutable', 'client cannot relink to its own order to unmask');
+SELECT throws_ok($$ INSERT INTO api.change_request (tenant_id, title, source, change_kinds, current_value, requested_value, reason,
+                                                    purchase_order_id, order_tenant_id, cost_impact)
+                    VALUES ('00000000-0000-4000-8000-000000006802', 'X', 'customer', '{design}', 'Red', 'Blue', 'x',
+                            '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801', '1') $$,
+                 '42501', 'field_write_forbidden', 'client cannot create a provider-order change request with a cost (F1)');
+SELECT throws_ok($$ INSERT INTO api.change_request (tenant_id, title, source, change_kinds, current_value, requested_value, reason,
+                                                    purchase_order_id, cost_impact)
+                    VALUES ('00000000-0000-4000-8000-000000006802', 'X', 'customer', '{design}', 'Red', 'Blue', 'x',
+                            '00000000-0000-4000-8000-000000006851', '1') $$,
+                 '42501', 'field_write_forbidden', 'nor by leaving out the order tenant (filled before the write guard)');
+SELECT throws_ok($$ INSERT INTO api.change_request (tenant_id, title, source, change_kinds, current_value, requested_value, reason,
+                                                    purchase_order_id, order_tenant_id, guard_tenant_id, cost_impact)
+                    VALUES ('00000000-0000-4000-8000-000000006802', 'X', 'customer', '{design}', 'Red', 'Blue', 'x',
+                            '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802', '1') $$,
+                 '42501', 'field_write_forbidden', 'nor by sending its own tenant as the rights column (F1)');
+-- The owner gives a C role the cost (save_role); its own order's change request is C's to cost.
+SELECT lives_ok($$ SELECT public.save_role(
+                       jsonb_build_object('id', '00000000-0000-4000-8000-000000006832', 'display_name', 'Incidents only'),
+                       current_setting('test.cx_permissions')::UUID[],
+                       '[{"resource_name": "public.change_request", "field": "cost_impact", "can_read": true, "can_write": true},
+                         {"resource_name": "public.change_request", "field": "cost_payer", "can_read": true, "can_write": true}]'::JSONB) $$,
+                'client owner grants a role the cost (save_role)');
+SELECT lives_ok($$ UPDATE api.change_request SET cost_impact = '42' WHERE title = 'Own order change' $$,
+                'client owner writes the cost of a change request on its own order');
+SELECT is((SELECT cost_impact FROM api.change_request WHERE title = 'Own order change'), '42', 'client owner reads it');
+
+-- The C role granted the cost.
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                  $$ VALUES (NULL::TEXT, NULL::public.cost_payer) $$, 'client role granted the cost: still NULL on a provider order');
+SELECT throws_ok($$ UPDATE api.change_request SET cost_impact = '1', cost_payer = 'customer' WHERE id = '00000000-0000-4000-8000-000000006892' $$,
+                 '42501', 'field_write_forbidden', 'client role granted the cost cannot write it on a provider order');
+SELECT lives_ok($$ UPDATE api.change_request SET cost_impact = '43', cost_payer = 'customer' WHERE title = 'Own order change' $$,
+                'client role writes the cost on its own order');
+SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHERE title = 'Own order change' $$,
+                  $$ VALUES ('43'::TEXT, 'customer'::public.cost_payer) $$, 'client role reads it on its own order');
+
+-- The provider again: 500 → 600, so the history holds the old value too.
+RESET ROLE;
+-- Each write its own audit transaction, in the row's tenant (one test is one transaction).
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006801', ARRAY['00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT lives_ok($$ UPDATE api.change_request SET cost_impact = '600' WHERE id = '00000000-0000-4000-8000-000000006892' $$, 'provider management writes it again');
+SELECT is((SELECT count(*)::INT FROM api.audit_log WHERE record_id = '00000000-0000-4000-8000-000000006892' AND old_data ->> 'cost_impact' = '500'), 1,
+          'provider management reads the old cost in the history');
+
+-- The history as the client: the rows of cr_c that carry the cost keys (more than one: the insert and
+-- the provider's updates), every cost value masked (F14).
+RESET ROLE;
+CREATE TEMP VIEW cr_c_cost_history AS
+SELECT count(*)::INT AS with_cost,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM unnest(ARRAY[a.old_data, a.new_data]) AS d (data), unnest(ARRAY['cost_impact', 'cost_payer']) AS k (key)
+           WHERE d.data ? k.key AND d.data -> k.key <> '{"masked": true}'::JSONB))::INT AS unmasked
+FROM api.audit_log a
+WHERE a.record_id = '00000000-0000-4000-8000-000000006892'
+  AND (a.old_data ? 'cost_impact' OR a.new_data ? 'cost_impact');
+GRANT SELECT ON cr_c_cost_history TO authenticated;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT with_cost > 1, unmasked FROM cr_c_cost_history $$, $$ VALUES (TRUE, 0) $$,
+                  'client owner: the audit history masks the guarded cost');
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT with_cost > 1, unmasked FROM cr_c_cost_history $$, $$ VALUES (TRUE, 0) $$,
+                  'client role granted the cost: the audit history masks it');
+
+-- Nor does undoing the provider's change write it.
+RESET ROLE;
+SELECT set_config('test.cost_tx', (SELECT transaction_id::TEXT FROM public.audit_log
+                                   WHERE record_id = '00000000-0000-4000-8000-000000006892' AND new_data ->> 'cost_impact' = '600'), TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT throws_ok($$ SELECT public.revert_audit_transaction(current_setting('test.cost_tx')::UUID) $$,
+                 '42501', NULL, 'client owner cannot revert the provider''s cost change');
 
 SELECT * FROM finish();
 ROLLBACK;

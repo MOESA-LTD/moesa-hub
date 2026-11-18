@@ -206,10 +206,13 @@ export type Database = {
           decision_due_on: string | null
           decision_note: string | null
           delay_days: number | null
+          guard_tenant_id: string | null
           id: string | null
           listing_impact: string | null
+          order_tenant_id: string | null
           other_documents: string | null
           project_id: string | null
+          purchase_order_id: string | null
           quality_impact: string | null
           reason: string | null
           requested_value: string | null
@@ -262,6 +265,27 @@ export type Database = {
             columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_purchase_order"
+            referencedColumns: ["purchase_order_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order_overview"
             referencedColumns: ["id", "tenant_id"]
           },
           {
@@ -856,6 +880,7 @@ export type Database = {
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
+          entity_tenant_id: string | null
           entity_type: Database["public"]["Enums"]["document_entity"] | null
           family: Database["public"]["Enums"]["incident_family"] | null
           id: string | null
@@ -4420,10 +4445,13 @@ export type Database = {
           decision_due_on: string | null
           decision_note: string | null
           delay_days: number | null
+          guard_tenant_id: string | null
           id: string
           listing_impact: string | null
+          order_tenant_id: string | null
           other_documents: string | null
           project_id: string | null
+          purchase_order_id: string | null
           quality_impact: string | null
           reason: string
           requested_value: string
@@ -4452,10 +4480,13 @@ export type Database = {
           decision_due_on?: string | null
           decision_note?: string | null
           delay_days?: number | null
+          guard_tenant_id?: string | null
           id?: string
           listing_impact?: string | null
+          order_tenant_id?: string | null
           other_documents?: string | null
           project_id?: string | null
+          purchase_order_id?: string | null
           quality_impact?: string | null
           reason: string
           requested_value: string
@@ -4484,10 +4515,13 @@ export type Database = {
           decision_due_on?: string | null
           decision_note?: string | null
           delay_days?: number | null
+          guard_tenant_id?: string | null
           id?: string
           listing_impact?: string | null
+          order_tenant_id?: string | null
           other_documents?: string | null
           project_id?: string | null
+          purchase_order_id?: string | null
           quality_impact?: string | null
           reason?: string
           requested_value?: string
@@ -4540,6 +4574,27 @@ export type Database = {
             columns: ["project_id", "tenant_id"]
             isOneToOne: false
             referencedRelation: "project"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_purchase_order"
+            referencedColumns: ["purchase_order_id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "change_request_purchase_order_fkey"
+            columns: ["purchase_order_id", "order_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order_overview"
             referencedColumns: ["id", "tenant_id"]
           },
           {
@@ -4877,6 +4932,7 @@ export type Database = {
           customer_notice_due_at: string | null
           customer_notified_at: string | null
           entity_id: string | null
+          entity_tenant_id: string | null
           entity_type: Database["public"]["Enums"]["document_entity"] | null
           family: Database["public"]["Enums"]["incident_family"]
           id: string
@@ -4910,6 +4966,7 @@ export type Database = {
           customer_notice_due_at?: string | null
           customer_notified_at?: string | null
           entity_id?: string | null
+          entity_tenant_id?: string | null
           entity_type?: Database["public"]["Enums"]["document_entity"] | null
           family: Database["public"]["Enums"]["incident_family"]
           id?: string
@@ -4943,6 +5000,7 @@ export type Database = {
           customer_notice_due_at?: string | null
           customer_notified_at?: string | null
           entity_id?: string | null
+          entity_tenant_id?: string | null
           entity_type?: Database["public"]["Enums"]["document_entity"] | null
           family?: Database["public"]["Enums"]["incident_family"]
           id?: string
@@ -9620,6 +9678,7 @@ export type Database = {
       project_status: "active" | "on_hold" | "closed" | "cancelled"
       project_type: "npi" | "variant" | "revision" | "reorder"
       purchase_order_client_status:
+        | "pending"
         | "confirmed"
         | "in_production"
         | "shipped"

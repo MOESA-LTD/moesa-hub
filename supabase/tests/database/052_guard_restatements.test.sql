@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
 -- policies' shared-row call, the api view generator's shared-row masking, and the forwarder's and
 -- the base write guard's rights tenant, 068 the incident guard's
--- provider link), or extends it (a chain such as 021 → 032 → 036). A restated body is
+-- provider link and the audit snapshots' rights columns), or extends it (a chain such as 021 → 032 → 036). A restated body is
 -- the owner's current body plus only the restating migration's own delta, so an edit of the owner
 -- that is not carried into the restatement would be undone silently, and so would a chain step a
 -- later restatement forgot. Each row below names, for the live function, every rule its owner raises
@@ -19,7 +19,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(42);
+SELECT plan(43);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -115,14 +115,20 @@ VALUES
           'restrict_deletes_to_current_tenant', 'private.is_tenant_id_nullable(t_name)', 'tenant_id = ANY ((SELECT private.tenant_scope())::UUID[])',
           'IF private.is_shared_table(t_name) THEN', 'PERFORM private.enable_shared_rows(t_name)']),
    -- 067: the generator masks a shared row by the row's own tenant (053 → 059 → 067).
-   ('private.api_column_expr(text, text)', '053', '059, 067',
+   -- 068: the audit snapshots' mask takes the rights columns (and new_data for an update's old_data).
+   ('private.api_column_expr(text, text)', '053', '059, 067, 068',
     ARRAY['field_security_unsupported', 'CASE WHEN t.id = auth.uid() OR t.id = ANY (m.u%s)', 'CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) THEN',
           'private.mask_audit_data(t.table_name', 'private.mask_json_deep(t.%1$I', 'private.is_shared_table(p_table)',
           'JSON masking on a shared table', 'CASE WHEN t.%1$I = ANY (m.t%2$s) THEN', 'OR t.client_tenant_id = ANY (m.t%1$s) THEN',
-          'CASE WHEN t.tenant_id = ANY (m.t%1$s) THEN', 'CASE WHEN t.tenant_id = ANY (m.s) THEN t.%1$I ELSE NULL::%2$s END']),
-   ('private.api_view_from(text)', '053', '067',
+          'CASE WHEN t.tenant_id = ANY (m.t%1$s) THEN', 'CASE WHEN t.tenant_id = ANY (m.s) THEN t.%1$I ELSE NULL::%2$s END',
+          'm.rights, m.sensitive, m.rcols, t.new_data)']),
+   ('private.api_view_from(text)', '053', '067, 068',
     ARRAY['WITH r AS MATERIALIZED', 'private.field_user_rights(', 'private.field_read_rights(', 'private.api_rights_expr(p_table, a.attname)',
-          'OFFSET 0) m', '(SELECT coalesce(private.tenant_scope(), ''{}'')) AS s']),
+          'OFFSET 0) m', '(SELECT coalesce(private.tenant_scope(), ''{}'')) AS s', '(SELECT private.rights_columns_map()) AS rcols']),
+   -- 068: a field with a rights column is masked under the tenant it names in the snapshot.
+   ('private.mask_audit_data(text, uuid, jsonb, jsonb, jsonb, jsonb, jsonb)', '059', '068',
+    ARRAY['p_tenant IS NULL', '''{"masked": true}''::JSONB', 'p_sensitive -> p_table', '(p_readable -> r.tenant) ? (p_table || ''.'' || f.field)',
+          'coalesce(p_data ->> rc.name, p_row ->> rc.name, p_tenant::TEXT)', '(p_rcols -> p_table) ->> f.field']),
    ('private.api_view_query(text)', '053', '067',
     ARRAY['private.api_column_expr(p_table, a.attname)', 'private.api_view_from(p_table)', 'private.api_view_derived_columns(p_table)']),
    ('private.api_view_drift()', '053', '059, 067',

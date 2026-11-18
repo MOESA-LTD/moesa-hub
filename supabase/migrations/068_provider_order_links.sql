@@ -1,7 +1,8 @@
 -- 068: provider order links (Plan 2). A client's incident or change request may cite a provider's
 -- order or shipment shared with it.
 --
--- Section 1, links (Task 5).
+-- Section 1, links (Task 5). Section 2, provider-guarded cost (Task 6, its own header below; it adds
+-- cost_link_forbidden to provider_order_link_guard here).
 --
 -- incident.entity_tenant_id         The tenant of the linked record when it is a provider's order or
 --                                   shipment; NULL when it is the incident's own tenant (an own-tenant
@@ -85,6 +86,19 @@ BEGIN
         target_tenant := CASE WHEN by_kind THEN NULL ELSE own END;
     END IF;
     NEW := jsonb_populate_record(NEW, jsonb_build_object(tenant_column, target_tenant));
+
+    -- Section 2 (Task 6): a change request whose cost is its provider's (guard_tenant_id <> tenant_id)
+    -- changes its order only with the right to write that cost there, so a client cannot unlink or
+    -- relink out of the provider's rights. Not on a system path, nor when the order is gone (F7).
+    IF NOT by_kind AND TG_OP = 'UPDATE'
+       AND (old_row ->> 'guard_tenant_id') IS DISTINCT FROM (old_row ->> 'tenant_id')
+       AND (link_id IS DISTINCT FROM (old_row ->> id_column)::UUID
+            OR target_tenant IS DISTINCT FROM (old_row ->> tenant_column)::UUID)
+       AND NOT private.field_guard_bypassed()
+       AND NOT (link_id IS NULL AND private.parent_gone('public.purchase_order', (old_row ->> id_column)::UUID))
+       AND NOT coalesce((old_row ->> 'guard_tenant_id')::UUID = ANY (private.field_write_tenants('public.change_request', 'cost_impact')), FALSE) THEN
+        RAISE EXCEPTION 'cost_link_forbidden' USING ERRCODE = '42501';
+    END IF;
 
     -- Nothing to check: no link, an own-tenant link, a kept link, or the bypass.
     IF link_id IS NULL OR target_tenant IS NULL OR target_tenant = own
@@ -234,3 +248,351 @@ VALUES
 
 SELECT private.enable_field_security (t)
 FROM unnest(ARRAY['incident', 'change_request']) AS t;
+
+-- ====================================================================================== 2. guarded
+--
+-- Section 2, provider-guarded cost (Task 6). The cost of a change request on a provider's order is
+-- the provider's (spec, "Calls made"): change_request.cost_impact and cost_payer become sensitive
+-- (group cost) with rights_column guard_tenant_id, so they are read and written under the rights of
+-- coalesce(order_tenant_id, tenant_id): the provider's for a provider order, the row's own otherwise.
+-- A client right on the cost (an owner's, or one granted through save_role) never reaches them on a
+-- provider order. incident.affected_parties stays as it is (F6).
+--
+-- The rights tenant cannot be escaped:
+--   private.change_request_order_tenant (trigger a0_change_request_order_tenant, before
+--   aa_field_write_guard) settles order_tenant_id before any guard reads it:
+--     no order          none on INSERT; kept on UPDATE (an unlink, or the order deleted (F7): history)
+--     omitted           the order's tenant when the order is the row's own or shared with it, else
+--                       the row's own (F8; the foreign key then refuses a foreign id). So a client
+--                       that leaves the order tenant out of a provider order still writes under the
+--                       provider's rights.
+--     order_tenant_immutable (23514)  a set order tenant never changes. The order's delete only empties
+--                       purchase_order_id (ON DELETE SET NULL (purchase_order_id)), so that path
+--                       keeps it too.
+--   private.provider_order_link_guard (section 1) adds, for a change request whose guard_tenant_id is
+--   not its tenant_id, on an UPDATE that changes the order:
+--     cost_link_forbidden (42501)  the caller may not write the cost in OLD.guard_tenant_id
+--                       (private.field_write_tenants). Not on a system path (field_guard_bypassed) nor
+--                       when the order is gone (F7).
+--   The forwarder and the write guard (067) check OLD and NEW rights tenants from base columns (F1).
+--
+-- The audit trail: private.rights_columns_map() is {"<table>": {"<field>": "<rights column>"}} from
+-- field_class; private.mask_audit_data takes it (p_rcols) and reads a field's rights tenant from the
+-- snapshot's rights column, from p_row (the row's new_data: an UPDATE's old_data holds only the changed
+-- keys) when the snapshot lacks it, else the row's tenant (a snapshot older than the column). It
+-- replaces the five-argument version. api.audit_log's m gains rcols.
+--
+-- Restated (F12, pinned in 052_guard_restatements.test.sql): api_column_expr and api_view_from (067's
+-- bodies) and mask_audit_data (059's), each plus only this delta. Field security is re-run for
+-- change_request and for the read-only audit_log (F9).
+
+UPDATE public.field_class
+SET
+   class = 'sensitive',
+   group_name = 'cost',
+   rights_column = 'guard_tenant_id'
+WHERE
+   resource_name = 'public.change_request'
+   AND field IN ('cost_impact', 'cost_payer');
+
+-- R1 (049): no role loses what it had. The built-in profiles get their cost defaults
+-- (private.field_default), any other tenant role the two fields as its change request rights reach
+-- them (read with select, write with insert or update; as private.grant_all_fields). A row already
+-- there is kept.
+INSERT INTO
+   public.role_field_permission (role_id, resource_name, field, can_read, can_write)
+SELECT
+   r.id,
+   f.resource_name,
+   f.field,
+   d.can_read,
+   d.can_write
+FROM
+   public.role r
+   JOIN private.field_default d ON d.profile = r.display_name
+   AND d.group_name = 'cost'
+   JOIN public.field_class f ON f.resource_name = 'public.change_request'
+   AND f.field IN ('cost_impact', 'cost_payer')
+WHERE
+   r.tenant_id IS NOT NULL
+   AND r.display_name IN ('management', 'coordinator')
+ON CONFLICT (role_id, resource_name, field) DO NOTHING;
+
+INSERT INTO
+   public.role_field_permission (role_id, resource_name, field, can_read, can_write)
+SELECT
+   r.id,
+   f.resource_name,
+   f.field,
+   h.can_read,
+   h.can_read AND h.can_write
+FROM
+   public.role r
+   JOIN public.field_class f ON f.resource_name = 'public.change_request'
+   AND f.field IN ('cost_impact', 'cost_payer')
+   CROSS JOIN LATERAL (
+      SELECT
+         coalesce(bool_or(p.command = 'select'), FALSE) AS can_read,
+         coalesce(bool_or(p.command IN ('insert', 'update')), FALSE) AS can_write
+      FROM
+         public.role_permission rp
+         JOIN public.permission p ON p.id = rp.permission_id
+      WHERE
+         rp.role_id = r.id
+         AND p.resource_name = 'public.change_request'
+   ) h
+WHERE
+   r.tenant_id IS NOT NULL
+   AND r.display_name NOT IN ('management', 'coordinator')
+   AND h.can_read
+ON CONFLICT (role_id, resource_name, field) DO NOTHING;
+
+-- {"<table>": {"<field>": "<rights column>"}}: every field read under another column's tenant.
+CREATE OR REPLACE FUNCTION private.rights_columns_map () RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    RETURN coalesce((
+        SELECT jsonb_object_agg(x.tbl, x.fields)
+        FROM (
+            SELECT split_part(f.resource_name, '.', 2) AS tbl, jsonb_object_agg(f.field, f.rights_column) AS fields
+            FROM public.field_class f
+            WHERE f.rights_column IS NOT NULL
+            GROUP BY 1
+        ) x
+    ), '{}'::JSONB);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.rights_columns_map () FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION private.rights_columns_map () TO authenticated;
+
+-- 059's mask_audit_data; 068: a field with a rights column is read under the tenant that column names
+-- in the snapshot (or in p_row), not the row's tenant.
+CREATE OR REPLACE FUNCTION private.mask_audit_data (
+   p_table TEXT,
+   p_tenant UUID,
+   p_data JSONB,
+   p_readable JSONB,
+   p_sensitive JSONB,
+   p_rcols JSONB,
+   p_row JSONB DEFAULT NULL
+) RETURNS JSONB LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    hidden TEXT[];
+    result JSONB;
+BEGIN
+    IF p_data IS NULL OR jsonb_typeof(p_data) <> 'object' THEN
+        RETURN p_data;
+    END IF;
+    hidden := ARRAY(
+        SELECT f.field
+        FROM jsonb_array_elements_text(coalesce(p_sensitive -> p_table, '[]'::JSONB)) AS f (field)
+        -- 068: the rights tenant of the field.
+        CROSS JOIN LATERAL (
+            SELECT coalesce(p_data ->> rc.name, p_row ->> rc.name, p_tenant::TEXT) AS tenant
+            FROM (SELECT (p_rcols -> p_table) ->> f.field AS name) rc
+        ) r
+        WHERE p_tenant IS NULL
+           OR NOT coalesce((p_readable -> r.tenant) ? (p_table || '.' || f.field), FALSE)
+    );
+    result := coalesce((
+        SELECT jsonb_object_agg(e.key, CASE WHEN e.key = ANY (hidden) THEN '{"masked": true}'::JSONB ELSE e.value END)
+        FROM jsonb_each(p_data) AS e
+    ), '{}'::JSONB);
+    RETURN result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.mask_audit_data (TEXT, UUID, JSONB, JSONB, JSONB, JSONB, JSONB) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION private.mask_audit_data (TEXT, UUID, JSONB, JSONB, JSONB, JSONB, JSONB) TO authenticated;
+
+-- R8 (059): the masking definers are owned by api_owner.
+GRANT CREATE ON SCHEMA private TO api_owner;
+
+ALTER FUNCTION private.mask_audit_data (TEXT, UUID, JSONB, JSONB, JSONB, JSONB, JSONB) OWNER TO api_owner;
+
+REVOKE CREATE ON SCHEMA private FROM api_owner;
+
+-- 067's api_column_expr; 068: the audit snapshots' mask takes the rights columns and new_data.
+CREATE OR REPLACE FUNCTION private.api_column_expr (p_table TEXT, p_column TEXT) RETURNS TEXT LANGUAGE plpgsql STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    has_tenant BOOLEAN;
+    n INT;
+    expr TEXT;
+    -- 067
+    shared BOOLEAN := private.is_shared_table(p_table);
+    sensitive BOOLEAN := private.api_is_sensitive('public.' || p_table, p_column);
+    cv BOOLEAN;
+    rc TEXT;
+    col_type TEXT;
+BEGIN
+    has_tenant := EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+    );
+    SELECT a.attnum, pg_catalog.format_type(a.atttypid, a.atttypmod) INTO n, col_type
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = base AND a.attname = p_column AND a.attnum > 0 AND NOT a.attisdropped;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'no such column: ' || resource || '.' || p_column;
+    END IF;
+    SELECT f.client_visible, f.rights_column INTO cv, rc
+    FROM public.field_class f
+    WHERE f.resource_name = resource AND f.field = p_column;
+    cv := coalesce(cv, FALSE);
+
+    -- 067: a JSON mask reads the caller's rights in t.tenant_id; on a shared table only a provider-only
+    -- sensitive column (masked whole by the provider's rights) may carry one.
+    IF shared AND EXISTS (SELECT 1 FROM private.api_json_masked j WHERE j.resource_name = resource AND j.field = p_column)
+       AND NOT (sensitive AND NOT cv) THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'JSON masking on a shared table: ' || resource || '.' || p_column;
+    END IF;
+
+    IF sensitive THEN
+        IF p_table = 'user' THEN
+            expr := format('CASE WHEN t.id = auth.uid() OR t.id = ANY (m.u%s) THEN t.%I END', n, p_column);
+        ELSIF rc IS NOT NULL THEN
+            -- 067: the rights of the tenant rc names.
+            expr := format('CASE WHEN t.%1$I = ANY (m.t%2$s) THEN t.%3$I END', rc, n, p_column);
+        ELSIF has_tenant AND shared AND cv THEN
+            -- 067: client-visible, read through either tenant's right.
+            expr := format('CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) OR t.client_tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSIF has_tenant AND shared THEN
+            -- 067: provider-only, read with a right in the row's own tenant only.
+            expr := format('CASE WHEN t.tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSIF has_tenant THEN
+            expr := format('CASE WHEN m.a%1$s OR t.tenant_id = ANY (m.t%1$s) THEN t.%2$I END', n, p_column);
+        ELSE
+            RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = resource || '.' || p_column;
+        END IF;
+        -- No cast back to the column's type: a per-row typmod or domain cast is paid on every row
+        -- before Sort/Limit (R10). The view column keeps the base type without its typmod, and a
+        -- domain column its base type (as the generated TS types already map them).
+        RETURN format('%s AS %I', expr, p_column);
+    END IF;
+
+    -- A JSON column whose keys are masked per row tenant (the maps from m): the audit snapshots by the
+    -- row's own table, any other by every table's sensitive fields.
+    IF EXISTS (SELECT 1 FROM private.api_json_masked j WHERE j.resource_name = resource AND j.field = p_column) THEN
+        IF NOT has_tenant THEN
+            RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'JSON masking needs tenant_id: ' || resource || '.' || p_column;
+        ELSIF p_table = 'audit_log' THEN
+            -- 068: a field's rights tenant is its rights column in the snapshot (in new_data when the
+            -- old_data of an update holds only the changed keys).
+            RETURN format('private.mask_audit_data(t.table_name, t.tenant_id, t.%1$I, m.rights, m.sensitive, m.rcols, t.new_data) AS %1$I', p_column);
+        END IF;
+        RETURN format('private.mask_json_deep(t.%1$I, t.tenant_id, m.rights, m.sensitive) AS %1$I', p_column);
+    END IF;
+    -- 067: an open (or system) provider-only column of a shared table: members of the row's tenant.
+    IF shared AND NOT cv THEN
+        RETURN format('CASE WHEN t.tenant_id = ANY (m.s) THEN t.%1$I ELSE NULL::%2$s END AS %1$I', p_column, col_type);
+    END IF;
+    RETURN format('t.%I', p_column);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_column_expr (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 067's api_view_from; 068: audit_log's m gains the rights columns map.
+CREATE OR REPLACE FUNCTION private.api_view_from (p_table TEXT) RETURNS TEXT LANGUAGE plpgsql STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := format('public.%I', p_table)::REGCLASS;
+    resource TEXT := 'public.' || p_table;
+    fields TEXT[];
+    nums INT[];
+    entries TEXT[] := '{}';
+    rights TEXT := '';
+    i INT;
+BEGIN
+    SELECT array_agg(a.attname::TEXT ORDER BY a.attnum), array_agg(a.attnum::INT ORDER BY a.attnum) INTO fields, nums
+    FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND private.api_is_sensitive(resource, a.attname);
+    IF fields IS NOT NULL THEN
+        rights := format(
+            'WITH r AS MATERIALIZED (SELECT %s AS x) ',
+            CASE WHEN p_table = 'user' THEN format('private.field_user_rights(%L::TEXT[])', fields)
+                 ELSE format('private.field_read_rights(%L, %L::TEXT[])', resource, fields) END
+        );
+        FOR i IN 1 .. cardinality(fields) LOOP
+            IF p_table = 'user' THEN
+                entries := entries || format('(SELECT (r.x[%s]).ids FROM r) AS u%s', i, nums[i]);
+            ELSE
+                entries := entries || format('(SELECT (r.x[%s]).readable_all FROM r) AS a%s', i, nums[i])
+                                   || format('(SELECT (r.x[%s]).ids FROM r) AS t%s', i, nums[i]);
+            END IF;
+        END LOOP;
+    END IF;
+    -- Other entries (059: the JSON maps), one of each.
+    entries := entries || ARRAY(
+        SELECT x.e
+        FROM pg_catalog.pg_attribute a,
+             unnest(private.api_rights_expr(p_table, a.attname)) WITH ORDINALITY AS x (e, k)
+        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped
+        GROUP BY x.e
+        ORDER BY min(a.attnum * 100 + x.k)
+    );
+    -- 067: the request's tenant scope, once per view, for the open provider-only columns.
+    IF private.is_shared_table(p_table) THEN
+        entries := entries || $e$(SELECT coalesce(private.tenant_scope(), '{}')) AS s$e$::TEXT;
+    END IF;
+    -- 068: the rights columns, for the audit snapshots' masking.
+    IF p_table = 'audit_log' THEN
+        entries := entries || '(SELECT private.rights_columns_map()) AS rcols'::TEXT;
+    END IF;
+    IF cardinality(entries) = 0 THEN
+        RETURN format('%s t', base);
+    END IF;
+    RETURN format('%s t CROSS JOIN (%sSELECT %s OFFSET 0) m', base, rights, array_to_string(entries, ', '));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_from (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- The order tenant, settled before the write guard reads the rights tenant (see the header).
+CREATE OR REPLACE FUNCTION private.change_request_order_tenant () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    IF NEW.purchase_order_id IS NULL THEN
+        NEW.order_tenant_id := CASE WHEN TG_OP = 'UPDATE' THEN OLD.order_tenant_id END;
+    ELSIF NEW.order_tenant_id IS NULL THEN
+        NEW.order_tenant_id := coalesce(
+            (SELECT po.tenant_id FROM public.purchase_order po
+             WHERE po.id = NEW.purchase_order_id
+               AND (po.tenant_id = NEW.tenant_id OR po.client_tenant_id = NEW.tenant_id)),
+            NEW.tenant_id
+        );
+    END IF;
+    IF TG_OP = 'UPDATE' AND OLD.order_tenant_id IS NOT NULL AND NEW.order_tenant_id IS DISTINCT FROM OLD.order_tenant_id THEN
+        RAISE EXCEPTION 'order_tenant_immutable' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.change_request_order_tenant () FROM PUBLIC, anon, authenticated;
+
+-- a0 sorts before aa_field_write_guard (BEFORE triggers fire in name order).
+CREATE OR REPLACE TRIGGER a0_change_request_order_tenant BEFORE INSERT
+OR
+UPDATE ON public.change_request FOR EACH ROW
+EXECUTE FUNCTION private.change_request_order_tenant ();
+
+-- The views and the guards over the new classes (F9: the audit trail stays read-only), then the old
+-- mask, which nothing calls any more.
+SELECT private.enable_field_security ('change_request');
+
+SELECT private.enable_field_security ('audit_log', TRUE);
+
+DROP FUNCTION private.mask_audit_data (TEXT, UUID, JSONB, JSONB, JSONB);
