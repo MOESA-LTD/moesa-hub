@@ -70,10 +70,22 @@ SELECT is(
     'and adds nothing'
 );
 
--- A branch of MOESA LTD holding a file, linked to a customer and cited by its document, deleted by
--- MOESA's owner. Written as the migration role; the deletion runs as the owner.
-SELECT set_config('test.moesa', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD')::TEXT, TRUE);
-SELECT set_config('test.baris', (SELECT u.id FROM public.user u WHERE u.email = 'baris@moesa-panel.test')::TEXT, TRUE);
+-- A branch of a company holding a file, linked to a product and cited by its document, deleted by
+-- the company's owner. Written as the migration role; the deletion runs as the owner.
+INSERT INTO public.plan (display_name, is_active) VALUES ('Media roles test plan', TRUE);
+
+INSERT INTO public.tenant (id, display_name) VALUES ('00000000-0000-4000-8000-000000000331', 'pgTAP Media Parent');
+
+INSERT INTO public.user (id, email) VALUES ('00000000-0000-4000-8000-000000000332', 'owner@mediaroles.test');
+
+INSERT INTO public.tenant_owner (user_id, tenant_id)
+VALUES ('00000000-0000-4000-8000-000000000332', '00000000-0000-4000-8000-000000000331');
+
+INSERT INTO public.tenant_user (user_id, tenant_id)
+VALUES ('00000000-0000-4000-8000-000000000332', '00000000-0000-4000-8000-000000000331');
+
+SELECT set_config('test.moesa', '00000000-0000-4000-8000-000000000331', TRUE);
+SELECT set_config('test.baris', '00000000-0000-4000-8000-000000000332', TRUE);
 SELECT set_config('test.m271', '00000000-0000-4000-8000-000000000271', TRUE);
 
 INSERT INTO public.tenant (display_name, parent_id) VALUES ('pgTAP Media Branch', current_setting('test.moesa')::UUID);
@@ -87,27 +99,26 @@ SELECT set_config('test.branch', (SELECT t.id FROM public.tenant t WHERE t.displ
 -- which no request does.)
 SELECT set_config('audit.transaction_id', '', TRUE);
 
-INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.branch')::UUID, 'PGT', 'pgTAP customer', 'trading_partner');
+INSERT INTO public.product (id, tenant_id, sku, display_name)
+VALUES ('00000000-0000-4000-8000-000000000333', current_setting('test.branch')::UUID, 'PGT-001', 'pgTAP product');
 
-SELECT set_config('test.customer', (SELECT c.id FROM public.customer c
-                                    WHERE c.tenant_id = current_setting('test.branch')::UUID)::TEXT, TRUE);
+SELECT set_config('test.product', '00000000-0000-4000-8000-000000000333', TRUE);
 
 INSERT INTO storage.objects (bucket_id, name, metadata)
 VALUES ('media', current_setting('test.branch') || '/' || current_setting('test.m271') || '/c.pdf',
         '{"mimetype": "application/pdf", "size": 1000}'::JSONB);
 
-INSERT INTO public.media (id, tenant_id, customer_id, storage_path, file_name, mime_type, size_bytes)
-VALUES (current_setting('test.m271')::UUID, current_setting('test.branch')::UUID, current_setting('test.customer')::UUID,
+INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
+VALUES (current_setting('test.m271')::UUID, current_setting('test.branch')::UUID,
         current_setting('test.branch') || '/' || current_setting('test.m271') || '/c.pdf', 'c.pdf', 'application/pdf', 1);
 
 INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role)
-VALUES (current_setting('test.branch')::UUID, current_setting('test.m271')::UUID, 'customer',
-        current_setting('test.customer')::UUID, 'attachment');
+VALUES (current_setting('test.branch')::UUID, current_setting('test.m271')::UUID, 'product',
+        current_setting('test.product')::UUID, 'attachment');
 
-INSERT INTO public.document (tenant_id, customer_id, entity_type, entity_id, type, media_id)
-VALUES (current_setting('test.branch')::UUID, current_setting('test.customer')::UUID, 'customer',
-        current_setting('test.customer')::UUID, 'contract', current_setting('test.m271')::UUID);
+INSERT INTO public.document (tenant_id, entity_type, entity_id, type, media_id)
+VALUES (current_setting('test.branch')::UUID, 'product',
+        current_setting('test.product')::UUID, 'contract', current_setting('test.m271')::UUID);
 
 SELECT set_config('audit.transaction_id', '', TRUE);
 
