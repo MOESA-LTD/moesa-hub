@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(33);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -73,8 +73,22 @@ VALUES
    ('private.can_read_media_file(text)', '024', '060',
     ARRAY['private.tenants_permitting', 'private.media_restriction']),
    -- Chains: each later definition extends the one before; the live body holds every step.
-   ('public.next_code(text, text)', '015', '035',
-    ARRAY['''project'', ''po'', ''shp'', ''cr''', '''ol'', ''oa'', ''ou'', ''ot'', ''om''']),
+   ('private.next_code(uuid, text, text)', '015', '035',
+    ARRAY['''project'', ''po'', ''shp'', ''cr''', '''ol'', ''oa'', ''ou'', ''ot'', ''om''', 'tenant_required',
+          'invalid_code_kind_or_scope', 'VALUES (p_tenant, p_kind, p_scope, current_year, 1)']),
+   -- The wrapper numbers in the active tenant; the code triggers number in the row's own tenant.
+   ('public.next_code(text, text)', '015', '015',
+    ARRAY['tenant_required', 'private.tenant_id()', 'private.next_code(active, next_code.kind, next_code.scope)']),
+   ('private.project_set_code()', '021', '021',
+    ARRAY['private.next_code(NEW.tenant_id, ''project''']),
+   ('private.purchase_order_set_code()', '029', '029',
+    ARRAY['private.next_code(NEW.tenant_id, ''po''']),
+   ('private.shipment_set_code()', '031', '031',
+    ARRAY['private.next_code(NEW.tenant_id, ''shp''']),
+   ('private.incident_set_code()', '035', '035',
+    ARRAY['private.next_code(NEW.tenant_id, NEW.family::TEXT']),
+   ('private.change_request_set_code()', '037', '037',
+    ARRAY['private.next_code(NEW.tenant_id, ''cr''']),
    ('private.project_gate_guard()', '021', '032, 036',
     ARRAY['po.project_tenant_id = NEW.tenant_id', 'public.shipment_purchase_order spo',
           'gate_rollback_incident_required', 'gate_incident_invalid', 'gate_rollback_immutable',

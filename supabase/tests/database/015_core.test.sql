@@ -2,13 +2,14 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(14);
 
 SELECT has_table('public', 'setting', 'setting table');
 
 SELECT has_table('public', 'code_sequence', 'code_sequence table');
 
 SELECT has_function('public', 'next_code', ARRAY['text', 'text'], 'next_code');
+SELECT ok(NOT has_function_privilege('authenticated', 'private.next_code(uuid, text, text)', 'EXECUTE'), 'callers cannot number in a tenant of their choice (private.next_code)');
 
 -- A new company (root tenant) gets the default settings; inserted as the migration role, before
 -- impersonating, since signed-in users do not create companies.

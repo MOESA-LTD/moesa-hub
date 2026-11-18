@@ -3,7 +3,7 @@
 -- project          A project of the tenant that owns the work (the client's): its type (npi / variant / revision / reorder), its path
 --                  (a_sourcing / b_private_label, only for npi), the packages (A0…E),
 --                  its current phase (P1…L5, closed), target dates and coordinator. Its code
---                  (THO-2026-001) comes from public.next_code and never changes; nor do its
+--                  (THO-2026-001) comes from private.next_code and never changes; nor do its
 --                  type, path and packages, which decide its gates. Projects are closed
 --                  or cancelled (status), never deleted.
 -- project_product  The products a project is about.
@@ -58,7 +58,7 @@
 -- and rollback_gate are SECURITY INVOKER and signed-in users have no USAGE on schema private, and
 -- the UI uses them too (the phase strip). The trigger functions are in private and not executable
 -- by users. The code trigger is SECURITY DEFINER too, since users cannot reach private.code_scope: it
--- takes the tenant's code from it and the number from public.next_code (the row's tenant_id was
+-- takes the tenant's code from it and the number from private.next_code (the row's tenant_id was
 -- already checked by the insert policy). The gate-creation, guard and advance triggers (and the checklist
 -- copy they share) are SECURITY DEFINER: users cannot insert gates or tasks on the project's
 -- behalf, and the rules must see the whole project whatever the caller may read. Each filters on
@@ -335,7 +335,7 @@ CREATE OR REPLACE FUNCTION private.project_set_code () RETURNS TRIGGER LANGUAGE 
 SET
    search_path = '' AS $$
 BEGIN
-    NEW.code := public.next_code('project', private.code_scope(NEW.tenant_id, NULL));
+    NEW.code := private.next_code(NEW.tenant_id, 'project', private.code_scope(NEW.tenant_id, NULL));
     NEW.current_phase := public.initial_phase(NEW.type, NEW.path, NEW.packages);
     RETURN NEW;
 END;

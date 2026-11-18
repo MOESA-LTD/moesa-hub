@@ -7,7 +7,7 @@
 --                         pair (018_tenant_relations.sql). The order may name a project of the
 --                         tenant it serves: project_tenant_id = coalesce(client_tenant_id,
 --                         tenant_id), and project_code keeps the project's code as it was when
---                         linked. Its code (PO-THO-2026-001) comes from public.next_code under
+--                         linked. Its code (PO-THO-2026-001) comes from private.next_code under
 --                         private.code_scope (the tenant's code, or the client_code of the
 --                         relationship) and never changes; nor does its supplier. The terms
 --                         (currency, Incoterm, deposit rate, ready date, tolerance, penalty, packing
@@ -258,7 +258,7 @@ BEGIN
         RAISE EXCEPTION 'purchase_order_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code('po', scope);
+    NEW.code := private.next_code(NEW.tenant_id, 'po', scope);
     NEW.status := 'draft';
     RETURN NEW;
 END;

@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- product's last order in public.product_evidence. What it writes is rolled back.
 BEGIN;
 
-SELECT plan(46);
+SELECT plan(49);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet):
 --   provider         ...2901  code PRV; owned by staff
@@ -301,6 +301,31 @@ SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002953', '00000000-0000-4000-8000-000000002943', 1, 1) $$,
                         pg_temp.rel('purchase_order_line')),
                  '23514', 'client_link_forbidden', 'uninvited staff cannot put a client product on a line');
+
+-- The code is numbered in the row's tenant, not the active one: staff with the client active writes
+-- a provider order for it; the number comes from the provider's counter under the client's code, and
+-- the client's tenant gets no counter.
+RESET ROLE;
+CREATE TEMP TABLE po_counter ON COMMIT DROP AS
+SELECT coalesce((SELECT last_no FROM public.code_sequence
+                 WHERE tenant_id = '00000000-0000-4000-8000-000000002901' AND kind = 'po' AND scope = 'THO'
+                   AND year = extract(year FROM now())::INT), 0) AS last_no;
+SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002902');
+SELECT set_config('request.headers', json_build_object(
+    'x-tenant-id', '00000000-0000-4000-8000-000000002902',
+    'x-tenant-ids', '00000000-0000-4000-8000-000000002901,00000000-0000-4000-8000-000000002902')::TEXT, TRUE);
+SELECT lives_ok(format($$ INSERT INTO %s (id, tenant_id, client_tenant_id, supplier_id, currency)
+                    VALUES ('00000000-0000-4000-8000-000000002956', '00000000-0000-4000-8000-000000002901',
+                            '00000000-0000-4000-8000-000000002902', '00000000-0000-4000-8000-000000002981', 'USD') $$,
+                        pg_temp.rel('purchase_order')),
+                'a provider order for the client is written with the client active');
+RESET ROLE;
+SELECT is((SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002956'),
+          'PO-THO-' || extract(year FROM now())::INT || '-' || lpad(((SELECT last_no FROM po_counter) + 1)::TEXT, 3, '0'),
+          'its number comes from the row tenant''s counter, whatever tenant is active');
+SELECT is_empty($$ SELECT 1 FROM public.code_sequence WHERE tenant_id = '00000000-0000-4000-8000-000000002902' AND kind = 'po' $$,
+                'the active tenant gets no counter for a row of another tenant');
+SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002901');
 
 -- The relationship ends.
 RESET ROLE;

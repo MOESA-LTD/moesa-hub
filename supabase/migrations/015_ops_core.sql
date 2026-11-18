@@ -14,12 +14,12 @@
 --                signed-in user and written only by migrations, so it has no permissions and is
 --                not audited (its TEXT id is not a UUID the audit trail could record).
 -- code_sequence  The counters behind the business codes (K5): per tenant, kind, scope code and
---                year. Written only by public.next_code; no permissions, so no direct access.
+--                year. Written only by private.next_code; no permissions, so no direct access.
 --
--- public.next_code is SECURITY DEFINER: code_sequence has RLS with only the restrictive tenant
--- policies and no permissive one, so the caller could neither read nor write it. It writes the
--- active tenant's row only (private.tenant_id(), checked against the user's tenants), and fails
--- without one.
+-- private.next_code is SECURITY DEFINER: code_sequence has RLS with only the restrictive tenant
+-- policies and no permissive one, so the caller could neither read nor write it. The code triggers
+-- call it with the row's tenant; public.next_code calls it with the active tenant
+-- (private.tenant_id(), checked against the user's tenants), and fails without one.
 
 -- Modules of the business modules, part of every plan. Their permissions come with the tasks that
 -- add their tables; ops_setting has the settings'.
@@ -149,43 +149,64 @@ CREATE TABLE IF NOT EXISTS public.code_sequence (
    CONSTRAINT code_sequence_pkey PRIMARY KEY (tenant_id, kind, scope, year)
 );
 
--- The next code of `kind` for the `scope` (private.code_scope) in the active tenant, this year:
--- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr → <KIND>-<SCOPE>-<YYYY>-<NNN>. The upsert locks the
--- counter row, so concurrent calls wait for each other and never get the same number.
-CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
+-- The next code of `p_kind` for the `p_scope` (private.code_scope) in tenant `p_tenant`, this year:
+-- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr → <KIND>-<SCOPE>-<YYYY>-<NNN>. The code triggers pass
+-- the row's own tenant, which may differ from the active one (a provider row written while the
+-- client is active), so the number always comes from the counter of the tenant the row belongs to.
+-- Callers cannot run it (only the SECURITY DEFINER triggers and public.next_code do). The upsert
+-- locks the counter row, so concurrent calls wait for each other and never get the same number.
+CREATE OR REPLACE FUNCTION private.next_code (p_tenant UUID, p_kind TEXT, p_scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    active UUID := private.tenant_id();
     current_year INT := extract(year FROM now())::INT;
     number INT;
     formatted TEXT;
 BEGIN
-    IF active IS NULL THEN
+    IF p_tenant IS NULL THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
             DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
     END IF;
 
-    IF next_code.kind IS NULL OR next_code.kind NOT IN ('project', 'po', 'shp', 'cr')
-       OR next_code.scope IS NULL OR next_code.scope !~ '^[A-Z0-9]+$' THEN
+    IF p_kind IS NULL OR p_kind NOT IN ('project', 'po', 'shp', 'cr')
+       OR p_scope IS NULL OR p_scope !~ '^[A-Z0-9]+$' THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'invalid_code_kind_or_scope')::TEXT,
             DETAIL = json_build_object('status', 400, 'headers', json_build_object())::TEXT;
     END IF;
 
     INSERT INTO public.code_sequence AS cs (tenant_id, kind, scope, year, last_no)
-    VALUES (active, next_code.kind, next_code.scope, current_year, 1)
+    VALUES (p_tenant, p_kind, p_scope, current_year, 1)
     ON CONFLICT ON CONSTRAINT code_sequence_pkey DO UPDATE SET last_no = cs.last_no + 1
     RETURNING cs.last_no INTO number;
 
     -- At least three digits; a 1000th code still gets its full number.
-    formatted := next_code.scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
+    formatted := p_scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
 
-    IF next_code.kind = 'project' THEN
+    IF p_kind = 'project' THEN
         RETURN formatted;
     END IF;
-    RETURN upper(next_code.kind) || '-' || formatted;
+    RETURN upper(p_kind) || '-' || formatted;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.next_code (UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+-- The next code in the active tenant (private.tenant_id(), checked against the user's tenants);
+-- fails without one. The code triggers call private.next_code with the row's own tenant instead.
+CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    active UUID := private.tenant_id();
+BEGIN
+    IF active IS NULL THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
+            DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
+    END IF;
+    RETURN private.next_code(active, next_code.kind, next_code.scope);
 END;
 $$;
 

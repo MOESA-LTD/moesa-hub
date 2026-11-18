@@ -3,7 +3,7 @@
 --
 -- change_request          One request of the tenant it lives in (the company the product or project
 --                         belongs to). Its code is CR, the tenant's code, the year and the
---                         tenant's next request number (CR-THO-2026-001, public.next_code under
+--                         tenant's next request number (CR-THO-2026-001, private.next_code under
 --                         private.code_scope(tenant_id, NULL)), whatever the client sends; the code
 --                         never changes. It may name the project, the gate it touches
 --                         (affected_gate_code), the document it changes (affected_document_id, a
@@ -55,7 +55,7 @@
 --
 -- The decision-due trigger runs as the caller and calls no private function. The code trigger is
 -- SECURITY DEFINER (private.code_scope is revoked from callers) and gets the code from
--- public.next_code. The guard is SECURITY DEFINER (it reads the documents and the gate whatever the
+-- private.next_code. The guard is SECURITY DEFINER (it reads the documents and the gate whatever the
 -- caller may read) and filters on the row's own tenant_id. The guard sorts after the
 -- other BEFORE triggers (<table>_z_guard); its immutability rule ignores private.rules_bypassed()
 -- (030_purchase_order_rules.sql), the other rules return at once when it holds.
@@ -145,7 +145,7 @@ BEGIN
         RAISE EXCEPTION 'change_request_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code('cr', scope);
+    NEW.code := private.next_code(NEW.tenant_id, 'cr', scope);
     NEW.status := 'open';
     RETURN NEW;
 END;

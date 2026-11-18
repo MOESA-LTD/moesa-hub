@@ -320,7 +320,7 @@ BEGIN
 END;
 $$;
 
--- THO's own data, entered as its owner working in THO: the project code comes from public.next_code,
+-- THO's own data, entered as its owner working in THO: the project code comes from private.next_code,
 -- which needs the active tenant of a request.
 DO $$
 DECLARE

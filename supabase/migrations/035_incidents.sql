@@ -3,7 +3,7 @@
 --
 -- incident           One incident of the tenant it lives in (the company the goods and the work
 --                    belong to). Its code is the family, the tenant's code, the year and the
---                    tenant's next number of that family (OL-THO-2026-001, public.next_code under
+--                    tenant's next number of that family (OL-THO-2026-001, private.next_code under
 --                    private.code_scope(tenant_id, NULL)), whatever the client sends; the code and
 --                    the family never change. incident_type is the Y10 card (OL-09, …) of the same
 --                    family, NULL while not yet classified. It may name one linked record of its
@@ -64,57 +64,54 @@
 --
 -- public.incident_overview: each incident with the linked record's label,
 -- its next unmet deadline, how many are overdue and whether it repeats (S17 D "Tekrar mı").
--- public.next_code knows the incident families.
+-- private.next_code knows the incident families.
 --
 -- Roles: the module is granted to every existing role that may change products
 -- (private.grant_group_to_product_editors); private.seed_ops_roles gives it to the demo company's
 -- roles.
 
--- The next code of `kind` for the `scope` (private.code_scope) in the active tenant, this year:
+-- The next code of `p_kind` for the `p_scope` (private.code_scope) in tenant `p_tenant`, this year:
 -- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr and the incident families (ol, oa, ou, ot, om) →
 -- <KIND>-<SCOPE>-<YYYY>-<NNN>. The 015_ops_core.sql body, with the incident families added to the
--- kinds. The upsert locks the counter row, so concurrent calls wait for each other and never get
--- the same number.
-CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
+-- kinds (public.next_code, 015's wrapper over the active tenant, is unchanged). The upsert locks the
+-- counter row, so concurrent calls wait for each other and never get the same number.
+CREATE OR REPLACE FUNCTION private.next_code (p_tenant UUID, p_kind TEXT, p_scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    active UUID := private.tenant_id();
     current_year INT := extract(year FROM now())::INT;
     number INT;
     formatted TEXT;
 BEGIN
-    IF active IS NULL THEN
+    IF p_tenant IS NULL THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
             DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
     END IF;
 
-    IF next_code.kind IS NULL OR next_code.kind NOT IN ('project', 'po', 'shp', 'cr', 'ol', 'oa', 'ou', 'ot', 'om')
-       OR next_code.scope IS NULL OR next_code.scope !~ '^[A-Z0-9]+$' THEN
+    IF p_kind IS NULL OR p_kind NOT IN ('project', 'po', 'shp', 'cr', 'ol', 'oa', 'ou', 'ot', 'om')
+       OR p_scope IS NULL OR p_scope !~ '^[A-Z0-9]+$' THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'invalid_code_kind_or_scope')::TEXT,
             DETAIL = json_build_object('status', 400, 'headers', json_build_object())::TEXT;
     END IF;
 
     INSERT INTO public.code_sequence AS cs (tenant_id, kind, scope, year, last_no)
-    VALUES (active, next_code.kind, next_code.scope, current_year, 1)
+    VALUES (p_tenant, p_kind, p_scope, current_year, 1)
     ON CONFLICT ON CONSTRAINT code_sequence_pkey DO UPDATE SET last_no = cs.last_no + 1
     RETURNING cs.last_no INTO number;
 
     -- At least three digits; a 1000th code still gets its full number.
-    formatted := next_code.scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
+    formatted := p_scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
 
-    IF next_code.kind = 'project' THEN
+    IF p_kind = 'project' THEN
         RETURN formatted;
     END IF;
-    RETURN upper(next_code.kind) || '-' || formatted;
+    RETURN upper(p_kind) || '-' || formatted;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.next_code (TEXT, TEXT) FROM PUBLIC, anon;
-
-GRANT EXECUTE ON FUNCTION public.next_code (TEXT, TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION private.next_code (UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 
 -- The `days`-th business day (Monday to Friday) after `start_on`; for 0, the first business day on
 -- or after it. A negative count counts as 0. No holiday calendar.
@@ -264,7 +261,7 @@ BEGIN
         RAISE EXCEPTION 'incident_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code(NEW.family::TEXT, scope);
+    NEW.code := private.next_code(NEW.tenant_id, NEW.family::TEXT, scope);
     NEW.status := 'open';
     RETURN NEW;
 END;

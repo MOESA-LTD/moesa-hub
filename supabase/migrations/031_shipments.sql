@@ -9,7 +9,7 @@
 --                          kept when the client deletes the warehouse; whoever may read the
 --                          shipment reads it, provider staff included (not masked). Its code
 --                          (SHP-THO-2026-001: the client_code of the relationship, or the tenant's
---                          code) comes from public.next_code and never changes; nor does its client.
+--                          code) comes from private.next_code and never changes; nor does its client.
 --                          The mode, parties, Incoterms (buy and sell), dates, container, free days,
 --                          packed quantities and the acceptance (who, when, whether the quantities
 --                          match, damage, the dispute deadline) sit on the shipment. Shipments are
@@ -220,7 +220,7 @@ BEGIN
         RAISE EXCEPTION 'shipment_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code('shp', scope);
+    NEW.code := private.next_code(NEW.tenant_id, 'shp', scope);
     NEW.status := 'planned';
     RETURN NEW;
 END;
