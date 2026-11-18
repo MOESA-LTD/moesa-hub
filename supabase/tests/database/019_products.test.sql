@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(36);
+SELECT plan(38);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet). A provider procuring for
 -- one client tenant:
@@ -249,6 +249,31 @@ SELECT results_eq(
     $$ VALUES ('THO-MOP', 'Mop 40 cm') $$,
     'the snapshot is not forged while the link is kept'
 );
+
+-- The snapshot follows the link: without a product a sourcing row has no SKU, whatever is sent, so
+-- it is refused (product_sku is NOT NULL); nor is the product emptied while it exists.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, product_sku, product_name)
+        VALUES ('00000000-0000-4000-8000-000000001901', 'FORGED', 'Forged')
+    $$, pg_temp.rel('sourcing')),
+    '23502',
+    'null value in column "product_sku" of relation "sourcing" violates not-null constraint',
+    'a snapshot sent without a link is not stored'
+);
+
+SELECT throws_ok(
+    format($$
+        UPDATE %s SET product_id = NULL WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    '23502',
+    'null value in column "product_sku" of relation "sourcing" violates not-null constraint',
+    'unlinking a product that still exists clears the snapshot'
+);
+
+RESET ROLE;
 
 -- Invited staff, unknown id: refused by the existence check, with the forbidden message.
 SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');

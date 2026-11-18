@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- user cannot use. What it writes is rolled back.
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(42);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet):
 --   provider  ...3001  code PRV; owned by staff ...3002 (the order clerk of every test below)
@@ -134,6 +134,22 @@ SELECT throws_ok($$ UPDATE api.purchase_order_line SET spec_document_id = curren
                  '23514', 'po_line_spec_invalid', 'another product''s spec sheet does not count');
 SELECT lives_ok($$ UPDATE api.purchase_order SET status = 'sent' WHERE id = '00000000-0000-4000-8000-000000030015' $$,
                 'a referenced signed spec sheet passes');
+
+-- A client order's line on the client's product: the provider cannot attach a document to that
+-- product, so its spec sheet is a document on the provider's sourcing row of the product.
+SELECT throws_ok($$ UPDATE api.purchase_order SET status = 'sent' WHERE id = '00000000-0000-4000-8000-000000030018' $$,
+                 '23514', 'po_spec_sheet_required', 'a client order is not sent without the line''s spec sheet');
+INSERT INTO api.sourcing (id, tenant_id, client_tenant_id, product_id)
+VALUES ('00000000-0000-4000-8000-000000030051', current_setting('test.provider')::UUID, current_setting('test.client')::UUID, '00000000-0000-4000-8000-000000003011');
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, version, status, issued_on, is_signed, is_stamped, sent_from_official_email, url)
+VALUES ('00000000-0000-4000-8000-000000030052', current_setting('test.provider')::UUID, 'sourcing', '00000000-0000-4000-8000-000000030051',
+        'spec_sheet', 1, 'signed', '2026-11-01', TRUE, TRUE, TRUE, 'https://example.test/spec-client-new.pdf');
+SELECT throws_ok($$ UPDATE api.purchase_order_line SET spec_document_id = '00000000-0000-4000-8000-000000030052' WHERE id = '00000000-0000-4000-8000-000000030024' $$,
+                 '23514', 'po_line_spec_invalid', 'a sourcing spec sheet does not count for an own product''s line');
+SELECT lives_ok($$ UPDATE api.purchase_order_line SET spec_document_id = '00000000-0000-4000-8000-000000030052' WHERE id = '00000000-0000-4000-8000-000000030027' $$,
+                'the spec sheet on the provider''s sourcing row counts for the client''s product');
+SELECT lives_ok($$ UPDATE api.purchase_order SET status = 'sent' WHERE id = '00000000-0000-4000-8000-000000030018' $$,
+                'and the client order is sent');
 
 -- The guards share-lock the order, so a concurrent status change waits for the line or child write
 -- (the foreign key alone takes FOR KEY SHARE, which a status update does not wait for). pgrowlocks

@@ -140,6 +140,7 @@ BEGIN
     -- project_tenant_id) at pi_approved or later and not cancelled (K3/M5). An order of the gate's
     -- own tenant counts when its PI (pi_document_id) is among the evidence documents; a provider's
     -- order counts without it: its PI is the provider's, which a client gate may not cite.
+    -- A provider order counts only if it was linked while still a draft (po_project_locked, 030).
     IF NEW.code = 'G3' AND NOT EXISTS (
         SELECT 1 FROM public.purchase_order po
         WHERE po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id

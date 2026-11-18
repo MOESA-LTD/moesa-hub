@@ -267,9 +267,11 @@ REVOKE ALL ON FUNCTION private.client_tenant_immutable () FROM PUBLIC, anon, aut
 --    Both refusals are client_link_forbidden, so ids cannot be probed. The read right is not asked
 --    for the test bypass, nor for an own-tenant link written without a user (the seed, a service).
 --    The snapshot columns of the link are written from that row: product_sku, product_name
---    (product); project_code (project); delivery_address (warehouse). They change only with the
---    link: while a link is kept, or once it is emptied, they keep their values, so an update cannot
---    forge them. Only a row that never had a link holds a snapshot of its own.
+--    (product); project_code (project); delivery_address (warehouse). They follow the link and are
+--    never written by the caller: a row inserted without the link has them NULL; a link kept
+--    keeps them; a link emptied while its row still exists clears them; a link emptied because
+--    its row is gone (ON DELETE SET NULL) keeps them as history, and so does every later update of
+--    that row.
 -- 3. <resource>_tenant_id, where the row has it, is set to the tenant the links point into.
 --
 -- SECURITY DEFINER: it reads the target rows whatever the caller may see, and calls the private
@@ -294,6 +296,7 @@ DECLARE
     link_id UUID;
     old_id UUID;
     gone BOOLEAN;
+    keep_snapshot BOOLEAN;
     target JSONB;
 BEGIN
     -- The links this update sets or changes, other than one emptied because its row is gone.
@@ -339,15 +342,30 @@ BEGIN
             ELSE '{}'::TEXT[]
         END;
 
-        -- A link kept or emptied keeps its snapshot.
-        IF TG_OP = 'UPDATE' AND old_id IS NOT NULL AND (link_id IS NULL OR link_id = old_id) THEN
+        -- A link kept, or emptied because its row is gone (or already empty, so the snapshot is
+        -- history or NULL), keeps the stored snapshot.
+        IF TG_OP = 'UPDATE' AND link_id IS NOT DISTINCT FROM old_id THEN
+            keep_snapshot := TRUE;
+        ELSIF TG_OP = 'UPDATE' AND link_id IS NULL THEN
+            EXECUTE format('SELECT NOT EXISTS (SELECT 1 FROM %s WHERE id = $1)', resource) INTO keep_snapshot USING old_id;
+        ELSE
+            keep_snapshot := FALSE;
+        END IF;
+
+        IF keep_snapshot THEN
             patch := patch || coalesce((
                 SELECT jsonb_object_agg(c, old_row -> c) FROM unnest(snapshot_columns) AS c WHERE old_row ? c
             ), '{}');
             CONTINUE;
         END IF;
 
-        CONTINUE WHEN link_id IS NULL;
+        -- No link (a new row without one, or a link emptied while its row exists): no snapshot.
+        IF link_id IS NULL THEN
+            patch := patch || coalesce((
+                SELECT jsonb_object_agg(c, 'null'::JSONB) FROM unnest(snapshot_columns) AS c WHERE new_row ? c
+            ), '{}');
+            CONTINUE;
+        END IF;
 
         -- 2. The caller's read right in the tenant the link points into, then the row itself.
         IF read_checked

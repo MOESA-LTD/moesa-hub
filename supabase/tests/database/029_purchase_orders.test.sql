@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- product's last order in public.product_evidence. What it writes is rolled back.
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(46);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet):
 --   provider         ...2901  code PRV; owned by staff
@@ -145,10 +145,12 @@ SELECT is((SELECT deposit_rate FROM public.purchase_order WHERE id = '00000000-0
           'without a supplier deposit, the company setting');
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, supplier_id, currency)
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002982', 'USD') $$, pg_temp.rel('purchase_order')),
-                 '23502', NULL, 'an invalid supplier incoterm is not copied; incoterm stays required');
+                 '23502', 'null value in column "incoterm" of relation "purchase_order" violates not-null constraint',
+                 'an invalid supplier incoterm is not copied; incoterm stays required');
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, supplier_id, currency, incoterm)
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002981', 'USD', 'XYZ') $$, pg_temp.rel('purchase_order')),
-                 '23514', NULL, 'only Incoterms 2020 codes');
+                 '23514', 'new row for relation "purchase_order" violates check constraint "purchase_order_incoterm_valid"',
+                 'only Incoterms 2020 codes');
 SELECT throws_ok(format($$ UPDATE %s SET code = 'PO-X' WHERE id = '00000000-0000-4000-8000-000000002951' $$, pg_temp.rel('purchase_order')),
                  '23514', 'purchase_order_immutable_field', 'the code is fixed');
 SELECT throws_ok(format($$ UPDATE %s SET supplier_id = '00000000-0000-4000-8000-000000002982' WHERE id = '00000000-0000-4000-8000-000000002951' $$, pg_temp.rel('purchase_order')),
@@ -169,13 +171,40 @@ SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product_id, quantity, unit_price)
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002951', '00000000-0000-4000-8000-000000002945', 1, 1) $$,
                         pg_temp.rel('purchase_order_line')),
-                 '23505', NULL, 'a product once per order');
+                 '23505', 'duplicate key value violates unique constraint "unique_purchase_order_line_product"', 'a product once per order');
+-- A line names its product: none on insert (whatever snapshot is sent), and it is not emptied while
+-- the product exists (else the product could go on the order twice, and the spec rule be skipped).
+SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product_sku, product_name, quantity, unit_price)
+                    VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002951', 'FORGED', 'Forged', 1, 1) $$,
+                        pg_temp.rel('purchase_order_line')),
+                 '23514', 'po_line_product_required', 'a line needs a product');
+SELECT throws_ok(format($$ UPDATE %s SET product_id = NULL WHERE id = '00000000-0000-4000-8000-000000002961' $$, pg_temp.rel('purchase_order_line')),
+                 '23514', 'po_line_product_required', 'a line''s product is not emptied while it exists');
 SELECT throws_ok(format($$ UPDATE %s SET project_id = '00000000-0000-4000-8000-000000002971' WHERE id = '00000000-0000-4000-8000-000000002951' $$, pg_temp.rel('purchase_order')),
                  '23514', 'client_link_forbidden', 'an own order cannot name another tenant''s project');
 SELECT throws_ok(format($$ UPDATE %s SET pi_check = '{"31":"ok"}' WHERE id = '00000000-0000-4000-8000-000000002951' $$, pg_temp.rel('purchase_order')),
-                 '23514', NULL, 'only the 30 S09 items');
+                 '23514', 'new row for relation "purchase_order" violates check constraint "purchase_order_pi_check_valid"',
+                 'only the 30 S09 items');
 SELECT throws_ok(format($$ DELETE FROM %s WHERE id = '00000000-0000-4000-8000-000000002951' $$, pg_temp.rel('purchase_order')),
-                 '42501', NULL, 'purchase orders are not deleted');
+                 '42501', 'permission denied for ' || CASE WHEN pg_temp.rel('purchase_order') LIKE 'api.%' THEN 'view' ELSE 'table' END || ' purchase_order',
+                 'purchase orders are not deleted');
+
+-- The snapshot follows the link: an order without a project has no project code, whatever is sent.
+SELECT pg_temp.exec(format($$
+    INSERT INTO %s (id, tenant_id, supplier_id, currency, project_code)
+    VALUES ('00000000-0000-4000-8000-000000002955', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002981', 'USD', 'FORGED')
+$$, pg_temp.rel('purchase_order')));
+SELECT is((SELECT project_code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002955'), NULL,
+          'a project code sent without a project is not stored');
+
+-- The project is chosen while the order is a draft.
+RESET ROLE;
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+UPDATE public.purchase_order SET status = 'pi_approved' WHERE id = '00000000-0000-4000-8000-000000002955';
+SELECT set_config('moesa.rules_bypass', '', TRUE);
+SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002901');
+SELECT throws_ok(format($$ UPDATE %s SET project_id = '00000000-0000-4000-8000-000000002972' WHERE id = '00000000-0000-4000-8000-000000002955' $$, pg_temp.rel('purchase_order')),
+                 '23514', 'po_project_locked', 'an order past draft cannot be pointed at a project');
 SELECT is((SELECT last_po_code FROM public.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000002945'),
           (SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'), 'the product shows its last order');
 
@@ -255,6 +284,13 @@ SELECT results_eq($$ SELECT l.product_sku || ':' || l.product_name || ':' || (po
                   $$ VALUES ('THO-BKT:Bucket 10 l:true') $$,
                   'neither the line nor the order snapshot is forged while the link is kept');
 
+-- Unlinking the project of a draft order while the project exists clears its code.
+SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002901');
+SELECT pg_temp.exec(format($$ UPDATE %s SET project_id = NULL WHERE id = '00000000-0000-4000-8000-000000002954' $$, pg_temp.rel('purchase_order')));
+RESET ROLE;
+SELECT is((SELECT project_code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002954'), NULL,
+          'an unlinked project leaves no code behind');
+
 -- Provider staff not invited into the client.
 SELECT private.impersonate('00000000-0000-4000-8000-000000002912', '00000000-0000-4000-8000-000000002901');
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product_id, quantity, unit_price)
@@ -290,7 +326,12 @@ SELECT set_config('moesa.rules_bypass', '', TRUE);
 SELECT lives_ok($$ DELETE FROM public.product WHERE id = '00000000-0000-4000-8000-000000002941' $$, 'client product delete keeps the line snapshot');
 SELECT results_eq($$ SELECT product_id IS NULL, product_sku FROM public.purchase_order_line WHERE purchase_order_id = '00000000-0000-4000-8000-000000002953' AND product_sku = 'THO-MOP' $$,
                   $$ VALUES (TRUE, 'THO-MOP') $$, 'the line keeps its snapshot');
-SELECT throws_ok($$ DELETE FROM public.provider_relationship WHERE client_tenant_id = '00000000-0000-4000-8000-000000002902' $$, '23503', NULL, 'a referenced relationship cannot be deleted');
+-- The relationship is not deleted while orders name it (the sourcing row, which would also refuse
+-- it, goes first, so the order's key is the one that refuses).
+DELETE FROM public.sourcing WHERE client_tenant_id = '00000000-0000-4000-8000-000000002902';
+SELECT throws_ok($$ DELETE FROM public.provider_relationship WHERE client_tenant_id = '00000000-0000-4000-8000-000000002902' $$, '23503',
+                 'update or delete on table "provider_relationship" violates foreign key constraint "purchase_order_relationship_fkey" on table "purchase_order"',
+                 'a referenced relationship cannot be deleted');
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'purchase_order_line_relationship_fkey' AND contype = 'f'),
           'lines name their client under a relationship too');
 

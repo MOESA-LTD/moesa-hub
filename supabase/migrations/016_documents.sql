@@ -48,6 +48,7 @@ CREATE TYPE public.document_entity AS ENUM (
    'provider_relationship',
    'supplier',
    'product',
+   'sourcing',
    'project',
    'project_gate',
    'purchase_order',

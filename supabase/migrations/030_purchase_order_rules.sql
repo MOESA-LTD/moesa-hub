@@ -11,8 +11,11 @@
 --               needs one (private.po_line_needs_spec) from the company's spec_sheet_required_from
 --               on (K3; a missing or unreadable date counts as reached), and before it for a new SKU
 --               only (product status concept, development or approved). A referenced spec sheet is a
---               signed or approved spec_sheet of the line's product. A sent order (or one whose PI
---               is in) takes no new line, and no product or spec change, that breaks the rule.
+--               signed or approved spec_sheet of the order's tenant: on the line's product, or, for
+--               a line whose product is in a client tenant (which the provider cannot attach
+--               documents to), on the provider's sourcing row of that product (entity type
+--               sourcing). A sent order (or one whose PI is in) takes no new line, and no product
+--               or spec change, that breaks the rule.
 -- PI            pi_received needs the PI document (a pi document of this order) and its total.
 --               pi_approved needs all 30 S09 items "ok" and the S09 §C arithmetic to hold:
 --               private.purchase_order_figures is its only home (subtotal = round(Σ quantity ×
@@ -41,6 +44,10 @@
 --   po_locked                   a term, the PI or a line changed after pi_approved
 --   po_closed                   a payment or update of a closed or cancelled order changed
 --   po_line_identity_immutable  a line moved to another order
+--   po_line_product_required    a new line without a product, or a line's product emptied while
+--                               the product still exists
+--   po_project_locked           the order's project set or changed once the order is no longer a
+--                               draft (other than emptied because the project is gone)
 --
 -- The guards are SECURITY DEFINER (they read lines, documents, products, payments and settings
 -- whatever the caller may read) and filter on the row's tenant. A delete cascaded from the order
@@ -180,6 +187,14 @@ DECLARE
 BEGIN
     IF private.rules_bypassed() THEN
         RETURN coalesce(NEW, OLD);
+    END IF;
+
+    -- 0. The project is chosen while the order is a draft (a new order is one): afterwards it does
+    -- not change, so an order already past its PI cannot be pointed at a project (a client's gate
+    -- counts it, 032). Emptied because the project is gone (ON DELETE SET NULL) is not a change.
+    IF TG_OP = 'UPDATE' AND NEW.project_id IS DISTINCT FROM OLD.project_id AND OLD.status <> 'draft'
+       AND NOT (NEW.project_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.project p WHERE p.id = OLD.project_id)) THEN
+        RAISE EXCEPTION 'po_project_locked' USING ERRCODE = 'check_violation';
     END IF;
 
     -- 1. One step at a time; cancelled from anywhere but a final status.
@@ -325,9 +340,11 @@ OR
 UPDATE ON public.purchase_order FOR EACH ROW
 EXECUTE FUNCTION private.purchase_order_guard ();
 
--- A line's rules: it stays on its order (po_line_identity_immutable, whatever the bypass flag);
+-- A line's rules: it stays on its order (po_line_identity_immutable, whatever the bypass flag) and
+-- names its product (po_line_product_required, likewise);
 -- fixed from pi_approved on (closed and cancelled included); a referenced spec sheet is a signed or
--- approved spec sheet of the line's product (checked when the product or the spec sheet changes);
+-- approved spec sheet of the line's product, or of the provider's sourcing row for a client's
+-- product (checked when the product or the spec sheet changes);
 -- a sent order (or one whose PI is in) takes no line, product or spec change that leaves a line
 -- needing a spec sheet without one. A PI line total alone is not checked against the spec rule.
 CREATE OR REPLACE FUNCTION private.purchase_order_line_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
@@ -339,6 +356,13 @@ DECLARE
 BEGIN
     IF TG_OP = 'UPDATE' AND NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id THEN
         RAISE EXCEPTION 'po_line_identity_immutable' USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- A line names its product (whatever the bypass): only the product's delete empties it.
+    IF (TG_OP = 'INSERT' AND NEW.product_id IS NULL)
+       OR (TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id)) THEN
+        RAISE EXCEPTION 'po_line_product_required' USING ERRCODE = 'check_violation';
     END IF;
 
     IF private.rules_bypassed() THEN
@@ -390,9 +414,12 @@ BEGIN
             WHERE d.id = NEW.spec_document_id
               AND d.tenant_id = NEW.tenant_id
               AND d.type = 'spec_sheet'
-              AND d.entity_type = 'product'
-              AND d.entity_id = NEW.product_id
               AND d.status IN ('signed', 'approved')
+              AND ((d.entity_type = 'product' AND d.entity_id = NEW.product_id)
+                   OR (d.entity_type = 'sourcing' AND NEW.product_tenant_id <> NEW.tenant_id AND EXISTS (
+                        SELECT 1 FROM public.sourcing s
+                        WHERE s.id = d.entity_id AND s.tenant_id = NEW.tenant_id AND s.product_id = NEW.product_id
+                   )))
         ) THEN
         RAISE EXCEPTION 'po_line_spec_invalid' USING ERRCODE = 'check_violation';
     END IF;
