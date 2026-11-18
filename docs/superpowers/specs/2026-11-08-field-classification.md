@@ -4,7 +4,7 @@ Source: the local DB `information_schema.columns` (public base tables, 645 colum
 
 **Result: 81 sensitive columns in 9 field groups.** Per group: cost 17, internal_note 20, supplier_terms 13, personal_data 8, contract 6, supplier_identity 5, finance 5, supplier_contact 4, sell_price 3.
 
-**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 86 columns are sensitive (`049_field_catalog.sql` is the authority): contract 5, cost 18, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts above and the "Portal" column are the original draft's.
+**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 86 columns are sensitive (`049_field_catalog.sql` is the authority): contract 5, cost 18, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts in the line above are the original draft's.
 
 
 ## Classes
@@ -15,19 +15,19 @@ Source: the local DB `information_schema.columns` (public base tables, 645 colum
 
 ## Field groups (fixed list) and default per role
 
-R = read, W = write, — = hidden. "Portal" = M15 `customer_viewer`, already limited to its own `customer_id` rows. A group can only matter for the portal where the portal has table access at all (shown in each table heading). Supplier, PO, PO lines, PO payments, incident_log, transfer, setting and audit tables are table-level hidden from the portal.
+R = read, W = write, — = hidden. "Portal" = a client tenant's own viewer role (for example THO's `viewer`): a client is a tenant of its own, so its people see their own tenant's rows under their own roles and field rights, never the provider's. In Plan 1 a client reads no row of its provider (relationship, sourcing, the provider's orders and shipments); the provider's view of a client's data is shared explicitly in Plan 2. The "portal" column therefore gives the defaults a client's viewer role gets on its own tenant's tables (the seed's viewer reads `sell_price` only). Supplier, PO, PO lines, PO payments, incident_log, setting and audit tables are table-level hidden from a viewer.
 
 | group | what it protects | owner | management | coordinator | portal |
 |---|---|---|---|---|---|
 | `cost` | purchase prices, landed cost, PO line prices, PI figures (supplier-side money) | RW | RW | RW | — |
-| `sell_price` | MOESA's price to the customer, target price, price list version (cost + this = margin) | RW | RW | R | R |
+| `sell_price` | the provider's price to the client (sourcing and PO line), price list version (cost + this = margin) | RW | RW | R | R |
 | `supplier_identity` | references that name or identify the supplier outside the supplier table | RW | RW | RW | — |
 | `supplier_contact` | supplier contact people | RW | RW | RW | — |
 | `supplier_terms` | supplier commercial terms: deposit, payment terms, penalties, buy-side Incoterm and place | RW | RW | R | — |
-| `contract` | customer contract terms (the six `CONTRACT_FIELDS`) | RW | RW | R | — |
+| `contract` | the provider–client contract terms on `provider_relationship` | RW | RW | R | — |
 | `finance` | payment amounts, incident cost items | RW | RW | R | — |
 | `internal_note` | free-text notes and post-mortems, supplier evaluation | RW | RW | RW | — |
-| `personal_data` | names, e-mails, phones of people (K8) | RW | RW | RW | R (own customer only) |
+| `personal_data` | names, e-mails, phones of people (K8) | RW | RW | RW | R (own tenant only) |
 
 The coordinator defaults keep today's operational work (entering POs, PI check, supplier contact) and move only terms, contract and payment amounts to read-only. See §3 for the margin question this raises.
 
@@ -788,11 +788,11 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 - `private.audit_statement` (trigger, definer): writes full old/new rows of every audited table into `audit_log`; the root of the audit leak.
 - `public.revert_audit_transaction` (INVOKER, but writes old snapshots back): can rewrite sensitive columns the caller may not write; needs the field write rules applied per column.
 - `private.purchase_order_figures` (INVOKER): sums `unit_price × quantity`; whatever reads it (the two PO views) exposes cost totals. Decide whether totals follow `cost` (proposed: yes).
-- `public.transfer_customer` + `private.transfer_apply*`, `transfer_write`, `transfer_report`, `transfer_suppliers`, `transfer_collect` (definer): copy every column incl. cost/supplier/contract across tenants and return a JSONB report stored in `transfer.report`. Keep transfer owner/management only and keep values out of the report.
+- `public.end_provider_relationship` (definer): ends a relationship for the provider holding the update right or the client's owner; returns VOID, so no provider-only field (`notes`, `restricted_drive_url`) reaches the client.
 - `public.listing_set_state`, `listing_apply_submission`, `listing_begin_submission`, `listing_settle_removal` (definer): return whole `market_cell` / `listing_submission` rows, so `market_cell.notes` comes back to the caller.
-- `public.amazon_account_connect` (definer): returns the whole `customer_platform_account` row (`account_holder`, `notes`).
+- `public.amazon_account_connect` (definer, service only): returns the whole `platform_account` row (`account_holder`, `notes`).
 - `public.amazon_account_token` / `private.amazon_token`: already revoked from `authenticated` (service only); keep.
-- No other public definer function (`my_access`, `my_memberships`, `owned_via`, `managed_in`, `next_code`, `create_branch`, `delete_branch`, `transfer_options`, `transfer_check_files`, `audit_transfer_locked`, `is_super_admin`, `media_max_bytes`, `listing_parent_cell`) returns business figures. Guard triggers (`purchase_order_guard`, `customer_contract_guard`, ...) read values but return nothing; `customer_contract_guard` is the pattern to extend for field writes.
+- No other public definer function (`my_access`, `my_memberships`, `owned_via`, `managed_in`, `next_code`, `create_branch`, `delete_branch`, `is_super_admin`, `media_max_bytes`, `listing_parent_cell`) returns business figures. Guard triggers (`purchase_order_guard`, `relationship_contract_guard`, `client_link_guard`, ...) read values but return nothing; `relationship_contract_guard` (contract terms of a relationship need the setting update right in the provider's tenant) works beside the field write guard (051).
 
 ### Audit log
 
@@ -800,8 +800,7 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 
 ### Exports and imports
 
-- Product CSV (`app/src/api/product/csv.ts`): exports `supplier_code`, `supplier_product_code`, `manufacturer_art_no`, `purchase_price`, `landed_cost_eur`, `target_price_eur`, `company_price_eur`, notes. Export must drop columns the reader cannot read; import must refuse (not silently ignore) columns the writer cannot write.
-- Transfer result screen (`app/src/views/pages/ops/transfer/ResultStep.vue`) shows the transfer report.
+- Product CSV (`app/src/api/product/csv.ts`): exports the sourcing columns `supplier_code`, `supplier_product_code`, `manufacturer_art_no`, `purchase_price`, `landed_cost_eur`, `target_price_eur`, `sell_price_eur`, and notes. Export must drop columns the reader cannot read; import (`import_products`, 058) refuses product and sourcing columns the writer cannot write.
 - Future M13 reports / PDFs (`PrintElementButton`): decide per owner question 7.
 
 ### Edge Functions (service role bypasses RLS and any field rule)
@@ -818,8 +817,9 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 ## 3. Ambiguous calls (choice made, one-line reason)
 
 1. **Coordinator sees `cost` (RW) and `sell_price` (R), so can compute the margin.** Chosen because coordinators enter POs and run the PI check (S09); if the margin must be hidden below management, drop coordinator `sell_price` to — instead (cost is the one they need for work).
-2. **Portal reads `sell_price` (`company_price_eur`, `target_price_eur`, `price_list_version`).** It is what the customer pays / agreed; hiding it adds nothing. Margin stays safe because `cost` is hidden. If `target_price_eur` is an internal target, move it to `cost`.
-3. **Portal does not read its own `contract` fields** (deposit rate, extra cost rule, restricted Drive URL). The customer knows its contract, but `restricted_drive_url` must stay hidden and a portal has no need for the rest.
+2. **A client's viewer reads `sell_price` (`sell_price_eur`, `price_list_version`).** It is what the client pays; hiding it adds nothing. Margin stays safe because `cost` is hidden. `target_price_eur` is an internal target and is `cost` (OD2).
+3. **The client reads no `contract` field in Plan 1.** The terms live on the provider's `provider_relationship` row, which the client cannot read; `restricted_drive_url` and `notes` are `internal_note` and stay the provider's even when Plan 2 shares the relationship.
+
 4. **`supplier_product_code` and `manufacturer_art_no` are `supplier_identity`, not public.** Both can be searched on supplier sites and B2B portals to find the factory.
 5. **`product.origin_country` stays public.** Needed for customs, labels and compliance; it narrows the supplier to a country only.
 6. **`shipment.forwarder`, `customs_broker`, `carrier`, `container_no` stay public.** The portal tracks shipments; forwarders are not the bypass risk suppliers are. If logistics partners must also be protected, add a `logistics_partner` group.
