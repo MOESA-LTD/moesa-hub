@@ -3,14 +3,17 @@
 -- "late shipments".
 --
 -- dashboard_purchase_order  The open purchase orders (neither draft, closed nor cancelled) of
---                           purchase_order_overview: the codes, the status, the ready date and the
+--                           purchase_order_overview: the codes (the client's client_code for an
+--                           order kept for a client tenant), the status, the ready date and the
 --                           days left to it, the planned dates of the unpaid deposit and balance,
 --                           and the S09 total recalculated by private.purchase_order_figures.
 -- dashboard_shipment        The open shipments (neither accepted nor cancelled) of
---                           shipment_overview: the mode, ETD, ETA and the days left to the ETA,
---                           whether the shipment is late (its ETA has passed and it has not been
---                           delivered yet: planned, booked, loaded, in_transit or at_customs), the
---                           delivery warehouse and the dispute deadline (S16).
+--                           shipment_overview: the codes (the client's client_code for a shipment
+--                           kept for a client tenant), the mode, ETD, ETA and the days left to the
+--                           ETA, whether the shipment is late (its ETA has passed and it has not
+--                           been delivered yet: planned, booked, loaded, in_transit or at_customs),
+--                           the delivery warehouse (its name when the caller may read it, and the
+--                           address snapshot) and the dispute deadline (S16).
 --
 -- The app groups the rows into the boxes (groupPurchaseOrders, groupShipments); no rule is added
 -- and nothing here raises. The views run as the caller (security_invoker) over the two overviews,
@@ -26,8 +29,8 @@ WITH
 SELECT
    o.id AS purchase_order_id,
    o.code,
-   o.customer_id,
-   o.customer_code,
+   o.client_tenant_id,
+   o.client_code,
    o.supplier_code,
    o.tenant_id,
    o.status,
@@ -42,7 +45,7 @@ FROM
 WHERE
    o.status NOT IN ('draft', 'closed', 'cancelled');
 
-COMMENT ON VIEW public.dashboard_purchase_order IS 'The open purchase orders (neither draft, closed nor cancelled) of purchase_order_overview: codes, status, ready_on and days_to_ready (negative once passed), the earliest planned date of the unpaid deposit and balance, and the S09 system_total in the order''s currency.';
+COMMENT ON VIEW public.dashboard_purchase_order IS 'The open purchase orders (neither draft, closed nor cancelled) of purchase_order_overview: codes (client_code: the client''s, NULL for an own order), status, ready_on and days_to_ready (negative once passed), the earliest planned date of the unpaid deposit and balance, and the S09 system_total in the order''s currency.';
 
 GRANT SELECT ON public.dashboard_purchase_order TO authenticated;
 
@@ -53,8 +56,8 @@ WITH
 SELECT
    s.id AS shipment_id,
    s.code,
-   s.customer_id,
-   s.customer_code,
+   s.client_tenant_id,
+   s.client_code,
    s.tenant_id,
    s.status,
    s.mode,
@@ -67,12 +70,13 @@ SELECT
       FALSE
    ) AS overdue,
    s.warehouse_name,
+   s.delivery_address,
    s.dispute_deadline_at
 FROM
    public.shipment_overview s
 WHERE
    s.status NOT IN ('accepted', 'cancelled');
 
-COMMENT ON VIEW public.dashboard_shipment IS 'The open shipments (neither accepted nor cancelled) of shipment_overview: codes, status, mode, etd, eta and days_to_eta (negative once passed), overdue (the ETA has passed and the shipment is still planned, booked, loaded, in transit or at customs), the delivery warehouse and the S16 dispute deadline.';
+COMMENT ON VIEW public.dashboard_shipment IS 'The open shipments (neither accepted nor cancelled) of shipment_overview: codes (client_code: the client''s, NULL for an own shipment), status, mode, etd, eta and days_to_eta (negative once passed), overdue (the ETA has passed and the shipment is still planned, booked, loaded, in transit or at customs), the delivery warehouse (warehouse_name when the caller may read the warehouse; delivery_address, the address snapshot, always) and the S16 dispute deadline.';
 
 GRANT SELECT ON public.dashboard_shipment TO authenticated;

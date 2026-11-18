@@ -63,8 +63,7 @@
 --
 -- public.incident_overview: each incident with its customer's code, the linked record's label,
 -- its next unmet deadline, how many are overdue and whether it repeats (S17 D "Tekrar mı").
--- public.next_code knows the incident families; private.entity_customer knows incidents, so their
--- media and documents stay the customer's.
+-- public.next_code knows the incident families.
 --
 -- Roles: the module is granted to every existing role that may change products
 -- (private.grant_group_to_product_editors); private.seed_ops_roles gives it to the demo company's
@@ -561,45 +560,6 @@ REVOKE ALL ON FUNCTION private.incident_guard () FROM PUBLIC, anon, authenticate
 REVOKE ALL ON FUNCTION private.incident_deadline_defaults () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.incident_child_guard () FROM PUBLIC, anon, authenticated;
-
--- The customer a record belongs to (025_media_link.sql), now with incidents. The
--- 034_market_matrix.sql body, with the incident branch added.
-CREATE OR REPLACE FUNCTION private.entity_customer (entity_type public.document_entity, entity_id UUID, tenant_id UUID) RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    CASE entity_customer.entity_type
-        WHEN 'customer' THEN
-            RETURN entity_customer.entity_id;
-        WHEN 'product' THEN
-            RETURN (SELECT p.customer_id FROM public.product p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project' THEN
-            RETURN (SELECT p.customer_id FROM public.project p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project_gate' THEN
-            RETURN (SELECT p.customer_id
-                    FROM public.project_gate g
-                    JOIN public.project p ON p.id = g.project_id AND p.tenant_id = g.tenant_id
-                    WHERE g.id = entity_customer.entity_id AND g.tenant_id = entity_customer.tenant_id);
-        WHEN 'purchase_order' THEN
-            RETURN (SELECT po.customer_id FROM public.purchase_order po
-                    WHERE po.id = entity_customer.entity_id AND po.tenant_id = entity_customer.tenant_id);
-        WHEN 'shipment' THEN
-            RETURN (SELECT s.customer_id FROM public.shipment s
-                    WHERE s.id = entity_customer.entity_id AND s.tenant_id = entity_customer.tenant_id);
-        WHEN 'market_cell' THEN
-            RETURN (SELECT m.customer_id FROM public.market_cell m
-                    WHERE m.id = entity_customer.entity_id AND m.tenant_id = entity_customer.tenant_id);
-        WHEN 'incident' THEN
-            RETURN (SELECT i.customer_id FROM public.incident i WHERE i.id = entity_customer.entity_id AND i.tenant_id = entity_customer.tenant_id);
-        ELSE
-            RETURN NULL;
-    END CASE;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION private.entity_customer (public.document_entity, UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- The incident list and card header. Runs as the caller (security_invoker), so it shows only the
 -- incidents, customers, linked records and deadlines the caller may read.

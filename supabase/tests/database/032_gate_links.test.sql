@@ -76,7 +76,7 @@ FROM (VALUES
 -- The client's projects, made by its owner.
 SELECT private.impersonate(current_setting('test.owner')::UUID, current_setting('test.client')::UUID);
 INSERT INTO api.project (id, tenant_id, display_name, type, path, packages)
-VALUES (current_setting('test.pilot')::UUID, current_setting('test.client')::UUID, 'Hose pilot', 'npi', 'a_sourcing', ARRAY['A1']),
+VALUES (current_setting('test.pilot')::UUID, current_setting('test.client')::UUID, 'Hose pilot', 'npi', 'a_sourcing', ARRAY['A1', 'C']),
        (current_setting('test.second')::UUID, current_setting('test.client')::UUID, 'Hose second', 'npi', 'a_sourcing', ARRAY['A1']);
 INSERT INTO api.project_product (project_id, product_id, tenant_id)
 VALUES (current_setting('test.pilot')::UUID, current_setting('test.hose')::UUID, current_setting('test.client')::UUID),
@@ -117,8 +117,6 @@ VALUES ('00000000-0000-4000-8000-000000032031', current_setting('test.client')::
        ('00000000-0000-4000-8000-000000032033', current_setting('test.client')::UUID, 'purchase_order', '00000000-0000-4000-8000-000000032023', 'pi', 'https://example.test/pi-q.pdf');
 INSERT INTO api.shipment (id, tenant_id, mode, delivery_warehouse_id)
 VALUES ('00000000-0000-4000-8000-000000032041', current_setting('test.client')::UUID, 'road', '00000000-0000-4000-8000-000000003261');
-INSERT INTO api.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id)
-VALUES ('00000000-0000-4000-8000-000000032041', '00000000-0000-4000-8000-000000032021', current_setting('test.client')::UUID);
 INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, status, url)
 VALUES ('00000000-0000-4000-8000-000000032042', current_setting('test.client')::UUID, 'shipment', '00000000-0000-4000-8000-000000032041', 'delivery_receipt', 'approved', 'https://example.test/receipt.pdf');
 RESET ROLE;
@@ -134,6 +132,9 @@ RESET ROLE;
 
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
 UPDATE public.purchase_order SET pi_document_id = '00000000-0000-4000-8000-000000032031', status = 'pi_approved' WHERE id = '00000000-0000-4000-8000-000000032021';
+-- The shipment takes P once its PI is approved (031: only an approved, open order is shipped).
+INSERT INTO public.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id)
+VALUES ('00000000-0000-4000-8000-000000032041', '00000000-0000-4000-8000-000000032021', current_setting('test.client')::UUID);
 UPDATE public.purchase_order SET pi_document_id = '00000000-0000-4000-8000-000000032032', status = 'sent' WHERE id = '00000000-0000-4000-8000-000000032022';
 UPDATE public.purchase_order SET pi_document_id = '00000000-0000-4000-8000-000000032052', status = 'sent' WHERE id = '00000000-0000-4000-8000-000000032051';
 SELECT set_config('moesa.rules_bypass', '', TRUE);

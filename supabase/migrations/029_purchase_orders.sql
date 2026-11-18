@@ -339,8 +339,9 @@ EXECUTE FUNCTION private.set_updated_at ();
 -- A child row takes the client of its parent, whatever is sent: TG_ARGV[0] is the parent table,
 -- TG_ARGV[1] the child's column holding the parent's id. The parent is read in the child's own
 -- tenant; a parent that is not there leaves no client (the foreign key then refuses the row). A
--- table name without a schema is in public. SECURITY DEFINER: it reads the parent whatever the
--- caller may see.
+-- table name without a schema is in public. An update that would give the child another client
+-- (moving it to a parent of another client) is refused like a client change
+-- (client_tenant_immutable). SECURITY DEFINER: it reads the parent whatever the caller may see.
 CREATE OR REPLACE FUNCTION private.inherit_client_tenant () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -351,6 +352,10 @@ BEGIN
     EXECUTE format('SELECT p.client_tenant_id FROM %s p WHERE p.id = $1 AND p.tenant_id = $2', parent_table)
     INTO parent_client
     USING (to_jsonb(NEW) ->> TG_ARGV[1])::UUID, NEW.tenant_id;
+
+    IF TG_OP = 'UPDATE' AND parent_client IS DISTINCT FROM OLD.client_tenant_id THEN
+        RAISE EXCEPTION 'client_tenant_immutable' USING ERRCODE = 'check_violation';
+    END IF;
 
     NEW.client_tenant_id := parent_client;
     RETURN NEW;

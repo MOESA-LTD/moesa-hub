@@ -38,8 +38,8 @@
 --   market_cell_project_fkey    market_cell_project_customer  another customer's project
 --   market_cell_price_currency  market_cell_price_currency    a price without its currency
 --
--- Every reference to a tenant-scoped table includes tenant_id; the product and the project also
--- include customer_id (product_id_customer_tenant_key, project_id_customer_tenant_key, 029).
+-- Every reference to a tenant-scoped table includes tenant_id (product_id_tenant_id_key,
+-- project_id_tenant_id_key).
 -- Products, projects and platforms are not deleted while they have cells (ON DELETE RESTRICT).
 --
 -- The guard is SECURITY DEFINER (it reads the platform's countries) and sorts after the other
@@ -49,8 +49,7 @@
 --
 -- public.market_cell_overview: each cell with its customer and project codes, its product's SKU,
 -- name and GTIN, the platform's name and the S05 cell key (hucre_id). public.product_evidence now
--- counts the product's live cells. private.entity_customer knows market cells, so their media and
--- documents stay the customer's. document_entity gains market_cell and change_request (035); a new
+-- counts the product's live cells. document_entity gains market_cell and change_request (035); a new
 -- enum value cannot be used by SQL statements of the transaction that adds it, so this file uses
 -- them only inside plpgsql bodies.
 --
@@ -256,42 +255,6 @@ EXECUTE FUNCTION private.market_cell_guard ();
 REVOKE ALL ON FUNCTION private.market_cell_customer () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.market_cell_guard () FROM PUBLIC, anon, authenticated;
-
--- The customer a record belongs to (025_media_link.sql), now with market cells.
-CREATE OR REPLACE FUNCTION private.entity_customer (entity_type public.document_entity, entity_id UUID, tenant_id UUID) RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    CASE entity_customer.entity_type
-        WHEN 'customer' THEN
-            RETURN entity_customer.entity_id;
-        WHEN 'product' THEN
-            RETURN (SELECT p.customer_id FROM public.product p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project' THEN
-            RETURN (SELECT p.customer_id FROM public.project p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project_gate' THEN
-            RETURN (SELECT p.customer_id
-                    FROM public.project_gate g
-                    JOIN public.project p ON p.id = g.project_id AND p.tenant_id = g.tenant_id
-                    WHERE g.id = entity_customer.entity_id AND g.tenant_id = entity_customer.tenant_id);
-        WHEN 'purchase_order' THEN
-            RETURN (SELECT po.customer_id FROM public.purchase_order po
-                    WHERE po.id = entity_customer.entity_id AND po.tenant_id = entity_customer.tenant_id);
-        WHEN 'shipment' THEN
-            RETURN (SELECT s.customer_id FROM public.shipment s
-                    WHERE s.id = entity_customer.entity_id AND s.tenant_id = entity_customer.tenant_id);
-        WHEN 'market_cell' THEN
-            RETURN (SELECT m.customer_id FROM public.market_cell m
-                    WHERE m.id = entity_customer.entity_id AND m.tenant_id = entity_customer.tenant_id);
-        ELSE
-            RETURN NULL;
-    END CASE;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION private.entity_customer (public.document_entity, UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- The evidence behind each product (029_purchase_orders.sql), now counting its live cells.
 CREATE OR REPLACE VIEW public.product_evidence
