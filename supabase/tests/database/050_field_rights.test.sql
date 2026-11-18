@@ -30,26 +30,26 @@ SELECT is(private.field_read_tenants('public.supplier','deposit_rate'), ARRAY[cu
 SELECT is(private.field_write_tenants('public.supplier','deposit_rate'), '{}'::UUID[], 'coordinator cannot write supplier terms');
 SELECT is(private.field_read_tenants('public.product','sku'), ARRAY[current_setting('test.moesa')::UUID], 'open fields pass with the scope');
 
--- As portal in MOESA LTD.
+-- As portal, THO's viewer, in THO (the seed's viewer defaults: sell_price read only).
 RESET ROLE;
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
-SELECT is(private.field_read_tenants('public.product','purchase_price'), '{}'::UUID[], 'portal has no cost');
-SELECT is(private.field_read_tenants('public.product','company_price_eur'), ARRAY[current_setting('test.moesa')::UUID], 'portal reads sell price');
+SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.tho')::UUID);
+SELECT is(private.field_read_tenants('public.sourcing','purchase_price'), '{}'::UUID[], 'portal has no cost');
+SELECT is(private.field_read_tenants('public.sourcing','sell_price_eur'), ARRAY[current_setting('test.tho')::UUID], 'portal reads sell price');
 
 -- As baris (owner) in MOESA LTD.
 RESET ROLE;
 SELECT private.impersonate(current_setting('test.baris')::UUID, current_setting('test.moesa')::UUID);
-SELECT is(private.field_write_tenants('public.product','purchase_price'), ARRAY[current_setting('test.moesa')::UUID], 'an owner holds every field');
+SELECT is(private.field_write_tenants('public.sourcing','purchase_price'), ARRAY[current_setting('test.moesa')::UUID], 'an owner holds every field');
 
 -- As elif: t_restricted in MOESA LTD (no field rows), t_cost in Europe.
 RESET ROLE;
 SELECT private.impersonate_scope(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID,
    ARRAY[current_setting('test.moesa')::UUID, current_setting('test.europe')::UUID]);
-SELECT is(private.field_read_tenants('public.product','purchase_price'), ARRAY[current_setting('test.europe')::UUID], 'per tenant: cost only in Europe');
-SELECT ok(NOT private.field_read_all('public.product','purchase_price'), 'field_read_all is false when one scope tenant lacks the right');
+SELECT is(private.field_read_tenants('public.sourcing','purchase_price'), ARRAY[current_setting('test.europe')::UUID], 'per tenant: cost only in Europe');
+SELECT ok(NOT private.field_read_all('public.sourcing','purchase_price'), 'field_read_all is false when one scope tenant lacks the right');
 SELECT ok(private.field_read_all('public.product','sku'), 'field_read_all is true for open fields');
-SELECT ok((private.field_rights_map() -> current_setting('test.europe')) ? 'product.purchase_price'
-   AND NOT ((private.field_rights_map() -> current_setting('test.moesa')) ? 'product.purchase_price'), 'rights map is per tenant');
+SELECT ok((private.field_rights_map() -> current_setting('test.europe')) ? 'sourcing.purchase_price'
+   AND NOT ((private.field_rights_map() -> current_setting('test.moesa')) ? 'sourcing.purchase_price'), 'rights map is per tenant');
 SELECT is(private.field_group_read_tenants('cost'), ARRAY[current_setting('test.europe')::UUID], 'group right = every field of the group');
 
 -- t_cost grants the e-mail of users in Europe only; Europe is the active tenant.
@@ -71,7 +71,7 @@ SELECT private.unimpersonate();
 DELETE FROM public.role_field_permission WHERE role_id = current_setting('test.t_cost')::UUID;
 RESET ROLE;
 SELECT private.impersonate_scope(current_setting('test.elif')::UUID, current_setting('test.europe')::UUID, ARRAY[current_setting('test.europe')::UUID]);
-SELECT is(private.field_read_tenants('public.product','purchase_price'), '{}'::UUID[], 'a revoked right applies to the next statement');
+SELECT is(private.field_read_tenants('public.sourcing','purchase_price'), '{}'::UUID[], 'a revoked right applies to the next statement');
 
 -- As akif (management) in MOESA LTD. save_role in a scalar subquery: called once, not per row.
 RESET ROLE;
@@ -86,7 +86,7 @@ SELECT results_eq($$ SELECT field, can_read, can_write FROM api.role_field_permi
 -- S7: direct writes as postgres with akif's claims (the role save_role's helper writes as) are refused.
 RESET ROLE;
 SELECT throws_ok($$ INSERT INTO public.role_field_permission (role_id, resource_name, field, can_read, can_write)
-   VALUES (current_setting('test.t_restricted')::UUID, 'public.product', 'purchase_price', TRUE, TRUE) $$,
+   VALUES (current_setting('test.t_restricted')::UUID, 'public.sourcing','purchase_price', TRUE, TRUE) $$,
    '42501', 'role_field_permission_save_role_only', 'S7: no direct insert');
 SELECT throws_ok($$ UPDATE public.role_field_permission SET can_write = TRUE WHERE role_id = current_setting('test.t_restricted')::UUID $$,
    '42501', 'role_field_permission_save_role_only', 'S7: no direct update');

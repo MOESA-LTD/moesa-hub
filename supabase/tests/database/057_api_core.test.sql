@@ -19,7 +19,7 @@ SELECT is((SELECT email FROM api.user WHERE id = current_setting('test.koordinat
 SELECT is((SELECT email FROM api.user WHERE id = current_setting('test.akif')::UUID), 'akif@moesa-panel.test', 'a colleague of a tenant holding the right is readable');
 
 RESET ROLE;
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.tho')::UUID);
 SELECT is((SELECT count(*)::INT FROM api.user WHERE id <> current_setting('test.portal')::UUID AND email IS NOT NULL), 0, 'portal reads only its own e-mail');
 
 -- Fixture gap: elif's roles hold no 'user' group permission, so she could not read public.user rows at all.
@@ -38,8 +38,8 @@ SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('
 SELECT throws_ok($$ UPDATE api.user SET phone = '+1' WHERE id = current_setting('test.koordinator')::UUID $$, '42501', 'field_write_forbidden', 'no one writes another user''s phone');
 SELECT lives_ok($$ SELECT api.owned_via(u), api.managed_in(u) FROM api.user u $$, 'computed fields owned_via and managed_in resolve on api.user');
 SELECT ok(to_regprocedure('api.status(api.subscription)') IS NOT NULL, 'computed field status on api.subscription');
-SELECT ok(to_regprocedure('api.pi_document(api.purchase_order)') IS NOT NULL AND to_regprocedure('api.contract_document(api.customer)') IS NOT NULL, 'R4 relationships to documents exist');
-SELECT matches(t.error_of($$ INSERT INTO api.role_field_permission (role_id, resource_name, field, can_read, can_write) VALUES (current_setting('test.t_restricted')::UUID, 'public.product', 'purchase_price', TRUE, TRUE) $$), '^42501:permission denied for view role_field_permission', 'S7: api.role_field_permission is read-only');
+SELECT ok(to_regprocedure('api.pi_document(api.purchase_order)') IS NOT NULL AND to_regprocedure('api.contract_document(api.provider_relationship)') IS NOT NULL, 'R4 relationships to documents exist');
+SELECT matches(t.error_of($$ INSERT INTO api.role_field_permission (role_id, resource_name, field, can_read, can_write) VALUES (current_setting('test.t_restricted')::UUID, 'public.sourcing','purchase_price', TRUE, TRUE) $$), '^42501:permission denied for view role_field_permission', 'S7: api.role_field_permission is read-only');
 SELECT ok(NOT has_table_privilege('authenticated', 'api.role_field_permission', 'INSERT') AND NOT has_table_privilege('authenticated', 'api.role_field_permission', 'UPDATE') AND NOT has_table_privilege('authenticated', 'api.role_field_permission', 'DELETE'), 'S7: no write grant on the view');
 
 RESET ROLE;

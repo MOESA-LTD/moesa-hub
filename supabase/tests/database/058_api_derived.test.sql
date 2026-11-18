@@ -13,10 +13,12 @@ SELECT private.create_test_helpers();
 DO $$
 BEGIN
     PERFORM set_config('moesa.rules_bypass', '1', TRUE);
-    -- A THO product without cost or supplier (the NULL-oracle cases), and the project's tasks done so
-    -- its first gate can pass.
-    INSERT INTO public.product (tenant_id, customer_id, sku, display_name)
-    VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'NULL-COST', 'Null cost');
+    -- A product whose sourcing has no cost or supplier (the NULL-oracle cases), and the project's
+    -- tasks done so its first gate can pass.
+    INSERT INTO public.product (tenant_id, sku, display_name)
+    VALUES (current_setting('test.moesa')::UUID, 'NULL-COST', 'Null cost');
+    INSERT INTO public.sourcing (tenant_id, product_id)
+    SELECT p.tenant_id, p.id FROM public.product p WHERE p.tenant_id = current_setting('test.moesa')::UUID AND p.sku = 'NULL-COST';
     UPDATE public.project_task SET status = 'done' WHERE project_id = current_setting('test.project')::UUID;
     PERFORM set_config('moesa.rules_bypass', '', TRUE);
 END;
@@ -40,45 +42,45 @@ SELECT is_empty($$
    SELECT 'no ROW found', w FROM unnest(ARRAY['company_subscription', 'tenant_member']) AS w WHERE NOT EXISTS (SELECT 1 FROM m WHERE m.viewname = w)
    $$, 'ROW constructors in derived views match the column count of api.user and api.subscription');
 
-SELECT ok(has_function_privilege('authenticated', 'api.supplier(api.product_with_evidence)', 'EXECUTE')
-   AND NOT has_function_privilege('anon', 'api.supplier(api.product_with_evidence)', 'EXECUTE'),
-   'R4 supplier of a product list row: authenticated only');
+SELECT ok(has_function_privilege('authenticated', 'api.supplier(api.sourcing)', 'EXECUTE')
+   AND NOT has_function_privilege('anon', 'api.supplier(api.sourcing)', 'EXECUTE'),
+   'R4 supplier of a sourcing row: authenticated only');
 
 -- As elif in MOESA LTD (t_restricted: no field rows).
 RESET ROLE;
 SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
-SELECT results_eq($$ SELECT purchase_price, notes FROM api.product_with_evidence WHERE id = current_setting('test.secret')::UUID $$,
-   $$ VALUES (NULL::NUMERIC, NULL::TEXT) $$, 'T8b product_with_evidence is masked');
-SELECT is((SELECT count(*)::INT FROM api.product_with_evidence p CROSS JOIN LATERAL api.supplier(p) s),
-   0, 'the supplier of a product list row is not embedded across a masked link');
+SELECT results_eq($$ SELECT sku, notes FROM api.product_with_evidence WHERE id = current_setting('test.secret')::UUID $$,
+   $$ VALUES ('SPIKE-SECRET'::TEXT, NULL::TEXT) $$, 'T8b product_with_evidence is masked');
+SELECT is((SELECT count(*)::INT FROM api.sourcing p CROSS JOIN LATERAL api.supplier(p) s),
+   0, 'the supplier of a sourcing row is not embedded across a masked link');
 SELECT results_eq($$ SELECT system_total, supplier_code, pi_total FROM api.purchase_order_overview WHERE id = current_setting('test.po_approved')::UUID $$,
    $$ VALUES (NULL::NUMERIC, NULL::TEXT, NULL::NUMERIC) $$, 'PO overview totals follow cost');
 SELECT is((SELECT count(*)::INT FROM api.dashboard_purchase_order WHERE system_total IS NOT NULL OR supplier_code IS NOT NULL), 0, 'dashboard PO masked');
 SELECT is((SELECT count(*)::INT FROM api.market_cell_overview WHERE notes IS NOT NULL), 0, 'market cell overview masked');
 SELECT is((SELECT count(*)::INT FROM api.incident_overview WHERE root_cause_note IS NOT NULL), 0, 'incident overview masked');
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"IMP-1","customer_code":"THO","purchase_price":5}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"IMP-1","purchase_price":5}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'import refuses columns the writer cannot write');
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"IMP-2","customer_code":"THO","supplier_code":"TS1"}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"IMP-2","supplier_code":"TS1"}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'import refuses a supplier link the writer cannot write');
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"SPIKE-SECRET","customer_code":"THO","purchase_price":12.5}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"SPIKE-SECRET","purchase_price":12.5}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'S1: import refuses a cost the writer cannot write, even a correct guess');
 SELECT throws_ok($$ SELECT public.pass_gate(current_setting('test.gate')::UUID, 'gate secret') $$,
    '42501', 'field_write_forbidden', 'S1: pass_gate refuses a note the caller cannot write, even a correct guess');
 -- No NULL oracle: a key sent as null is a write (it clears the field), refused alike whether the
 -- stored value is set (SPIKE-SECRET: 12.5) or already NULL (NULL-COST).
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"SPIKE-SECRET","customer_code":"THO","purchase_price":null}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"SPIKE-SECRET","purchase_price":null}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'S1: import refuses a null cost over a stored one');
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"NULL-COST","customer_code":"THO","purchase_price":null}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"NULL-COST","purchase_price":null}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'S1: import refuses a null cost over a NULL one alike');
-SELECT throws_ok($$ SELECT public.import_products('[{"sku":"NULL-COST","customer_code":"THO","supplier_code":null}]'::JSONB) $$,
+SELECT throws_ok($$ SELECT public.import_products('[{"sku":"NULL-COST","supplier_code":null}]'::JSONB) $$,
    '42501', 'field_write_forbidden', 'S1: import refuses a null supplier link over a NULL one alike');
 -- A pass without a note leaves the stored note untouched.
 SELECT lives_ok($$ SELECT public.pass_gate(current_setting('test.gate')::UUID, '  ') $$, 'pass_gate with a blank note (as the app sends it) passes for a caller without note write');
 SELECT is(t.peek('project_gate', 'note', current_setting('test.gate')::UUID), 'gate secret', 'pass_gate without a note keeps the stored note');
 
--- As portal in MOESA LTD.
+-- As portal, THO's viewer, in THO.
 RESET ROLE;
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.tho')::UUID);
 SELECT is((SELECT count(*)::INT FROM api.shipment_overview WHERE cardinality(purchase_order_codes) > 0), 0, 'shipment overview reveals no PO to the portal');
 SELECT is((SELECT count(*)::INT FROM api.tenant_member WHERE email IS NOT NULL AND id <> current_setting('test.portal')::UUID), 0,
    'tenant_member masks colleagues'' personal data for portal');
@@ -119,8 +121,8 @@ RESET ROLE;
 SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
 -- R10: PostgREST's embed shape (a lateral subquery with LIMIT/OFFSET over the computed relationship):
 -- the function is inlined, never a per-row Function Scan.
-SELECT unalike(t.plan_text($$ SELECT p.id, s.code FROM api.product_with_evidence p LEFT JOIN LATERAL (SELECT x.code FROM api.supplier(p) x LIMIT ALL OFFSET 0) s ON TRUE ORDER BY p.created_at DESC LIMIT 50 $$),
-   '%Function Scan%', 'R10: api.supplier(api.product_with_evidence) is inlined');
+SELECT unalike(t.plan_text($$ SELECT p.id, s.code FROM api.sourcing p LEFT JOIN LATERAL (SELECT x.code FROM api.supplier(p) x LIMIT ALL OFFSET 0) s ON TRUE ORDER BY p.created_at DESC LIMIT 50 $$),
+   '%Function Scan%', 'R10: api.supplier(api.sourcing) is inlined');
 SELECT unalike(t.plan_text($$ SELECT p.id, s.code FROM api.purchase_order p LEFT JOIN LATERAL (SELECT x.code FROM api.supplier(p) x LIMIT ALL OFFSET 0) s ON TRUE LIMIT 50 $$),
    '%Function Scan%', 'R10: api.supplier(api.purchase_order) is inlined');
 

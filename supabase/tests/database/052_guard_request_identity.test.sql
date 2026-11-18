@@ -16,7 +16,7 @@ CREATE ROLE t_fwd NOLOGIN;
 GRANT t_fwd TO postgres;
 GRANT authenticated TO t_fwd;
 GRANT USAGE, CREATE ON SCHEMA t TO t_fwd;
-GRANT ALL ON public.market_cell, public.customer_platform_account, public.purchase_order_line, public.purchase_order_payment,
+GRANT ALL ON public.market_cell, public.platform_account, public.purchase_order_line, public.purchase_order_payment,
    public.shipment_line, public.shipment_purchase_order, public.incident_log TO t_fwd;
 
 -- t.<table>: a view over the base table whose INSTEAD OF trigger (SECURITY DEFINER, owner t_fwd)
@@ -52,7 +52,7 @@ DO $$
 DECLARE
     tbl TEXT;
 BEGIN
-    FOREACH tbl IN ARRAY ARRAY['market_cell', 'customer_platform_account', 'purchase_order_line', 'purchase_order_payment',
+    FOREACH tbl IN ARRAY ARRAY['market_cell', 'platform_account', 'purchase_order_line', 'purchase_order_payment',
                                'shipment_line', 'shipment_purchase_order', 'incident_log'] LOOP
         EXECUTE format('CREATE VIEW t.%1$I AS SELECT * FROM public.%1$I', tbl);
         EXECUTE format('CREATE TRIGGER forward INSTEAD OF UPDATE OR DELETE ON t.%1$I FOR EACH ROW EXECUTE FUNCTION t.forward ()', tbl);
@@ -70,29 +70,27 @@ UPDATE public.incident SET status = 'closed' WHERE id = current_setting('test.in
 -- The live cell is listed (no request: the server-only guard does not apply).
 UPDATE public.market_cell SET listing_state = 'live', listing_checked_at = now() WHERE id = current_setting('test.live_cell')::UUID;
 
--- T scratch: a customer, supplier and product; a draft order with a line, an approved order with a
+-- T scratch: a supplier, and a product sourced from it; a draft order with a line, an approved order with a
 -- line, a candidate and a live cell. Numbered in its own tenant, as baris (a member).
 INSERT INTO public.tenant (display_name) VALUES ('T scratch');
 SELECT set_config('test.scratch', (SELECT id FROM public.tenant WHERE display_name = 'T scratch')::TEXT, TRUE);
 INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (current_setting('test.scratch')::UUID, current_setting('test.baris')::UUID);
 SELECT set_config('request.jwt.claims', json_build_object('sub', current_setting('test.baris'), 'role', 'authenticated')::TEXT, TRUE);
 SELECT set_config('request.headers', json_build_object('x-tenant-id', current_setting('test.scratch'))::TEXT, TRUE);
-SELECT set_config('test.s_customer', gen_random_uuid()::TEXT, TRUE);
 SELECT set_config('test.s_supplier', gen_random_uuid()::TEXT, TRUE);
 SELECT set_config('test.s_product', gen_random_uuid()::TEXT, TRUE);
 SELECT set_config('test.s_po_draft', gen_random_uuid()::TEXT, TRUE);
 SELECT set_config('test.s_po_approved', gen_random_uuid()::TEXT, TRUE);
-INSERT INTO public.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.s_customer')::UUID, current_setting('test.scratch')::UUID, 'SCR', 'Scratch Customer', 'trading_partner');
 INSERT INTO public.supplier (id, tenant_id, code, display_name, country)
 VALUES (current_setting('test.s_supplier')::UUID, current_setting('test.scratch')::UUID, 'SC1', 'Scratch Supplier', 'CN');
-INSERT INTO public.product (id, tenant_id, customer_id, sku, display_name, supplier_id)
-VALUES (current_setting('test.s_product')::UUID, current_setting('test.scratch')::UUID, current_setting('test.s_customer')::UUID,
-        'SCR-1', 'Scratch product', current_setting('test.s_supplier')::UUID);
-INSERT INTO public.purchase_order (id, tenant_id, customer_id, supplier_id, currency, incoterm, deposit_rate, pi_total)
-VALUES (current_setting('test.s_po_draft')::UUID, current_setting('test.scratch')::UUID, current_setting('test.s_customer')::UUID,
+INSERT INTO public.product (id, tenant_id, sku, display_name)
+VALUES (current_setting('test.s_product')::UUID, current_setting('test.scratch')::UUID, 'SCR-1', 'Scratch product');
+INSERT INTO public.sourcing (tenant_id, product_id, supplier_id)
+VALUES (current_setting('test.scratch')::UUID, current_setting('test.s_product')::UUID, current_setting('test.s_supplier')::UUID);
+INSERT INTO public.purchase_order (id, tenant_id, supplier_id, currency, incoterm, deposit_rate, pi_total)
+VALUES (current_setting('test.s_po_draft')::UUID, current_setting('test.scratch')::UUID,
         current_setting('test.s_supplier')::UUID, 'USD', 'FOB', 0.3, 100),
-       (current_setting('test.s_po_approved')::UUID, current_setting('test.scratch')::UUID, current_setting('test.s_customer')::UUID,
+       (current_setting('test.s_po_approved')::UUID, current_setting('test.scratch')::UUID,
         current_setting('test.s_supplier')::UUID, 'USD', 'FOB', 0.3, 100);
 INSERT INTO public.purchase_order_line (tenant_id, purchase_order_id, product_id, quantity, unit_price)
 VALUES (current_setting('test.scratch')::UUID, current_setting('test.s_po_draft')::UUID, current_setting('test.s_product')::UUID, 10, 10),
@@ -110,7 +108,7 @@ SELECT private.impersonate(current_setting('test.koordinator')::UUID, current_se
 SELECT throws_ok($$ UPDATE t.market_cell SET listing_state = 'live' WHERE id = current_setting('test.cell')::UUID $$,
    '23514', 'market_cell_listing_server_only', 'R6: listing_state stays server-only through a definer forwarder');
 -- The fixture account is connected (seed): 'revoked' is a change, and the disconnect below one too.
-SELECT throws_ok($$ UPDATE t.customer_platform_account SET api_connection = 'revoked' WHERE id = current_setting('test.acct')::UUID $$,
+SELECT throws_ok($$ UPDATE t.platform_account SET api_connection = 'revoked' WHERE id = current_setting('test.acct')::UUID $$,
    '23514', 'platform_account_api_server_only', 'R6: api_connection stays server-only through a definer forwarder');
 
 -- R6 and R7, as akif in MOESA LTD. After the cutover (064) the direct statements on public run as
@@ -120,7 +118,7 @@ SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('
 SET LOCAL ROLE api_owner;
 SELECT lives_ok($$ SELECT public.amazon_account_disconnect(current_setting('test.acct')::UUID, 'none') $$,
    'R6: the allowed definer RPC still writes it');
-SELECT throws_ok($$ UPDATE public.customer_platform_account SET api_connection = 'connected' WHERE id = current_setting('test.acct')::UUID $$,
+SELECT throws_ok($$ UPDATE public.platform_account SET api_connection = 'connected' WHERE id = current_setting('test.acct')::UUID $$,
    '23514', 'platform_account_api_server_only', 'R6: the server-write flag ends with the RPC call (api_connection)');
 SELECT lives_ok($$ SELECT public.listing_begin_submission(current_setting('test.cell')::UUID, 'create', '{}') $$,
    'R6: listing_begin_submission still writes the listing state');

@@ -4,23 +4,23 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- definition cache is read by every user and written by none, and its property groups are an
 -- ordered array; a user never writes a submission (only the service role does); listing_state and
 -- the Amazon connection are server-only, and a connected account cannot move to another tenant;
--- another tenant sees no submission; as the service role,
+-- another tenant sees no submission and no platform account of the seller; as the service role,
 -- connecting an account stores its token in Vault (one secret per account) and disconnecting with
 -- 'none' removes it; listing_apply_submission walks market_cell.status only through the legal
--- transitions (R2: accepted → uploaded, live only with the listing data, issues keep the status
--- and write open_issue), fills the platform product ID from the ASIN and moves the cell only for
--- the cell's latest submission; listing_begin_submission records a submission, marks the cell
--- submitted and refuses a second one while one is in flight; listing_set_state writes only over
--- the version it was given and clears an Amazon open issue when leaving issues; the parent cell is
--- created on demand and shows the worst of its own submission and its children (R7); the public
--- bucket and the coordinator's publish permission are there; called as a user, begin and parent are audited as that user and refuse
--- another tenant or a user without the permission, Amazon's outcome is the service role's only
--- (audited as its p_actor), and a service write is labelled by its x-audit-role. The cells are
--- AMZ-MOP40-2P's on amazon PL, SE, BE, GB and NL, inserted as postgres and walked with UPDATEs.
--- What it writes is rolled back.
+-- transitions (R2: accepted → uploaded, live only with the listing data, issues keep the status and
+-- write open_issue), fills the platform product ID from the ASIN and moves the cell only for the
+-- cell's latest submission; listing_begin_submission records a submission, marks the cell submitted
+-- and refuses a second one while one is in flight; listing_set_state writes only over the version
+-- it was given and clears an Amazon open issue when leaving issues; the parent cell is created on
+-- demand and shows the worst of its own submission and its children (R7); the public bucket and the
+-- coordinator's publish permission are there; called as a user, begin and parent are audited as
+-- that user and refuse another tenant or a user without the permission, Amazon's outcome is the
+-- service role's only (audited as its p_actor), and a service write is labelled by its
+-- x-audit-role. The cells are AMZ-MOP40-2P's on amazon PL, SE, BE, GB and NL, inserted as postgres
+-- and walked with UPDATEs. What it writes is rolled back.
 BEGIN;
 
-SELECT plan(99);
+SELECT plan(100);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet): one tenant that sells on
 -- Amazon with its owner, a coordinator who may publish, a second tenant with its own owner, one
@@ -193,6 +193,8 @@ RESET ROLE;
 -- 24. A user of the other tenant.
 SELECT private.impersonate(current_setting('test.selin')::UUID, current_setting('test.other')::UUID);
 SELECT is((SELECT count(*) FROM api.listing_submission)::INT, 0, 'another tenant sees no submission');
+SELECT is((SELECT count(*) FROM api.platform_account WHERE id = current_setting('test.acct')::UUID)::INT, 0,
+   'another tenant sees no platform account of the seller');
 RESET ROLE;
 
 -- 25–30. The service role: connect, the token, disconnect.

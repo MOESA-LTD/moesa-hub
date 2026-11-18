@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- 056: projects, markets, incidents and change requests behind the masked api views, as portal and elif.
+-- 056: projects, markets, incidents and change requests behind the masked api views, as elif
+-- (t_restricted: the business tables, no field rows).
 BEGIN;
 
 SELECT plan(12);
@@ -10,13 +11,14 @@ SELECT private.create_test_helpers();
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() is empty');
 
 RESET ROLE;
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
 SELECT is((SELECT notes FROM api.project WHERE id = current_setting('test.project')::UUID), NULL, 'project notes masked');
 SELECT is((SELECT note FROM api.project_gate WHERE id = current_setting('test.gate')::UUID), NULL, 'gate notes masked');
 SELECT results_eq($$ SELECT root_cause_note, impact_note, lessons, affected_parties FROM api.incident WHERE id = current_setting('test.inc')::UUID $$,
    $$ VALUES (NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::public.incident_party[]) $$, 'incident internals and parties masked');
 SELECT is((SELECT what_happened FROM api.incident WHERE id = current_setting('test.inc')::UUID), 'visible', 'CL 3.9: incident notice fields stay readable');
-SELECT is((SELECT count(*)::INT FROM api.incident_log), 0, 'portal has no incident_log table access');
+SELECT results_eq($$ SELECT note, cost_amount FROM api.incident_log WHERE id = current_setting('test.inc_log')::UUID $$,
+   $$ VALUES (NULL::TEXT, NULL::NUMERIC) $$, 'incident log note and cost masked');
 SELECT results_eq($$ SELECT cost_impact, decision_note FROM api.change_request WHERE id = current_setting('test.cr')::UUID $$,
    $$ VALUES ('99'::TEXT, NULL::TEXT) $$, 'CL 3.8: CR cost impact readable, decision note masked');
 SELECT is((SELECT notes FROM api.market_cell WHERE id = current_setting('test.cell')::UUID), NULL, 'market cell notes masked');

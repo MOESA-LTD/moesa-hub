@@ -25,7 +25,7 @@ SELECT is(t.error_of($$ DELETE FROM api.purchase_order_line WHERE id = current_s
 SELECT results_eq($$ SELECT incoterm_buy, notes FROM api.shipment WHERE id = current_setting('test.shp')::UUID $$, $$ VALUES (NULL::TEXT, NULL::TEXT) $$, 'shipment terms and notes masked');
 SELECT results_eq($$ SELECT from_party, to_party, note FROM api.shipment_event WHERE id = current_setting('test.shp_event')::UUID $$, $$ VALUES (NULL::TEXT, NULL::TEXT, NULL::TEXT) $$, 'OD2: event parties masked (supplier_identity)');
 SELECT is((SELECT count(*)::INT FROM api.shipment_purchase_order WHERE shipment_id = current_setting('test.shp')::UUID AND purchase_order_id = current_setting('test.po_approved')::UUID), 1, 'a key-only join row reads through its composite key');
-SELECT throws_ok($$ INSERT INTO api.purchase_order (tenant_id, customer_id, supplier_id, currency, incoterm, deposit_rate) VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3) $$, '42501', 'field_write_forbidden', 'a PO needs supplier and terms write rights');
+SELECT throws_ok($$ INSERT INTO api.purchase_order (tenant_id, supplier_id, currency, incoterm, deposit_rate) VALUES (current_setting('test.moesa')::UUID, current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3) $$, '42501', 'field_write_forbidden', 'a PO needs supplier and terms write rights');
 SELECT set_config('audit.transaction_id', '', TRUE);
 -- Deviation: authenticated has no DELETE on public.purchase_order (029), so the view mirrors that.
 SELECT is(split_part(t.error_of($$ DELETE FROM api.purchase_order WHERE id = current_setting('test.po_draft')::UUID $$), ':', 1), '42501', 'a PO delete through api is refused like the base table (no DELETE grant)');
@@ -34,7 +34,7 @@ SELECT results_eq($$ SELECT t.table_name, t.operation FROM api.audit_transaction
    $$ VALUES ('purchase_order_line','DELETE') $$, 'the audit transaction through api names the deleted row');
 RESET ROLE;
 SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
-SELECT results_eq($$ INSERT INTO api.purchase_order (tenant_id, customer_id, supplier_id, currency, incoterm, deposit_rate) VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3) RETURNING code ~ '^PO-' $$,
+SELECT results_eq($$ INSERT INTO api.purchase_order (tenant_id, supplier_id, currency, incoterm, deposit_rate) VALUES (current_setting('test.moesa')::UUID, current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3) RETURNING code ~ '^PO-' $$,
    $$ VALUES (TRUE) $$, 'purchase_order_set_code runs through the forwarder');
 
 SELECT * FROM finish();

@@ -101,6 +101,11 @@ SELECT private.unimpersonate();
 
 -- Allowlist: the exact SECURITY DEFINER functions in public and api that authenticated may EXECUTE.
 -- A new definer must be added here deliberately, after checking it guards its own access.
+--   end_provider_relationship (018): allowed only to the provider side holding the update right on
+--   relationships, or to the owner of the client company; an unknown id is refused with the same
+--   42501 as a forbidden one. It returns nothing (VOID), so no provider-only field (notes, drive URL)
+--   reaches the client. Definer for that check across both tenants and for the status write, which
+--   the client owner cannot make through the provider's row.
 SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "default" FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname IN ('public','api') AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE') ORDER BY 1 $$,
    $$ VALUES ('api.display_name'),
@@ -111,6 +116,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.can_write_user_field'),
    ('public.create_branch'),
    ('public.delete_branch'),
+   ('public.end_provider_relationship'),
    ('public.import_products'),
    ('public.listing_begin_submission'),
    ('public.listing_parent_cell'),
