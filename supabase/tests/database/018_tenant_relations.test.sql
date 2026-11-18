@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(20);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet). One provider with two
 -- provider-procures clients and one client-procures client, plus a tenant with no relationship.
@@ -188,6 +188,23 @@ SELECT is(
 );
 
 RESET ROLE;
+
+-- The provider never widens what a client shares on its own: an existing relationship cannot move
+-- from client- to provider-procured (only a new one from an invitation starts provider-procured),
+-- whoever writes it. Narrowing (provider → client, decision 13) stays allowed.
+SELECT private.unimpersonate();
+
+SELECT throws_ok(
+   $$ UPDATE public.provider_relationship SET procurement_model = 'provider' WHERE id = '00000000-0000-4000-8000-000000001823' $$,
+   '23514',
+   'procurement_model_widen_forbidden',
+   'a client-procured relationship cannot become provider-procured'
+);
+
+SELECT lives_ok(
+   $$ UPDATE public.provider_relationship SET procurement_model = 'client' WHERE id = '00000000-0000-4000-8000-000000001822' $$,
+   'a provider-procured relationship may become client-procured'
+);
 
 SELECT * FROM finish();
 

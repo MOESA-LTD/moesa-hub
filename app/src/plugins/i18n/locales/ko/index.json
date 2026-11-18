@@ -580,6 +580,7 @@
       "relationship_ended_final": "An ended relationship cannot be reopened.",
       "client_code_immutable": "The client code cannot be changed.",
       "relationship_contract_restricted": "Only management may change a relationship's contract terms.",
+      "procurement_model_widen_forbidden": "A client-procured relationship cannot become provider-procured; only a new invitation starts one that way.",
       "relationship_end_forbidden": "You may not end this relationship.",
       "relationship_inactive": "There is no active relationship with this client.",
       "client_link_forbidden": "You may not link to a record of this company.",

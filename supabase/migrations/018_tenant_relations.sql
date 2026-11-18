@@ -226,10 +226,19 @@ REVOKE ALL ON FUNCTION private.provider_relationship_guard () FROM PUBLIC, anon,
 -- relationships alone covers the rest (notes). SECURITY DEFINER for the permission lookup
 -- (private.tenants_permitting reads roles the caller may not read). A request without a user
 -- (migrations, seed, service role) is not limited.
+--
+-- Whoever writes it, an existing relationship never moves from 'client' to 'provider' procurement
+-- (procurement_model_widen_forbidden): that would start sharing the provider's procurement into a
+-- client that never accepted it. Only a new relationship (the invitation flow) starts as
+-- 'provider'. Moving to 'client' (decision 13, less sharing) stays under the rule above.
 CREATE OR REPLACE FUNCTION private.relationship_contract_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 BEGIN
+    IF OLD.procurement_model = 'client' AND NEW.procurement_model = 'provider' THEN
+        RAISE EXCEPTION 'procurement_model_widen_forbidden' USING ERRCODE = 'check_violation';
+    END IF;
+
     IF (NEW.procurement_model IS DISTINCT FROM OLD.procurement_model
         OR NEW.client_name IS DISTINCT FROM OLD.client_name
         OR NEW.commercial_model IS DISTINCT FROM OLD.commercial_model

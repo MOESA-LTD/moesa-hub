@@ -434,6 +434,7 @@
       "relationship_ended_final": "Sona eren bir ilişki yeniden açılamaz.",
       "client_code_immutable": "Müşteri kodu değiştirilemez.",
       "relationship_contract_restricted": "İlişkinin sözleşme koşullarını yalnız yönetim değiştirebilir.",
+      "procurement_model_widen_forbidden": "Müşterinin tedarik ettiği bir ilişki sağlayıcı tedarikine geçirilemez; bu yalnız yeni bir davetle başlar.",
       "relationship_end_forbidden": "Bu ilişkiyi sonlandırma yetkiniz yok.",
       "relationship_inactive": "Bu müşteriyle etkin bir ilişki yok.",
       "client_link_forbidden": "Bu şirketin bir kaydına bağlantı kurma yetkiniz yok.",
