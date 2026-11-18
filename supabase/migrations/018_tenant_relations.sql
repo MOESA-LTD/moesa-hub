@@ -20,8 +20,9 @@
 --                          - status: active, then ended for good (ended_at);
 --                          - the contract terms (commercial model, packages, contract status,
 --                            dates and document, deposit rate, extra-cost rule, EU responsible
---                            person), changed only by those who may change the provider's settings
---                            (private.relationship_contract_guard);
+--                            person); they, the procurement model, client_name and the Drive
+--                            link are changed only by those who may change the provider's
+--                            settings (private.relationship_contract_guard);
 --                          - provider-internal fields: notes and the restricted Drive link.
 --                        Rows come from accepting an invitation (or the seed): no insert permission.
 --                        The provider side, or the client company's owner, ends a relationship
@@ -39,8 +40,9 @@
 --   relationship_immutable            the provider, the client or accepted_at changed
 --   relationship_ended_final          an ended relationship made active again
 --   client_code_immutable             a client_code changed after a code was drawn under it
---   relationship_contract_restricted  a contract term changed by a caller without the update
---                                     permission on settings in the provider's tenant
+--   relationship_contract_restricted  the procurement model, client_name or a contract term
+--                                     changed by a caller without the update permission on
+--                                     settings in the provider's tenant
 --   relationship_end_forbidden        (42501) ending by a caller who is neither the provider side
 --                                     with the update right nor the client company's owner
 --
@@ -218,15 +220,23 @@ EXECUTE FUNCTION private.provider_relationship_guard ();
 
 REVOKE ALL ON FUNCTION private.provider_relationship_guard () FROM PUBLIC, anon, authenticated;
 
--- The contract terms are management's: a caller changes them only while holding the update
--- permission on settings in the provider's tenant. SECURITY DEFINER for the permission lookup
+-- The terms of the relationship are management's: the procurement model (it decides what is
+-- shared with the client), the client's name, and the contract terms. A caller changes them only
+-- while holding the update permission on settings in the provider's tenant; the update right on
+-- relationships alone covers the rest (notes). SECURITY DEFINER for the permission lookup
 -- (private.tenants_permitting reads roles the caller may not read). A request without a user
 -- (migrations, seed, service role) is not limited.
 CREATE OR REPLACE FUNCTION private.relationship_contract_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 BEGIN
-    IF (NEW.contract_accepted_on IS DISTINCT FROM OLD.contract_accepted_on
+    IF (NEW.procurement_model IS DISTINCT FROM OLD.procurement_model
+        OR NEW.client_name IS DISTINCT FROM OLD.client_name
+        OR NEW.commercial_model IS DISTINCT FROM OLD.commercial_model
+        OR NEW.packages IS DISTINCT FROM OLD.packages
+        OR NEW.contract_status IS DISTINCT FROM OLD.contract_status
+        OR NEW.eu_responsible_person IS DISTINCT FROM OLD.eu_responsible_person
+        OR NEW.contract_accepted_on IS DISTINCT FROM OLD.contract_accepted_on
         OR NEW.contract_document_id IS DISTINCT FROM OLD.contract_document_id
         OR NEW.start_on IS DISTINCT FROM OLD.start_on
         OR NEW.deposit_rate IS DISTINCT FROM OLD.deposit_rate
