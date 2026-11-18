@@ -1,9 +1,10 @@
-// The development story seed: fills MOESA LTD with a coherent story on top of the small seed.
-// Development only; run it after `supabase db reset` (pnpm dev:seed-story from app/).
+// The development story seed: a coherent story for MOESA LTD and its client tenants on top of the
+// small seed. Development only; run it after `supabase db reset` (pnpm dev:seed-story from app/).
 //
-// In order: reads the local keys (supabase status), refuses to run when customer KRN exists
-// (before any upload), checks the sample files and the media ids, uploads the media files to the
-// local Storage bucket at <tenant id>/<media id>/…, runs supabase/seed_story.sql in one
+// In order: reads the local keys (supabase status), refuses to run when the tenant Kernhaus Living
+// GmbH exists (before any upload), checks the sample files and the media ids, uploads each media
+// file to the local Storage bucket under its row's tenant (<tenant id>/<media id>/…), runs
+// supabase/seed_story.sql in one
 // transaction, then runs supabase/seed_story.check.sql (with story.today set to the date the story
 // began, so a run across midnight UTC stays consistent) and fails on any row it returns.
 //
@@ -26,26 +27,44 @@ const BIG_PDF_BYTES = 12 * 1024 * 1024;
 export const GENERATED_BIG_PDF = '<generated:12MB>';
 const BUCKET = 'media';
 
+// The tenants the story creates, with the fixed ids seed_story.sql gives them: their files are
+// uploaded before the story runs. Every other tenant is the small seed's, looked up by name.
+export const STORY_TENANT_IDS = Object.freeze({
+   'Kernhaus Living GmbH': '5eed0001-0000-4000-8000-000000000001',
+});
+
+const THO = 'THOMETZKI ONLINE HANDEL';
+const MOESA = 'MOESA LTD';
+const KRN = 'Kernhaus Living GmbH';
+
 // The media files the story's media rows point at. `id` is the media row's fixed UUID (it also
-// occurs in seed_story.sql), `file` the source under supabase/seed_files/ (or the generated
-// 12 MB PDF), `upload` the published file name, `thumb` an optional thumbnail source. Every file
-// goes under MOESA LTD's folder: KRN is a customer of MOESA LTD, not a tenant.
-const media = (nn, file, upload, mime, thumb) =>
-   Object.freeze({ id: `5eed0009-0000-4000-8000-0000000000${nn}`, file, upload, mime, thumb });
+// occurs in seed_story.sql), `tenant` the tenant (display name) the row lives in, `file` the
+// source under supabase/seed_files/ (or the generated 12 MB PDF), `upload` the published file
+// name, `thumb` an optional thumbnail source. A file goes under its row's tenant folder: THO's
+// own files under THO, the files of the orders and shipments MOESA LTD procures under MOESA LTD,
+// KRN's under KRN.
+const media = (nn, tenant, file, upload, mime, thumb) =>
+   Object.freeze({ id: `5eed0009-0000-4000-8000-0000000000${nn}`, tenant, file, upload, mime, thumb });
 export const MEDIA = Object.freeze([
-   media('01', 'photo-1.png', 'mop-primary.png', 'image/png', 'thumb-1.webp'), // THO-MOP40-2P primary image
-   media('02', 'photo-2.png', 'mop-gallery.png', 'image/png'), // THO-MOP40-2P gallery, no thumbnail
-   media('03', 'photo-3.png', 'production.png', 'image/png', 'thumb-3.webp'), // PO-006 production photo
-   media('04', 'photo-2.png', 'damage.png', 'image/png', 'thumb-2.webp'), // SHP-009 damage photo
-   media('05', 'sample.pdf', 'pi.pdf', 'application/pdf'), // the file of PO-011's PI
-   media('06', 'sample.pdf', 'artwork.pdf', 'application/pdf'), // CR-005 attachment, tech pack, packing list
-   media('07', 'sample.mp4', 'demo.mp4', 'video/mp4'), // THO-TIPS-6-50 gallery video
-   media('08', 'photo-3.png', 'orphan.png', 'image/png'), // linked nowhere
-   media('09', 'photo-1.png', 'catalogue.png', 'image/png', 'thumb-1.webp'), // shared: THO and KRN products
-   media('10', 'photo-2.png', 'vase.png', 'image/png', 'thumb-2.webp'), // KRN-VASE-01 primary image
-   media('11', GENERATED_BIG_PDF, 'big-catalogue.pdf', 'application/pdf'), // 12 MB: over Trading's 5 MB cap
-   media('12', 'sample.pdf', 'certificate.pdf', 'application/pdf'), // shared: CN1's certificate (a supplier's)
+   media('01', THO, 'photo-1.png', 'mop-primary.png', 'image/png', 'thumb-1.webp'), // THO-MOP40-2P primary image
+   media('02', THO, 'photo-2.png', 'mop-gallery.png', 'image/png'), // THO-MOP40-2P gallery, no thumbnail
+   media('03', MOESA, 'photo-3.png', 'production.png', 'image/png', 'thumb-3.webp'), // PO-006 production photo
+   media('04', MOESA, 'photo-2.png', 'damage.png', 'image/png', 'thumb-2.webp'), // SHP-009 damage photo
+   media('05', MOESA, 'sample.pdf', 'pi.pdf', 'application/pdf'), // the file of PO-011's PI
+   media('06', THO, 'sample.pdf', 'artwork.pdf', 'application/pdf'), // CR-005 attachment, tech pack
+   media('07', THO, 'sample.mp4', 'demo.mp4', 'video/mp4'), // THO-TIPS-6-50 gallery video
+   media('08', THO, 'photo-3.png', 'orphan.png', 'image/png'), // linked nowhere
+   media('09', THO, 'photo-1.png', 'catalogue.png', 'image/png', 'thumb-1.webp'), // on two THO products
+   media('10', KRN, 'photo-2.png', 'vase.png', 'image/png', 'thumb-2.webp'), // KRN-VASE-01 primary image
+   media('11', THO, GENERATED_BIG_PDF, 'big-catalogue.pdf', 'application/pdf'), // 12 MB: over Trading's 5 MB cap
+   media('12', MOESA, 'sample.pdf', 'certificate.pdf', 'application/pdf'), // CN1's certificate (a supplier's)
+   media('13', MOESA, 'sample.pdf', 'packing-list.pdf', 'application/pdf'), // SHP-008's packing list scan
 ]);
+
+// The Storage folder of a media row: <tenant id>/<media id>.
+export function mediaFolder(row) {
+   return `${row.tenant_id}/${row.id}`;
+}
 
 // Runs a command in the repo root and returns its stdout; throws with its stderr on failure.
 // The supabase CLI may be a .cmd shim on Windows, which Node only starts through a shell.
@@ -145,7 +164,21 @@ function assertMediaIdsIn(storySql) {
    if (missing.length) throw new Error(`MEDIA ids missing from seed_story.sql: ${missing.join(', ')}`);
 }
 
-async function uploadMedia(apiUrl, serviceRoleKey, tenantId) {
+// Each MEDIA file with its folder; the tenant's id comes from STORY_TENANT_IDS, else the database.
+function mediaUploads(sql) {
+   const ids = new Map();
+   const tenantId = (name) => {
+      if (!ids.has(name)) {
+         const id = STORY_TENANT_IDS[name] ?? sql(`SELECT id FROM public.tenant WHERE display_name = '${name}'`).trim();
+         if (!id) throw new Error(`tenant ${name} not found; is the small seed loaded?`);
+         ids.set(name, id);
+      }
+      return ids.get(name);
+   };
+   return MEDIA.map((m) => ({ media: m, folder: mediaFolder({ tenant_id: tenantId(m.tenant), id: m.id }) }));
+}
+
+async function uploadMedia(apiUrl, serviceRoleKey, files) {
    const appRequire = createRequire(path.join(ROOT, 'app', 'package.json'));
    const { createClient } = appRequire('@supabase/supabase-js');
    const storage = createClient(apiUrl, serviceRoleKey, {
@@ -157,11 +190,11 @@ async function uploadMedia(apiUrl, serviceRoleKey, tenantId) {
       if (error) throw new Error(`upload ${objectPath}: ${error.message}`);
    };
 
-   for (const m of MEDIA) {
+   for (const { media: m, folder } of files) {
       const body = m.file === GENERATED_BIG_PDF ? bigPdf() : readFileSync(path.join(SEED_FILES, m.file));
-      await put(`${tenantId}/${m.id}/${m.upload}`, body, m.mime);
+      await put(`${folder}/${m.upload}`, body, m.mime);
       if (m.thumb) {
-         await put(`${tenantId}/${m.id}/thumb/thumb.webp`, readFileSync(path.join(SEED_FILES, m.thumb)), 'image/webp');
+         await put(`${folder}/thumb/thumb.webp`, readFileSync(path.join(SEED_FILES, m.thumb)), 'image/webp');
       }
    }
 }
@@ -218,13 +251,13 @@ SELECT set_config('story.amazon_seller_id', '${sellerId}', FALSE);
 `;
 }
 
-// The steps are injectable so the test can prove the KRN guard stops the run before any upload.
+// The steps are injectable so the test can prove the guard stops the run before any upload.
 export async function main({ keys = localKeys, sql = psql, upload = uploadMedia, exit = process.exit } = {}) {
    const { apiUrl, serviceRoleKey } = keys();
    assertLocalApiUrl(apiUrl);
 
-   if (Number(sql(`SELECT count(*) FROM public.customer WHERE code = 'KRN'`).trim()) > 0) {
-      console.error('seed-story: already loaded (customer KRN exists). Run "supabase db reset" first.');
+   if (sql(`SELECT EXISTS (SELECT 1 FROM public.tenant WHERE display_name = 'Kernhaus Living GmbH')`).trim() === 't') {
+      console.error('seed-story: already loaded (tenant Kernhaus Living GmbH exists). Run "supabase db reset" first.');
       return exit(1);
    }
 
@@ -232,10 +265,7 @@ export async function main({ keys = localKeys, sql = psql, upload = uploadMedia,
    const storySql = readFileSync(STORY_SQL, 'utf8');
    assertMediaIdsIn(storySql);
 
-   const tenantId = sql(`SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD'`).trim();
-   if (!tenantId) throw new Error('tenant MOESA LTD not found; is the small seed loaded?');
-
-   await upload(apiUrl, serviceRoleKey, tenantId);
+   await upload(apiUrl, serviceRoleKey, mediaUploads(sql));
    // The story's "today" is the database date before its transaction begins; the check reads it
    // (story.today), so a run that crosses 00:00 UTC does not fail the date checks.
    const storyDate = sql('SELECT current_date').trim();
