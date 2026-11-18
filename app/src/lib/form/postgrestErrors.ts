@@ -451,7 +451,8 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'relationship_immutable',
       'relationship_ended_final',
       'relationship_contract_restricted',
-      'procurement_model_widen_forbidden'
+      'procurement_model_widen_forbidden',
+      'sourcing_in_client_forbidden'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
    {
       code: '42501',

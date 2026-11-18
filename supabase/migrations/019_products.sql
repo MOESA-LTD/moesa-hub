@@ -400,6 +400,31 @@ $$;
 
 REVOKE ALL ON FUNCTION private.client_link_guard () FROM PUBLIC, anon, authenticated;
 
+-- While a provider procures for a client (an active provider-procures relationship), the client's
+-- procurement data (cost, supplier) is kept in the provider's company, where the client owner does
+-- not read it (decisions 7 and 12): no sourcing row is added in the client's own tenant, whoever
+-- writes it (sourcing_in_client_forbidden). SECURITY DEFINER: the client side may not read the
+-- provider's relationship row.
+CREATE OR REPLACE FUNCTION private.sourcing_client_side_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM public.provider_relationship r
+        WHERE r.client_tenant_id = NEW.tenant_id AND r.status = 'active' AND r.procurement_model = 'provider'
+    ) THEN
+        RAISE EXCEPTION 'sourcing_in_client_forbidden' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.sourcing_client_side_guard () FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER aa_sourcing_client_side_guard BEFORE INSERT ON public.sourcing FOR EACH ROW
+EXECUTE FUNCTION private.sourcing_client_side_guard ();
+
 CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
 UPDATE ON public.sourcing FOR EACH ROW
 EXECUTE FUNCTION private.client_tenant_immutable ();

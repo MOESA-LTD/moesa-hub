@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(40);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet). A provider procuring for
 -- one client tenant:
@@ -363,6 +363,31 @@ SELECT throws_matching(
     -- After 051 the generic tenant move guard (aa_field_write_guard) refuses first.
     '^(client_tenant_immutable|tenant_move_forbidden)$',
     'a row naming a client cannot move to another tenant'
+);
+
+-- While a provider procures for a client, the client's procurement data is kept in the provider's
+-- company: no sourcing row is added in the client's own tenant, not even by its owner (decisions 7
+-- and 12). A client that procures for itself keeps its own sourcing.
+RESET ROLE;
+SELECT private.impersonate('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001902', '00000000-0000-4000-8000-000000001942')
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'sourcing_in_client_forbidden',
+    'no sourcing row in a tenant its provider procures for'
+);
+
+RESET ROLE;
+SELECT private.unimpersonate();
+
+SELECT lives_ok(
+    $$ INSERT INTO public.sourcing (tenant_id, product_id)
+       VALUES ('00000000-0000-4000-8000-000000001905', '00000000-0000-4000-8000-000000001946') $$,
+    'a client that procures for itself adds its own sourcing'
 );
 
 -- The relationship ends.

@@ -1122,7 +1122,13 @@ ALTER FUNCTION public.save_plan (JSONB, TEXT[], JSONB) OWNER TO api_owner;
 
 ALTER FUNCTION public.set_primary_media (UUID) OWNER TO api_owner;
 
+-- The client's read of its relationships' procurement (018): api_owner runs only the private helper
+-- granted to it below, which returns the model and status alone.
+ALTER FUNCTION public.client_procurement () OWNER TO api_owner;
+
 REVOKE CREATE ON SCHEMA public FROM api_owner;
+
+GRANT EXECUTE ON FUNCTION private.client_procurement (UUID) TO api_owner;
 
 -- The grants they had: authenticated and service_role. set_user_roles had PUBLIC and anon as well
 -- (009), which a definer does not keep.

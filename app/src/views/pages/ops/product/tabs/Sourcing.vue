@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { productResource } from '@/api/product';
-import { useClientOptions } from '@/api/relationship';
+import { useClientOptions, useProviderProcures } from '@/api/relationship';
 import { ownSourcing, useSourcing, type SourcingCard } from '@/api/sourcing';
 import { canInsertFields, useFieldAccess } from '@/composables/useFieldAccess';
 import { useAuthStore } from '@/store/auth';
@@ -11,7 +11,9 @@ import SourcingForm from './SourcingForm.vue';
 // scope read-only beside it (a provider with both tenants in scope sees its own row next to the
 // client's). The active tenant adds a row for the product if it has none: for its own product, or
 // for a client's under an active provider-procures relationship. On a provider's row for a
-// client's product, the provider keeps its own spec sheet as a document of that row.
+// client's product, the provider keeps its own spec sheet as a document of that row. In a company
+// its provider procures for, procurement data is kept in the provider's company: the tab says so
+// and adds no row here.
 const props = defineProps<{ id: string }>();
 
 const authStore = useAuthStore();
@@ -32,9 +34,11 @@ const clientTenantId = computed(() =>
       : null
 );
 const clientOptions = useClientOptions();
+const providerProcures = useProviderProcures();
 
 /** Why the active tenant cannot add a row, if it cannot. */
 const blocked = computed(() => {
+   if (providerProcures.value) return 'provider_procures';
    if (!ability.can('create', 'sourcing') || !canInsertFields('sourcing')) return 'forbidden';
    if (
       clientTenantId.value &&
@@ -74,6 +78,14 @@ const facts = (row: SourcingCard) =>
 
 <template>
    <div class="flex flex-col gap-6">
+      <Message
+         v-if="providerProcures"
+         severity="info"
+         :closable="false"
+         data-sourcing-provider-procures
+      >
+         {{ $t('ops.product.sourcing.kept_by_provider') }}
+      </Message>
       <section>
          <SourcingForm
             v-if="own || adding"

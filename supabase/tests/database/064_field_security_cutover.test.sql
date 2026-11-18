@@ -106,6 +106,10 @@ SELECT private.unimpersonate();
 --   42501 as a forbidden one. It returns nothing (VOID), so no provider-only field (notes, drive URL)
 --   reaches the client. Definer for that check across both tenants and for the status write, which
 --   the client owner cannot make through the provider's row.
+--   client_procurement (018, owned by api_owner): returns only the procurement model and status of
+--   the relationships naming the active tenant (private.tenant_id(), checked against the user's
+--   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
+--   provider-only field, no relationship of another tenant. The sourcing tab reads it.
 SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "default" FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname IN ('public','api') AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE') ORDER BY 1 $$,
    $$ VALUES ('api.display_name'),
@@ -114,6 +118,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('api.status'),
    ('public.amazon_account_disconnect'),
    ('public.can_write_user_field'),
+   ('public.client_procurement'),
    ('public.create_branch'),
    ('public.delete_branch'),
    ('public.end_provider_relationship'),

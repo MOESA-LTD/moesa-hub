@@ -14,7 +14,8 @@ import { defineComponent, h, Suspense } from 'vue';
 const api = vi.hoisted(() => ({
    product: null as unknown,
    rows: [] as unknown[],
-   clients: [] as { value: string }[]
+   clients: [] as { value: string }[],
+   providerProcures: false
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -43,7 +44,10 @@ vi.mock('@/api/sourcing', async (importOriginal) => {
 });
 vi.mock('@/api/relationship', async () => {
    const { computed } = await import('vue');
-   return { useClientOptions: () => computed(() => api.clients) };
+   return {
+      useClientOptions: () => computed(() => api.clients),
+      useProviderProcures: () => computed(() => api.providerProcures)
+   };
 });
 
 const SourcingForm = defineComponent({
@@ -87,6 +91,7 @@ describe('product sourcing tab', () => {
       api.product = clientProduct;
       api.rows = [];
       api.clients = [{ value: 'client' }];
+      api.providerProcures = false;
    });
 
    it("edits the active tenant's row and shows the client's own row beside it", async () => {
@@ -141,6 +146,16 @@ describe('product sourcing tab', () => {
       const wrapper = await mountTab();
       await wrapper.get('[data-sourcing-add]').trigger('click');
       expect(wrapper.getComponent(SourcingForm).props('clientTenantId')).toBeNull();
+   });
+
+   it('keeps procurement out of a company its provider procures for', async () => {
+      api.product = { id: 'p1', tenant_id: 'provider', sku: 'OWN-1' };
+      api.providerProcures = true;
+      const wrapper = await mountTab();
+      expect(wrapper.find('[data-sourcing-add]').exists()).toBe(false);
+      expect(wrapper.get('[data-sourcing-provider-procures]').text()).toBe(
+         en.ops.product.sourcing.kept_by_provider
+      );
    });
 
    it('hides the sourcing fields the user may not read', async () => {

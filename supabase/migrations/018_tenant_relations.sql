@@ -327,6 +327,38 @@ REVOKE ALL ON FUNCTION public.end_provider_relationship (UUID) FROM PUBLIC, anon
 
 GRANT EXECUTE ON FUNCTION public.end_provider_relationship (UUID) TO authenticated;
 
+-- How the relationships naming `p_client` as the client procure: their model and status only,
+-- nothing of the provider's own fields. SECURITY DEFINER because the client side may not read the
+-- provider's row. Only public.client_procurement (owned by api_owner, 058) runs it.
+CREATE OR REPLACE FUNCTION private.client_procurement (p_client UUID) RETURNS TABLE (
+   procurement_model public.procurement_model,
+   status public.relationship_status
+) LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT r.procurement_model, r.status
+    FROM public.provider_relationship r
+    WHERE p_client IS NOT NULL AND r.client_tenant_id = p_client;
+$$;
+
+REVOKE ALL ON FUNCTION private.client_procurement (UUID) FROM PUBLIC, anon, authenticated;
+
+-- The active tenant's relationships as a client: their procurement model and status. The app reads
+-- it to keep procurement data out of a company its provider procures for (the sourcing tab).
+-- Nothing without an active tenant.
+CREATE OR REPLACE FUNCTION public.client_procurement () RETURNS TABLE (
+   procurement_model public.procurement_model,
+   status public.relationship_status
+) LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT c.procurement_model, c.status FROM private.client_procurement(private.tenant_id()) c;
+$$;
+
+REVOKE ALL ON FUNCTION public.client_procurement () FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.client_procurement () TO authenticated;
+
 -- The tenant's own records
 CREATE TABLE IF NOT EXISTS public.contact (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -3,7 +3,7 @@ import { useFormTenant } from '@/api/formTenant';
 import { queryKeys } from '@/api/queryKeys';
 import { useLookup } from '@/api/useLookup';
 import { useTenantKey } from '@/api/useTenantKey';
-import { supabase } from '@/lib/supabase';
+import { publicSchema, supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
 import { useQuery } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
@@ -148,4 +148,31 @@ export function useLinkedClient(
          relationships.value
       )
    );
+}
+
+/** How one of the active tenant's relationships as a client procures (public.client_procurement). */
+export type ClientProcurement = Pick<RelationshipRow, 'procurement_model' | 'status'>;
+
+/** Whether a provider procures for the client: an active provider-procures relationship. */
+export const isProviderProcured = (rows: readonly ClientProcurement[]) =>
+   rows.some((row) => row.status === 'active' && row.procurement_model === 'provider');
+
+/**
+ * Whether a provider procures for the active tenant. Its procurement data (cost, supplier) is then
+ * kept in the provider's company, not here (the database refuses a sourcing row here:
+ * sourcing_in_client_forbidden). Read through public.client_procurement, since the client side
+ * cannot read the provider's relationship row.
+ */
+export function useProviderProcures() {
+   const tenantKey = useTenantKey();
+   const { data } = useQuery({
+      queryKey: computed(() =>
+         queryKeys.detail(tenantKey.value, 'provider_relationship', 'client_procurement')
+      ),
+      queryFn: async () => {
+         const { data } = await publicSchema.rpc('client_procurement').throwOnError();
+         return data ?? [];
+      }
+   });
+   return computed(() => isProviderProcured(data.value ?? []));
 }

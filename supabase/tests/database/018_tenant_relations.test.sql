@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(23);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet). One provider with two
 -- provider-procures clients and one client-procures client, plus a tenant with no relationship.
@@ -185,6 +185,32 @@ SELECT is(
    pg_temp.user_update_relationship('00000000-0000-4000-8000-000000001821', 'notes = ''client wrote this'''),
    0,
    'the client owner cannot write the relationship directly'
+);
+
+RESET ROLE;
+
+-- A client reads how its relationships procure (public.client_procurement), though not the provider's
+-- row: only the model and status of those naming the active tenant as the client.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001811', '00000000-0000-4000-8000-000000001802');
+
+SELECT results_eq(
+   $$ SELECT procurement_model::TEXT, status::TEXT FROM public.client_procurement() $$,
+   $$ VALUES ('provider', 'ended') $$,
+   'the client owner reads the model and status of its relationship (ended above)'
+);
+
+RESET ROLE;
+SELECT private.impersonate('00000000-0000-4000-8000-000000001813', '00000000-0000-4000-8000-000000001801');
+
+SELECT is_empty(
+   $$ SELECT 1 FROM public.client_procurement() $$,
+   'the provider side is no client: nothing'
+);
+
+SELECT is(
+   (SELECT pg_get_userbyid(p.proowner)::TEXT FROM pg_proc p WHERE p.oid = 'public.client_procurement()'::REGPROCEDURE),
+   'api_owner',
+   'client_procurement runs as api_owner'
 );
 
 RESET ROLE;

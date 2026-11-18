@@ -9002,6 +9002,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      client_procurement: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          procurement_model: Database["public"]["Enums"]["procurement_model"]
+          status: Database["public"]["Enums"]["relationship_status"]
+        }[]
+      }
       create_branch: {
         Args: {
           parent_id: string
