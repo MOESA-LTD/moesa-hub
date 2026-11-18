@@ -237,7 +237,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.tenant t JOIN public.tenant_owner o ON o.
 -- tenancy.staff: MOESA staff work in the client tenants they were invited into, with a role there
 SELECT 'tenancy.staff', x.email || ' ' || x.tenant FROM (VALUES ('akif@moesa-panel.test', 'THOMETZKI ONLINE HANDEL', 'management'),
     ('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL', 'management'), ('koordinator@moesa-panel.test', 'Kernhaus Living GmbH', 'coordinator'),
-    ('koordinator@moesa-panel.test', 'Clearstar Handel GmbH', 'management')) x (email, tenant, role)
+    ('koordinator@moesa-panel.test', 'Clearstar Handel GmbH', 'management'), ('akif@moesa-panel.test', 'Clearstar Handel GmbH', 'management')) x (email, tenant, role)
 WHERE NOT EXISTS (SELECT 1 FROM public.user u JOIN public.tenant_user m ON m.user_id = u.id AND m.tenant_id = pg_temp.tenant(x.tenant)
     JOIN public.user_role ur ON ur.user_id = u.id JOIN public.role r ON r.id = ur.role_id AND r.tenant_id = m.tenant_id AND r.display_name = x.role
     WHERE u.email = x.email);
@@ -281,8 +281,8 @@ WHERE pg_temp.rows_in(k, pg_temp.moesa()) OR NOT pg_temp.rows_in(k, pg_temp.tho(
 SELECT 'tenancy.line_snapshot', l.id::TEXT FROM public.purchase_order_line l JOIN public.product p ON p.id = l.product_id
 LEFT JOIN public.sourcing s ON s.tenant_id = l.tenant_id AND s.product_id = l.product_id
 WHERE l.tenant_id = pg_temp.moesa() AND l.id::TEXT LIKE '5eed0005-%'
-  AND (l.product_tenant_id <> pg_temp.tho() OR p.tenant_id <> pg_temp.tho() OR l.product_sku <> p.sku OR l.product_name <> p.display_name
-       OR l.client_tenant_id IS DISTINCT FROM pg_temp.tho() OR l.sell_price_eur IS DISTINCT FROM s.sell_price_eur)
+  AND (l.product_tenant_id <> p.tenant_id OR p.tenant_id NOT IN (pg_temp.tho(), pg_temp.tenant('Clearstar Handel GmbH')) OR l.product_sku <> p.sku OR l.product_name <> p.display_name
+       OR l.client_tenant_id IS DISTINCT FROM p.tenant_id OR l.sell_price_eur IS DISTINCT FROM s.sell_price_eur)
 UNION ALL
 SELECT 'tenancy.line_snapshot', 'mop sell price' WHERE NOT EXISTS (SELECT 1 FROM public.purchase_order_line WHERE id = '5eed0005-0000-4000-8000-000000000103' AND sell_price_eur = 9.40);
 -- tenancy.project_link: the orders of THO's projects name them with their code, linked while still drafts
@@ -550,16 +550,16 @@ SELECT 'm10.repeat' WHERE (SELECT count(*) FROM public.incident WHERE tenant_id 
    OR NOT EXISTS (SELECT 1 FROM public.incident_overview WHERE id = '5eed0008-0000-4000-8000-000000000004' AND is_repeat);
 SELECT 'm10.unclassified' WHERE NOT EXISTS (SELECT 1 FROM public.incident WHERE id = '5eed0008-0000-4000-8000-000000000008' AND family = 'om' AND incident_type IS NULL);
 SELECT 'm10.cost_log' WHERE NOT EXISTS (SELECT 1 FROM public.incident_log WHERE incident_id = '5eed0008-0000-4000-8000-000000000002' AND cost_amount = 350 AND cost_currency = 'EUR' AND cost_payer = 'carrier_insurance' AND customer_approved);
--- m10.entity_kinds: the kinds of THO's own records the incidents hang on (Plan 1: an incident names no provider order or shipment)
-SELECT 'm10.entity_kinds', k FROM unnest(ARRAY['project', 'product', 'market_cell']) k WHERE NOT EXISTS (SELECT 1 FROM public.incident WHERE tenant_id = pg_temp.tho() AND entity_type::TEXT = k);
+-- m10.entity_kinds: the kinds of records the incidents hang on, THO's own and MOESA LTD's shared orders and shipments
+SELECT 'm10.entity_kinds', k FROM unnest(ARRAY['project', 'product', 'market_cell', 'purchase_order', 'shipment']) k WHERE NOT EXISTS (SELECT 1 FROM public.incident WHERE tenant_id = pg_temp.tho() AND entity_type::TEXT = k);
 SELECT 'm10.closed_by_management' WHERE NOT EXISTS (SELECT 1 FROM public.incident i JOIN public.user u ON u.id = i.closed_by AND u.email = 'akif@moesa-panel.test' WHERE i.id = '5eed0008-0000-4000-8000-000000000007' AND i.closed_on IS NOT NULL);
--- m10.incidents: each story incident's family, card, severity, status, code prefix and linked record (all in THO; the deliveries' incidents name none in Plan 1)
+-- m10.incidents: each story incident's family, card, severity, status, code prefix and linked record (all in THO; the delivery and order incidents cite MOESA LTD's shared rows, entity_tenant_id)
 SELECT 'm10.incidents', x.nn FROM (VALUES
-    ('01', 'ol', 'OL-02', 's1', 'open', NULL, NULL),
-    ('02', 'ol', 'OL-05', 's2', 'contained', NULL, NULL),
-    ('03', 'ol', 'OL-09', 's3', 'closed', NULL, NULL),
-    ('04', 'ol', 'OL-09', 's3', 'open', NULL, NULL),
-    ('05', 'ot', 'OT-04', 's2', 'contained', 'project', '5eed0004-0000-4000-8000-000000000002'),
+    ('01', 'ol', 'OL-02', 's1', 'open', 'shipment', '5eed0006-0000-4000-8000-000000000002'),
+    ('02', 'ol', 'OL-05', 's2', 'contained', 'shipment', '5eed0006-0000-4000-8000-000000000009'),
+    ('03', 'ol', 'OL-09', 's3', 'closed', 'shipment', '5eed0006-0000-4000-8000-000000000011'),
+    ('04', 'ol', 'OL-09', 's3', 'open', 'shipment', '5eed0006-0000-4000-8000-000000000010'),
+    ('05', 'ot', 'OT-04', 's2', 'contained', 'purchase_order', '5eed0005-0000-4000-8000-000000000003'),
     ('06', 'oa', 'OA-02', 's3', 'open', 'market_cell', '5eed0007-0000-4000-8000-000000000005'),
     ('07', 'ou', 'OU-01', 's1', 'closed', 'product', (SELECT id::TEXT FROM public.product WHERE sku = 'THO-TIPS-6-50' AND tenant_id = pg_temp.tho())),
     ('08', 'om', NULL, 's3', 'open', 'project', (SELECT id::TEXT FROM public.project WHERE display_name = 'Mop ailesi çok ülke pilotu' AND tenant_id = pg_temp.tho()))
@@ -568,6 +568,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.incident i
     WHERE i.id = ('5eed0008-0000-4000-8000-0000000000' || x.nn)::UUID AND i.tenant_id = pg_temp.tho() AND i.family = x.fam::public.incident_family
       AND i.incident_type IS NOT DISTINCT FROM x.typ AND i.severity = x.sev::public.incident_severity AND i.status = x.st::public.incident_status
       AND i.entity_type IS NOT DISTINCT FROM x.et::public.document_entity AND i.entity_id IS NOT DISTINCT FROM x.eid::UUID
+      AND i.entity_tenant_id IS NOT DISTINCT FROM CASE WHEN x.et IN ('shipment', 'purchase_order') THEN pg_temp.moesa() END
       AND i.code LIKE upper(x.fam) || '-THO-%');
 -- m10.notified: management and the customer were told of the s1/s2 incidents that left open, after the opening and in time; m10.closed: the closed ones carry their closure
 SELECT 'm10.notified', i.id::TEXT FROM public.incident i
@@ -741,6 +742,94 @@ SELECT 'fp.coordinator_reads_terms' WHERE NOT EXISTS (SELECT 1 FROM api.supplier
 -- fp.coordinator_terms_readonly: and its role reads them without writing them
 SELECT 'fp.coordinator_terms_readonly' WHERE NOT EXISTS (SELECT 1 FROM api.role_field_permission rfp JOIN api.role r ON r.id = rfp.role_id
    WHERE r.display_name = 'coordinator' AND rfp.resource_name = 'public.supplier' AND rfp.field = 'payment_terms' AND rfp.can_read AND NOT rfp.can_write);
+RESET ROLE;
+DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
+-- Sharing (Plan 2): what each side reads and writes through the api views, as the real users with RLS
+-- and masking on. Each block sets the counts it expects before impersonating, then goes back to postgres.
+DO $$ BEGIN
+    PERFORM set_config('story.t_moesa', pg_temp.moesa()::TEXT, TRUE);
+    PERFORM set_config('story.t_tho', pg_temp.tho()::TEXT, TRUE);
+    PERFORM set_config('story.t_krn', pg_temp.krn()::TEXT, TRUE);
+    PERFORM set_config('story.t_cls', pg_temp.tenant('Clearstar Handel GmbH')::TEXT, TRUE);
+END $$;
+-- sharing.thomas_sees_orders: thomas (owner of THO, scope {THO}) reads exactly the orders MOESA LTD placed for THO, none of their
+-- provider-only figures (PI total, raw status), and every line with its sell price (client-visible) and no purchase price
+DO $$ BEGIN
+    PERFORM set_config('story.exp_po', (SELECT count(*) FROM public.purchase_order WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho())::TEXT, TRUE);
+    PERFORM set_config('story.exp_lines', (SELECT count(*) FROM public.purchase_order_line WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho())::TEXT, TRUE);
+    PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'thomas@moesa-panel.test'), pg_temp.tho(), ARRAY[pg_temp.tho()]);
+END $$;
+SELECT 'sharing.thomas_sees_orders', 'orders' WHERE (SELECT count(*) FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID AND client_tenant_id = current_setting('story.t_tho')::UUID)
+       <> current_setting('story.exp_po')::INT OR current_setting('story.exp_po')::INT = 0
+   OR EXISTS (SELECT 1 FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID AND (pi_total IS NOT NULL OR status IS NOT NULL OR client_status IS NULL))
+UNION ALL
+SELECT 'sharing.thomas_sees_orders', 'lines' WHERE (SELECT count(*) FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID) <> current_setting('story.exp_lines')::INT
+   OR EXISTS (SELECT 1 FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID AND (sell_price_eur IS NULL OR unit_price IS NOT NULL));
+-- sharing.cost_guarded: the cost of the change request and of the incident log that cite MOESA LTD's orders is the provider's: THO's owner reads none of it
+-- (and still reads the cost of a request that cites none)
+SELECT 'sharing.cost_guarded', 'client reads' WHERE EXISTS (SELECT 1 FROM api.change_request WHERE id = '5eed0008-0000-4000-8000-000000000014' AND (cost_impact IS NOT NULL OR cost_payer IS NOT NULL))
+   OR EXISTS (SELECT 1 FROM api.incident_log WHERE incident_id = '5eed0008-0000-4000-8000-000000000005' AND (cost_amount IS NOT NULL OR cost_payer IS NOT NULL))
+   OR NOT EXISTS (SELECT 1 FROM api.change_request WHERE id = '5eed0008-0000-4000-8000-000000000014')
+   OR NOT EXISTS (SELECT 1 FROM api.incident_log WHERE incident_id = '5eed0008-0000-4000-8000-000000000005')
+   OR NOT EXISTS (SELECT 1 FROM api.change_request WHERE id = '5eed0008-0000-4000-8000-000000000011' AND cost_impact IS NOT NULL);
+RESET ROLE;
+DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
+
+-- sharing.portal_narrowed: portal (viewer in THO) reads the sourcing shared with THO with its sell price (his role's one sensitive
+-- field) and no purchase price, and no provider order or shipment (his role has no select on them)
+DO $$ BEGIN PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'portal@moesa-panel.test'), pg_temp.tho(), ARRAY[pg_temp.tho()]); END $$;
+SELECT 'sharing.portal_narrowed' WHERE NOT EXISTS (SELECT 1 FROM api.sourcing WHERE tenant_id = current_setting('story.t_moesa')::UUID AND sell_price_eur IS NOT NULL)
+   OR EXISTS (SELECT 1 FROM api.sourcing WHERE tenant_id = current_setting('story.t_moesa')::UUID AND purchase_price IS NOT NULL)
+   OR EXISTS (SELECT 1 FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID)
+   OR EXISTS (SELECT 1 FROM api.shipment WHERE tenant_id = current_setting('story.t_moesa')::UUID);
+RESET ROLE;
+DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
+
+-- sharing.kerstin_owns_procurement: kerstin (owner of KRN) reads her own orders with their PI figures, and no provider order of any tenant
+DO $$ BEGIN PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'kerstin@moesa-panel.test'), pg_temp.krn(), ARRAY[pg_temp.krn()]); END $$;
+SELECT 'sharing.kerstin_owns_procurement' WHERE NOT EXISTS (SELECT 1 FROM api.purchase_order WHERE tenant_id = current_setting('story.t_krn')::UUID AND pi_total IS NOT NULL)
+   OR EXISTS (SELECT 1 FROM api.purchase_order WHERE tenant_id <> current_setting('story.t_krn')::UUID OR client_tenant_id IS NOT NULL);
+RESET ROLE;
+DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
+
+-- sharing.akif_both_sides: akif with MOESA LTD and THO in his scope reads the PI figures of the orders MOESA LTD placed for THO, and
+-- the provider-guarded cost of the request and incident log of THO that cite them
+DO $$ BEGIN
+    PERFORM set_config('story.exp_pi', (SELECT count(*) FROM public.purchase_order WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho() AND pi_total IS NOT NULL)::TEXT, TRUE);
+    PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'akif@moesa-panel.test'), pg_temp.moesa(), ARRAY[pg_temp.moesa(), pg_temp.tho()]);
+END $$;
+SELECT 'sharing.akif_both_sides', 'pi_total' WHERE current_setting('story.exp_pi')::INT = 0
+   OR (SELECT count(*) FROM api.purchase_order WHERE client_tenant_id = current_setting('story.t_tho')::UUID AND pi_total IS NOT NULL) <> current_setting('story.exp_pi')::INT
+UNION ALL
+SELECT 'sharing.akif_both_sides', 'cost' WHERE NOT EXISTS (SELECT 1 FROM api.change_request WHERE id = '5eed0008-0000-4000-8000-000000000014' AND cost_impact IS NOT NULL AND cost_payer IS NOT NULL)
+   OR NOT EXISTS (SELECT 1 FROM api.incident_log WHERE incident_id = '5eed0008-0000-4000-8000-000000000005' AND cost_amount = 120 AND cost_payer = 'supplier');
+RESET ROLE;
+DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
+
+-- sharing.cls_history: Clearstar's relationship has ended, its two orders stay readable to its owner, masked and read-only
+DO $$
+DECLARE
+    v_rows INT;
+BEGIN
+    PERFORM set_config('story.exp_cls', (SELECT count(*) FROM public.purchase_order WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tenant('Clearstar Handel GmbH'))::TEXT, TRUE);
+    PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'owner.cls@moesa-panel.test'), pg_temp.tenant('Clearstar Handel GmbH'),
+                                      ARRAY[pg_temp.tenant('Clearstar Handel GmbH')]);
+    BEGIN
+        UPDATE api.purchase_order SET ready_on = ready_on + 1 WHERE tenant_id = pg_temp.moesa();
+        GET DIAGNOSTICS v_rows = ROW_COUNT;
+        PERFORM set_config('story.cls_write', v_rows::TEXT, TRUE);
+    EXCEPTION WHEN insufficient_privilege THEN
+        PERFORM set_config('story.cls_write', '0', TRUE);
+    END;
+END $$;
+SELECT 'sharing.cls_history', 'orders' WHERE current_setting('story.exp_cls')::INT <> 2
+   OR (SELECT count(*) FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID) <> current_setting('story.exp_cls')::INT
+   OR EXISTS (SELECT 1 FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID AND (pi_total IS NOT NULL OR status IS NOT NULL OR client_status IS NULL))
+UNION ALL
+SELECT 'sharing.cls_history', 'lines' WHERE (SELECT count(*) FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID) <> 2
+   OR EXISTS (SELECT 1 FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID AND (sell_price_eur IS NULL OR unit_price IS NOT NULL))
+UNION ALL
+SELECT 'sharing.cls_history', 'read-only' WHERE current_setting('story.cls_write') <> '0';
 RESET ROLE;
 DO $$ BEGIN PERFORM private.unimpersonate(); END $$;
 ROLLBACK;

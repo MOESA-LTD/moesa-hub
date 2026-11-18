@@ -238,6 +238,7 @@ BEGIN
     PERFORM private.story_member(v_krn, 'koordinator@moesa-panel.test', 'coordinator');
     PERFORM private.story_role(v_cls, 'management');
     PERFORM private.story_member(v_cls, 'koordinator@moesa-panel.test', 'management');
+    PERFORM private.story_member(v_cls, 'akif@moesa-panel.test', 'management');
 
     UPDATE public.subscription s
     SET plan_id = p.id, is_trial = FALSE, starts_at = now() - INTERVAL '1 month', ends_at = now() + INTERVAL '11 months',
@@ -502,6 +503,7 @@ BEGIN
 
     UPDATE public.sourcing SET sell_price_eur = 9.40 WHERE id = v_mop;
     UPDATE public.sourcing SET purchase_price = 0.85, purchase_currency = 'USD', sell_price_eur = 6.20 WHERE id = v_tips50;
+    UPDATE public.sourcing SET sell_price_eur = 0.89 WHERE id = v_cones100;
 
     PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000041', 'sourcing', v_mop, 'spec_sheet', 2, 'signed',
                               (SELECT d.issued_on FROM public.document d JOIN public.product p ON p.id = d.entity_id
@@ -712,27 +714,6 @@ BEGIN
             (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test'), now() - interval '200 days');
 
     UPDATE public.project SET status = 'closed' WHERE id = '5eed0004-0000-4000-8000-000000000009';
-
-    PERFORM private.story_end('25 days');
-END;
-$$;
-
--- Step 04, last part: baris closes Clearstar's contract, now that its only project is closed, and
--- ends the relationship (public.end_provider_relationship, as the panel does).
-DO $$
-DECLARE
-    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_rows INT;
-BEGIN
-    UPDATE public.provider_relationship SET contract_status = 'closed'
-    WHERE id = '5eed0002-0000-4000-8000-000000000004' AND tenant_id = v_tenant;
-    GET DIAGNOSTICS v_rows = ROW_COUNT;
-
-    IF v_rows <> 1 THEN
-        RAISE EXCEPTION 'story 04: closing CLS changed % rows', v_rows;
-    END IF;
-
-    PERFORM public.end_provider_relationship('5eed0002-0000-4000-8000-000000000004');
 
     PERFORM private.story_end('25 days');
 END;
@@ -1012,6 +993,97 @@ BEGIN
     PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000012', 'pi_approved', now() - INTERVAL '2 days');
 
     PERFORM private.story_end('5 days');
+END;
+$$;
+
+-- Step 05, CLS's part, before its relationship ends: koordinator (management in CLS) adds Clearstar's
+-- one product, akif (management in MOESA LTD, invited into CLS) records its sourcing and the two
+-- orders MOESA LTD made for CLS: one closed (approved PI, both payments paid, a production note),
+-- one cancelled once sent. Product …-0a, sourcing …-10a; orders …-13 and …-14, lines …-113/114,
+-- PI document …-213. Orders and sourcing age 130 days: CLS's story is over (step 05, last part).
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'Clearstar Handel GmbH');
+BEGIN
+    INSERT INTO public.product (id, tenant_id, sku, display_name, brand, gtin, status, compliance_status)
+    VALUES ('5eed0003-0000-4000-8000-00000000000a', v_tenant, 'CLS-LAMP-01', 'LED Tischlampe, 30 cm', 'Clearstar',
+            '4260696025930', 'on_sale', 'complete');
+
+    PERFORM private.story_end('130 days');
+END;
+$$;
+
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+    v_cls UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'CLS');
+    v_id1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'ID1');
+BEGIN
+    IF v_cls IS NULL OR v_id1 IS NULL THEN
+        RAISE EXCEPTION 'story 05: CLS or supplier ID1 is missing';
+    END IF;
+
+    INSERT INTO public.sourcing (id, tenant_id, client_tenant_id, product_id, supplier_id, purchase_price, purchase_currency,
+                                 purchase_incoterm, sell_price_eur)
+    SELECT '5eed0003-0000-4000-8000-00000000010a', v_tenant, v_cls, '5eed0003-0000-4000-8000-00000000000a', s.id, 1.40, 'USD',
+           s.default_incoterm, 6.90
+    FROM public.supplier s WHERE s.id = v_id1;
+
+    INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, ready_on, created_at)
+    VALUES ('5eed0005-0000-4000-8000-000000000013', v_tenant, v_cls, v_id1, 'USD', current_date - 160, now() - INTERVAL '200 days'),
+           ('5eed0005-0000-4000-8000-000000000014', v_tenant, v_cls, v_id1, 'USD', current_date - 150, now() - INTERVAL '170 days');
+
+    INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, position, product_id, quantity, unit_price)
+    VALUES ('5eed0005-0000-4000-8000-000000000113', v_tenant, '5eed0005-0000-4000-8000-000000000013', 1,
+            '5eed0003-0000-4000-8000-00000000000a', 1200, 1.40),
+           ('5eed0005-0000-4000-8000-000000000114', v_tenant, '5eed0005-0000-4000-8000-000000000014', 1,
+            '5eed0003-0000-4000-8000-00000000000a', 400, 1.40);
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'sent');
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000014', 'sent');
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000014', 'cancelled');
+    PERFORM private.story_po_pi('5eed0005-0000-4000-8000-000000000213', '5eed0005-0000-4000-8000-000000000013', 'approved',
+                                current_date - 190);
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'pi_approved', now() - INTERVAL '188 days');
+
+    INSERT INTO public.purchase_order_payment (tenant_id, purchase_order_id, kind, amount, currency, planned_on, paid_on, paid_by)
+    SELECT v_tenant, po.id, x.kind::public.payment_kind,
+           CASE x.kind WHEN 'deposit' THEN po.pi_deposit_amount ELSE po.pi_balance_amount END, po.currency,
+           current_date + x.planned_in, current_date + x.planned_in + 1, 'company'
+    FROM (VALUES ('deposit', -186), ('balance', -150)) x (kind, planned_in)
+    JOIN public.purchase_order po ON po.id = '5eed0005-0000-4000-8000-000000000013';
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'balance_paid');
+
+    INSERT INTO public.purchase_order_update (tenant_id, purchase_order_id, happened_on, note)
+    VALUES (v_tenant, '5eed0005-0000-4000-8000-000000000013', current_date - 175, 'Üretim tamamlandı, parti Clearstar deposuna teslim edildi');
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'closed');
+
+    PERFORM private.story_end('130 days');
+END;
+$$;
+
+-- Step 05, CLS's last part: baris closes Clearstar's contract, now that its only project is closed and
+-- its orders are done, and ends the relationship (public.end_provider_relationship, as the panel
+-- does). The ended relationship keeps its shared history (decision 13): the orders above stay
+-- readable to CLS, masked and read-only.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
+    v_rows INT;
+BEGIN
+    UPDATE public.provider_relationship SET contract_status = 'closed'
+    WHERE id = '5eed0002-0000-4000-8000-000000000004' AND tenant_id = v_tenant;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF v_rows <> 1 THEN
+        RAISE EXCEPTION 'story 04: closing CLS changed % rows', v_rows;
+    END IF;
+
+    PERFORM public.end_provider_relationship('5eed0002-0000-4000-8000-000000000004');
+
+    PERFORM private.story_end('25 days');
 END;
 $$;
 
@@ -1422,9 +1494,10 @@ DECLARE
     v_rec public.incident := jsonb_populate_record(NULL::public.incident, p_fields);
 BEGIN
     INSERT INTO public.incident (id, tenant_id, family, incident_type, severity, title, what_happened, reported_by,
-                                 current_state, immediate_action, entity_type, entity_id, opened_at, affected_parties)
+                                 current_state, immediate_action, entity_type, entity_id, entity_tenant_id, opened_at,
+                                 affected_parties)
     VALUES (p_id, v_tenant, p_family, p_type, p_severity, p_title, p_what_happened, v_rec.reported_by,
-            v_rec.current_state, v_rec.immediate_action, p_entity_type, p_entity_id, p_opened_at,
+            v_rec.current_state, v_rec.immediate_action, p_entity_type, p_entity_id, v_rec.entity_tenant_id, p_opened_at,
             coalesce(v_rec.affected_parties, '{}'));
 END;
 $$;
@@ -1444,10 +1517,10 @@ DECLARE
     v_rec public.change_request := jsonb_populate_record(NULL::public.change_request, p_fields);
     v_rows INT;
 BEGIN
-    INSERT INTO public.change_request (id, tenant_id, project_id, title, source, urgency, change_kinds, current_value,
+    INSERT INTO public.change_request (id, tenant_id, project_id, purchase_order_id, order_tenant_id, title, source, urgency, change_kinds, current_value,
                                        requested_value, reason, affected_gate_code, affected_document_id, other_documents,
                                        cost_impact, cost_payer, delay_days, quality_impact, listing_impact)
-    VALUES (p_id, v_tenant, v_rec.project_id, p_title, p_source, p_urgency, p_kinds, p_current_value, p_requested_value,
+    VALUES (p_id, v_tenant, v_rec.project_id, v_rec.purchase_order_id, v_rec.order_tenant_id, p_title, p_source, p_urgency, p_kinds, p_current_value, p_requested_value,
             p_reason, v_rec.affected_gate_code, v_rec.affected_document_id, v_rec.other_documents, v_rec.cost_impact,
             v_rec.cost_payer, v_rec.delay_days, v_rec.quality_impact, v_rec.listing_impact);
 
@@ -1480,6 +1553,7 @@ $$;
 DO $$
 DECLARE
     v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
+    v_moesa UUID := (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD');
     v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-TIPS-6-50' AND p.tenant_id = private.requested_tenant());
     v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-CONES-100' AND p.tenant_id = private.requested_tenant());
     v_pilot UUID := (SELECT p.id FROM public.project p WHERE p.display_name = 'Mop ailesi çok ülke pilotu' AND p.tenant_id = private.requested_tenant());
@@ -1487,22 +1561,27 @@ DECLARE
     v_gate public.project_gate;
     v_rows INT;
 BEGIN
-    IF v_tips50 IS NULL OR v_cones100 IS NULL OR v_pilot IS NULL OR v_variant_g3 IS NULL THEN
+    IF v_tips50 IS NULL OR v_cones100 IS NULL OR v_pilot IS NULL OR v_variant_g3 IS NULL OR v_moesa IS NULL THEN
         RAISE EXCEPTION 'story 08: a seed or story row is missing';
     END IF;
 
+    -- akif works in THO with MOESA LTD in his scope (as the panel's tenant switcher sends both): the
+    -- incidents and requests cite MOESA LTD's shared orders and shipments, and their cost fields
+    -- belong to the provider (the guard wants his cost right in MOESA LTD).
+    PERFORM set_config('request.headers', json_build_object('x-tenant-id', v_tenant, 'x-tenant-ids', v_moesa || ',' || v_tenant)::TEXT, TRUE);
+
     -- 01 OL-02 s1, open five hours: management not told yet, the customer's 4-hour notice is late.
-    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000001', 'ol', 'OL-02', 's1', now() - INTERVAL '5 hours', NULL,
-        NULL, 'Tır depoda kabul edilmedi',
+    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000001', 'ol', 'OL-02', 's1', now() - INTERVAL '5 hours', 'shipment',
+        '5eed0006-0000-4000-8000-000000000002', 'Tır depoda kabul edilmedi',
         'Rosbach deposu randevusuz gelen aracı geri çevirdi; yük araçta bekliyor.',
-        jsonb_build_object('reported_by', 'Forwarder operasyon (telefon)', 'current_state', 'Araç depo önünde bekliyor',
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Forwarder operasyon (telefon)', 'current_state', 'Araç depo önünde bekliyor',
                            'affected_parties', ARRAY['customer', 'forwarder', 'warehouse']));
 
     -- 02 OL-05 s2, contained: hasarlı teslimat; the 48-hour supplier damage notice ran out two days ago.
-    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000002', 'ol', 'OL-05', 's2', now() - INTERVAL '4 days', NULL,
-        NULL, 'Teslimatta hasarlı koliler',
+    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000002', 'ol', 'OL-05', 's2', now() - INTERVAL '4 days', 'shipment',
+        '5eed0006-0000-4000-8000-000000000009', 'Teslimatta hasarlı koliler',
         'Hava kargo teslimatında koliler ezik geldi; teslim tutanağına hasar notu düşüldü.',
-        jsonb_build_object('reported_by', 'Müşteri deposu (e-posta)', 'immediate_action', 'Hasarlı koliler ayrıldı, fotoğraflandı',
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Müşteri deposu (e-posta)', 'immediate_action', 'Hasarlı koliler ayrıldı, fotoğraflandı',
                            'affected_parties', ARRAY['customer', 'supplier', 'forwarder']));
     INSERT INTO public.incident_deadline (tenant_id, incident_id, kind, label)
     VALUES (v_tenant, '5eed0008-0000-4000-8000-000000000002', 'supplier_damage', 'Tedarikçiye hasar bildirimi');
@@ -1519,9 +1598,9 @@ BEGIN
     WHERE id = '5eed0008-0000-4000-8000-000000000002';
 
     -- 03 OL-09 s3, closed: eksik koli, fully recovered.
-    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000003', 'ol', 'OL-09', 's3', now() - INTERVAL '60 days', NULL,
-        NULL, 'Eksik koli',
-        'Gümrük sayımında iki koli eksik çıktı.', jsonb_build_object('reported_by', 'Gümrük müşaviri (e-posta)'));
+    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000003', 'ol', 'OL-09', 's3', now() - INTERVAL '60 days', 'shipment',
+        '5eed0006-0000-4000-8000-000000000011', 'Eksik koli',
+        'Gümrük sayımında iki koli eksik çıktı.', jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Gümrük müşaviri (e-posta)'));
     UPDATE public.incident SET status = 'contained' WHERE id = '5eed0008-0000-4000-8000-000000000003';
     UPDATE public.incident
     SET status = 'closed', outcome = 'full_recovery', root_cause = 'carrier',
@@ -1530,15 +1609,19 @@ BEGIN
     WHERE id = '5eed0008-0000-4000-8000-000000000003';
 
     -- 04 OL-09 s3, open: the same card again within 90 days (a repeat).
-    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000004', 'ol', 'OL-09', 's3', now() - INTERVAL '10 days', NULL,
-        NULL, 'Eksik koli (tekrar)',
-        'Kara yolu teslimatında bir koli eksik sayıldı.', jsonb_build_object('reported_by', 'Müşteri deposu (e-posta)'));
+    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000004', 'ol', 'OL-09', 's3', now() - INTERVAL '10 days', 'shipment',
+        '5eed0006-0000-4000-8000-000000000010', 'Eksik koli (tekrar)',
+        'Kara yolu teslimatında bir koli eksik sayıldı.', jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Müşteri deposu (e-posta)'));
 
     -- 05 OT-04 s2, contained: the supplier's PI does not match the order; it rolls back the variant's G3.
-    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000005', 'ot', 'OT-04', 's2', now() - INTERVAL '3 days', 'project',
-        '5eed0004-0000-4000-8000-000000000002', 'PI tutarsızlığı',
+    PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000005', 'ot', 'OT-04', 's2', now() - INTERVAL '3 days', 'purchase_order',
+        '5eed0005-0000-4000-8000-000000000003', 'PI tutarsızlığı',
         'Tedarikçinin PI toplamı sipariş tutarından farklı; onaylı varyant fiyatları da etkileniyor.',
-        jsonb_build_object('reported_by', 'Satın alma (e-posta)', 'affected_parties', ARRAY['customer', 'supplier']));
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Satın alma (e-posta)', 'affected_parties', ARRAY['customer', 'supplier']));
+    -- The expertise fee of the mismatch is a provider-guarded cost (the incident cites MOESA LTD's order).
+    INSERT INTO public.incident_log (tenant_id, incident_id, logged_at, note, counterparty, decision, cost_amount, cost_currency, cost_payer)
+    VALUES (v_tenant, '5eed0008-0000-4000-8000-000000000005', now() - INTERVAL '2 days', 'PI farkı için bağımsız hesap kontrolü yaptırıldı.',
+            'Denetim firması (e-posta)', 'Fark tedarikçiden talep edilecek', 120, 'EUR', 'supplier');
     UPDATE public.incident
     SET management_notified_at = opened_at + INTERVAL '30 minutes', customer_notified_at = least(opened_at + INTERVAL '2 hours', customer_notice_due_at)
     WHERE id = '5eed0008-0000-4000-8000-000000000005';
@@ -1609,7 +1692,8 @@ BEGIN
     PERFORM private.story_cr('5eed0008-0000-4000-8000-000000000014', 'supplier', 'normal', ARRAY['price', 'supplier']::public.change_kind[],
         'Tedarikçi kaynaklı fiyat artışı', 'Birim satış fiyatı 9,40 EUR', 'Birim satış fiyatı 9,90 EUR',
         'Tedarikçinin hammadde maliyeti arttı',
-        jsonb_build_object('cost_impact', 'Birim başına 0,50 EUR', 'cost_payer', 'company'));
+        jsonb_build_object('purchase_order_id', '5eed0005-0000-4000-8000-000000000004', 'cost_impact', 'Birim başına 0,50 EUR',
+                           'cost_payer', 'company'));
     UPDATE public.change_request SET status = 'rejected', decision_note = 'Sözleşme fiyatı yıl sonuna kadar geçerli; artış kabul edilmedi'
     WHERE id = '5eed0008-0000-4000-8000-000000000014';
 
@@ -1633,6 +1717,21 @@ BEGIN
     IF v_rows <> 5 THEN
         RAISE EXCEPTION 'story 08: % of 5 change requests reached their status', v_rows;
     END IF;
+
+    PERFORM private.story_end('0');
+END;
+$$;
+
+-- Step 08, MOESA LTD's part (today): the provider's own feed is not empty today. As akif in MOESA LTD:
+-- a production note on the order in production and the incident's expert fee on the PI-mismatch order
+-- (a provider's reaction to THO's incident), both of today.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+BEGIN
+    INSERT INTO public.purchase_order_update (tenant_id, purchase_order_id, happened_on, note)
+    VALUES (v_tenant, '5eed0005-0000-4000-8000-000000000006', current_date, 'Dolum tamamlandı, final ambalaj ve yükleme planlanıyor'),
+           (v_tenant, '5eed0005-0000-4000-8000-000000000003', current_date, 'Tedarikçiden düzeltilmiş PI istendi (tutar farkı)');
 
     PERFORM private.story_end('0');
 END;
