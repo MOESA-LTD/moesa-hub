@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- policies' shared-row call, the signed access caches (tenant_scope, permitted_tenants), the api
 -- view generator's shared-row masking, and the forwarder's and the base write guard's rights
 -- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
--- revert's and the forwarder's rights tenant), or extends it (a chain such as 021 → 032 → 036). A
+-- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company), or extends it (a chain such as 021 → 032 → 036). A
 -- restated body is the owner's current body plus only the restating migration's own delta, so an
 -- edit of the owner that is not carried into the restatement would be undone silently, and so
 -- would a chain step a later restatement forgot. Each row below names, for the live function,
@@ -20,7 +20,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(46);
+SELECT plan(47);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -178,7 +178,10 @@ VALUES
     ARRAY['incident_immutable_field', 'incident_type_family', 'incident_entity_invalid', 'incident_severity_downgrade_requires_management',
           'incident_status_order', 'incident_management_notice_required', 'incident_closure_incomplete', 'incident_close_management',
           'NEW.closed_by := auth.uid()', 'coalesce(NEW.entity_tenant_id, NEW.tenant_id)',
-          'NEW.entity_tenant_id IS DISTINCT FROM OLD.entity_tenant_id']);
+          'NEW.entity_tenant_id IS DISTINCT FROM OLD.entity_tenant_id']),
+   -- 070: self-signup takes the one company-creation path (allowlisted payload, standard roles).
+   ('public.register_tenant(uuid, jsonb)', '009', '070',
+    ARRAY['SECURITY DEFINER', 'private.create_company(register_tenant.owner_id, register_tenant.company, NULL)']);
 
 SELECT is_empty(format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n WHERE strpos(pg_get_functiondef(%L::REGPROCEDURE), n) = 0 $q$,
                        r.needle, r.fn),

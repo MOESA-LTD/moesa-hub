@@ -123,32 +123,15 @@ BEGIN
 END;
 $$;
 
--- A business role of a tenant: management (every permission of the business and core modules) or
--- coordinator (the same, without changing the settings, the users, the roles or the company and its
--- branches, and without deleting media), with the field defaults of its profile.
+-- A business role of a tenant: management (every permission of every module) or coordinator (the
+-- same, without changing the settings, the users, the roles or the company and its branches, and
+-- without deleting media), with the field defaults of its profile. Built by the migrations' standard
+-- role builder (070), which new companies get too.
 CREATE OR REPLACE FUNCTION private.seed_business_role (tenant_id UUID, role_name TEXT) RETURNS VOID LANGUAGE plpgsql
 SET
     search_path = '' AS $$
-DECLARE
-    role_id UUID;
 BEGIN
-    INSERT INTO public.role (display_name, tenant_id)
-    VALUES (seed_business_role.role_name, seed_business_role.tenant_id)
-    RETURNING id INTO role_id;
-
-    INSERT INTO public.role_permission (role_id, permission_id)
-    SELECT role_id, p.id
-    FROM public.permission p
-    WHERE p.group_name IN ('ops_setting', 'document', 'supplier', 'client', 'product', 'project',
-                           'purchase_order', 'shipment', 'market_matrix', 'incident', 'change_request',
-                           'media', 'listing', 'branch', 'user', 'role', 'audit_log')
-      AND (seed_business_role.role_name = 'management'
-           OR NOT (p.group_name = 'ops_setting' AND p.command = 'update'
-                   OR p.group_name IN ('role', 'user') AND p.command <> 'select'
-                   OR p.resource_name = 'public.tenant' AND p.command <> 'select'
-                   OR p.resource_name = 'public.media' AND p.command = 'delete'));
-
-    PERFORM private.apply_field_defaults(role_id, seed_business_role.role_name);
+    PERFORM private.create_standard_role(seed_business_role.tenant_id, seed_business_role.role_name);
 END;
 $$;
 
@@ -164,7 +147,8 @@ $$;
 
 -- The roles of a client tenant: management, and viewer, which reads the tenant's products, projects,
 -- market cells, media and documents, and of the sensitive fields only the sell price, contract and
--- personal data (written directly: the viewer profile of private.field_default comes later).
+-- personal data. THO's viewer stays narrower than the standard viewer (no purchase orders, shipments
+-- or provider relationship; Plan 2 Task 11 ruling); its field rights are the viewer profile's.
 CREATE OR REPLACE FUNCTION private.seed_client_roles (tenant_id UUID) RETURNS VOID LANGUAGE plpgsql
 SET
     search_path = '' AS $$
@@ -182,14 +166,7 @@ BEGIN
     FROM public.permission p
     WHERE p.command = 'select' AND p.group_name IN ('product', 'project', 'market_matrix', 'media', 'document');
 
-    -- As private.apply_field_defaults does for a profile other than management and coordinator: no
-    -- field of public.user.
-    INSERT INTO public.role_field_permission (role_id, resource_name, field, can_read, can_write)
-    SELECT viewer, f.resource_name, f.field, TRUE, FALSE
-    FROM public.field_class f
-    WHERE f.class = 'sensitive'
-      AND f.group_name IN ('sell_price', 'contract', 'personal_data')
-      AND f.resource_name <> 'public.user';
+    PERFORM private.apply_field_defaults(viewer, 'viewer');
 END;
 $$;
 

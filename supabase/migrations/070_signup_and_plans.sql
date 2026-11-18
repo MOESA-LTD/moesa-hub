@@ -160,3 +160,155 @@ $$;
 REVOKE ALL ON FUNCTION public.save_plan (JSONB, TEXT[], JSONB) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.save_plan (JSONB, TEXT[], JSONB) TO authenticated, service_role;
+
+-- Section 2: one company-creation path, shared by self-signup (register_tenant) and the provider
+-- invitation's acceptance (Plan 3 Task 4), with the standard roles (spec §7, preflight F8).
+--
+--   private.create_standard_role(tenant, name)    one standard role with its permissions and the
+--                                                 field defaults of its profile; seed.sql builds its
+--                                                 demo roles with it.
+--   private.create_standard_roles(tenant)         management, coordinator and viewer.
+--   private.create_company(owner, company, plan)  the company from an allowlisted payload
+--                                                 (company_payload_invalid), its owner and member,
+--                                                 the standard roles and the subscription
+--                                                 (plan_inactive). Not executable by any API role.
+--   public.register_tenant                        keeps its signature and delegates (restates 009).
+
+-- The viewer profile: of the sensitive fields only the sell price, contract and personal data, read
+-- only (apply_field_defaults leaves public.user out for any profile but management and coordinator).
+INSERT INTO private.field_default (profile, group_name, can_read, can_write)
+VALUES
+   ('viewer', 'sell_price', TRUE, FALSE),
+   ('viewer', 'contract', TRUE, FALSE),
+   ('viewer', 'personal_data', TRUE, FALSE)
+ON CONFLICT DO NOTHING;
+
+-- management: every permission of every module, core and optional (F8). coordinator: the same,
+-- without changing the settings, the users, the roles or the company and its branches, and without
+-- deleting media (spec M19). viewer: reads products, projects, purchase orders, shipments, market
+-- cells, media, documents and the provider relationship, and writes nothing. INVOKER: its callers,
+-- create_company (a definer) and the seed, run as the table owner, where the S7 trigger on
+-- role_field_permission lets apply_field_defaults through (field_guard_bypassed: the seed's session
+-- user, or the service role's request).
+CREATE OR REPLACE FUNCTION private.create_standard_role (p_tenant UUID, p_role TEXT) RETURNS UUID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    role_id UUID;
+BEGIN
+    IF p_role NOT IN ('management', 'coordinator', 'viewer') THEN
+        RAISE EXCEPTION 'standard_role_unknown';
+    END IF;
+
+    INSERT INTO public.role (display_name, tenant_id)
+    VALUES (p_role, p_tenant)
+    RETURNING id INTO role_id;
+
+    INSERT INTO public.role_permission (role_id, permission_id)
+    SELECT role_id, p.id
+    FROM public.permission p
+    WHERE p.group_name IN (SELECT m.id FROM public.module m)
+      AND CASE p_role
+              WHEN 'management' THEN TRUE
+              WHEN 'coordinator' THEN NOT (p.group_name = 'ops_setting' AND p.command = 'update'
+                                           OR p.group_name IN ('role', 'user') AND p.command <> 'select'
+                                           OR p.resource_name = 'public.tenant' AND p.command <> 'select'
+                                           OR p.resource_name = 'public.media' AND p.command = 'delete')
+              ELSE p.command = 'select'
+                   AND (p.group_name IN ('product', 'project', 'purchase_order', 'shipment', 'market_matrix',
+                                         'media', 'document')
+                        OR p.resource_name = 'public.provider_relationship')
+          END;
+
+    PERFORM private.apply_field_defaults(role_id, p_role);
+    RETURN role_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION private.create_standard_roles (p_tenant UUID) RETURNS VOID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+BEGIN
+    PERFORM private.create_standard_role(p_tenant, 'management');
+    PERFORM private.create_standard_role(p_tenant, 'coordinator');
+    PERFORM private.create_standard_role(p_tenant, 'viewer');
+END;
+$$;
+
+-- The subscription comes from private.subscribe_new_company (the default plan); a chosen plan
+-- replaces it, with that plan's trial computed as the default subscription does.
+CREATE OR REPLACE FUNCTION private.create_company (p_owner UUID, p_company JSONB, p_plan_id UUID DEFAULT NULL) RETURNS public.tenant LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    created public.tenant;
+    chosen public.plan;
+BEGIN
+    IF p_company IS NULL OR jsonb_typeof(p_company) <> 'object'
+       OR EXISTS (SELECT 1 FROM jsonb_object_keys(p_company) AS k (key)
+                  WHERE k.key NOT IN ('display_name', 'legal_name', 'email', 'phone', 'website', 'country', 'city',
+                                      'district', 'address', 'tax_office', 'tax_number')) THEN
+        RAISE EXCEPTION 'company_payload_invalid';
+    END IF;
+
+    IF p_plan_id IS NOT NULL THEN
+        SELECT * INTO chosen FROM public.plan p WHERE p.id = p_plan_id;
+        IF NOT FOUND OR NOT chosen.is_active THEN
+            RAISE EXCEPTION 'plan_inactive';
+        END IF;
+    END IF;
+
+    INSERT INTO public.tenant (display_name, legal_name, email, phone, website, country, city, district, address,
+                               tax_office, tax_number)
+    VALUES (
+        p_company ->> 'display_name',
+        NULLIF(p_company ->> 'legal_name', ''),
+        NULLIF(p_company ->> 'email', ''),
+        NULLIF(p_company ->> 'phone', ''),
+        NULLIF(p_company ->> 'website', ''),
+        NULLIF(p_company ->> 'country', ''),
+        NULLIF(p_company ->> 'city', ''),
+        NULLIF(p_company ->> 'district', ''),
+        NULLIF(p_company ->> 'address', ''),
+        NULLIF(p_company ->> 'tax_office', ''),
+        NULLIF(p_company ->> 'tax_number', '')
+    )
+    RETURNING * INTO created;
+
+    INSERT INTO public.tenant_owner (tenant_id, user_id) VALUES (created.id, p_owner);
+    INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (created.id, p_owner);
+
+    PERFORM private.create_standard_roles(created.id);
+
+    IF p_plan_id IS NOT NULL THEN
+        UPDATE public.subscription s
+        SET plan_id = chosen.id,
+            is_trial = chosen.trial_days > 0,
+            ends_at = CASE WHEN chosen.trial_days > 0 THEN now() + make_interval(days => chosen.trial_days) END
+        WHERE s.tenant_id = created.id;
+    END IF;
+
+    RETURN created;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.create_standard_role (UUID, TEXT) FROM PUBLIC, anon, authenticated, service_role;
+
+REVOKE ALL ON FUNCTION private.create_standard_roles (UUID) FROM PUBLIC, anon, authenticated, service_role;
+
+REVOKE ALL ON FUNCTION private.create_company (UUID, JSONB, UUID) FROM PUBLIC, anon, authenticated, service_role;
+
+-- 009's register_tenant, now delegating. SECURITY DEFINER (was INVOKER): the service role has no
+-- USAGE on schema private, so the body reaches create_company as its owner. Still service role
+-- only, so the 064 allowlist (definers executable by authenticated) does not list it.
+CREATE OR REPLACE FUNCTION public.register_tenant (owner_id UUID, company JSONB) RETURNS public.tenant LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    RETURN private.create_company(register_tenant.owner_id, register_tenant.company, NULL);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.register_tenant (UUID, JSONB) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.register_tenant (UUID, JSONB) TO service_role;
