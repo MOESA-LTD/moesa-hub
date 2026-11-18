@@ -24,6 +24,27 @@ Scale today: `customer_id` sits on 32 tables and views (local DB). The customer 
 14. **Moving data between tenants is a general tool**: copy or move products and their linked records from one tenant to another. "Bu işlemi yapacak kullanıcının iki tenant'ta da ilgili yetkilere sahip olması güvenlik açısından önemli": the caller must hold the needed table and field rights in both the source and the target tenant.
 15. **No balance or receivable tracking between provider and client.** "Bakiye tarzı işlere girersek yönetimi yorucu." When MOESA procures, the client sees no deposit and no payment rows. Today those amounts are MOESA's payments to the supplier, and they would reveal cost.
 
+## Onboarding (owner decisions 16–18, 2026-11-18)
+
+16. **Customers join by the provider's invitation link.** The owner could not tell whether today's open self-signup is right; the invitation flow was proposed and accepted.
+    - The provider starts a "new customer invitation". It records:
+      - the customer's e-mail and company name;
+      - the procurement model;
+      - the contract terms;
+      - the provider staff who will work in the new tenant, with their roles.
+    - The customer opens the link, sets a password, completes the company details and picks a plan. That single step does four things:
+      - creates the customer's tenant, with the customer as owner;
+      - creates the provider relationship, already accepted (accepting the invitation is the client's acceptance);
+      - adds the chosen provider staff with their roles;
+      - starts sharing if the provider procures.
+    - Invitations expire, are single-use and can be revoked by the provider.
+    - The invited e-mail must match the account that accepts the invitation. If the address already has an account, they sign in instead of signing up.
+17. **Open self-signup is closed by default.** It sits behind a platform setting, so the panel can later be offered to companies outside MOESA. With the setting on, it is today's flow: a standalone tenant with no relationship.
+18. **The customer chooses its plan at signup.** "Planın içeriğini iyi şekilde açıklamalıyız ki yanlış seçim yapmasın."
+    - The plan step shows each plan side by side: its modules, its limits, who it suits, and what changes later if they upgrade or downgrade.
+    - The provider may mark a recommended plan in the invitation. The customer can still choose another.
+    - My call: payment collection is out of scope. The chosen plan becomes the tenant's subscription, as today.
+
 ## Goals
 
 - `public.customer` and every `customer_id` column are gone. A record belongs to the tenant it lives in.
