@@ -11,7 +11,7 @@
 --                        these never go into public.permission (T18). A later migration restricts
 --                        writes to save_role. A migration that makes a field
 --                        non-sensitive deletes its rights rows; nothing else re-checks them.
--- private.field_default  The rights a built-in profile (management, coordinator, customer_viewer) has
+-- private.field_default  The rights a built-in profile (management, coordinator) has
 --                        per group; no row means no right on the group.
 --
 --   field_not_sensitive  (check_violation) a right was set on a field that is not sensitive
@@ -307,10 +307,7 @@ VALUES
    ('coordinator', 'contract', TRUE, FALSE),
    ('coordinator', 'finance', TRUE, FALSE),
    ('coordinator', 'internal_note', TRUE, TRUE),
-   ('coordinator', 'personal_data', TRUE, TRUE),
-   ('customer_viewer', 'sell_price', TRUE, FALSE),
-   ('customer_viewer', 'contract', TRUE, FALSE),
-   ('customer_viewer', 'personal_data', TRUE, FALSE);
+   ('coordinator', 'personal_data', TRUE, TRUE);
 
 -- Gives a role the default rights of a profile. The fields of public.user are read by management and
 -- coordinator, and by no portal user.
@@ -350,7 +347,7 @@ SET
     SET can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write;
 $$;
 
--- Every role of a tenant: the three built-in profiles get their defaults, any other role every field
+-- Every role of a tenant: the two built-in profiles get their defaults, any other role every field
 -- it can reach (R1).
 CREATE OR REPLACE FUNCTION private.backfill_role_fields () RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
@@ -359,7 +356,7 @@ DECLARE
     r RECORD;
 BEGIN
     FOR r IN SELECT id, display_name FROM public.role WHERE tenant_id IS NOT NULL LOOP
-        IF r.display_name IN ('management', 'coordinator', 'customer_viewer') THEN
+        IF r.display_name IN ('management', 'coordinator') THEN
             PERFORM private.apply_field_defaults(r.id, r.display_name);
         ELSE
             PERFORM private.grant_all_fields(r.id);

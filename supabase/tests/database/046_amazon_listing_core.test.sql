@@ -3,8 +3,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- The Amazon listing core (046) on the demo companies of seed.sql: the new columns and enums; the
 -- definition cache is read by every user and written by none, and its property groups are an
 -- ordered array; a user never writes a submission (only the service role does); listing_state and
--- the Amazon connection are server-only, and a connected account cannot move to another customer
--- (a transfer moves it disconnected); another tenant sees no submission; as the service role,
+-- the Amazon connection are server-only, and a connected account cannot move to another customer;
+-- another tenant sees no submission; as the service role,
 -- connecting an account stores its token in Vault (one secret per account) and disconnecting with
 -- 'none' removes it; listing_apply_submission walks market_cell.status only through the legal
 -- transitions (R2: accepted → uploaded, live only with the listing data, issues keep the status
@@ -12,16 +12,15 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- the cell's latest submission; listing_begin_submission records a submission, marks the cell
 -- submitted and refuses a second one while one is in flight; listing_set_state writes only over
 -- the version it was given and clears an Amazon open issue when leaving issues; the parent cell is
--- created on demand and shows the worst of its own submission and its children (R7); the registry
--- row, the public bucket and the coordinator's publish permission are there; a transferred account
--- starts disconnected; called as a user, begin and parent are audited as that user and refuse
+-- created on demand and shows the worst of its own submission and its children (R7); the public
+-- bucket and the coordinator's publish permission are there; called as a user, begin and parent are audited as that user and refuse
 -- another tenant or a user without the permission, Amazon's outcome is the service role's only
 -- (audited as its p_actor), and a service write is labelled by its x-audit-role. The cells are
 -- THO-MOP40-2P's on amazon PL, SE, BE, GB and NL, inserted as postgres and walked with UPDATEs.
 -- What it writes is rolled back.
 BEGIN;
 
-SELECT plan(100);
+SELECT plan(97);
 
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
@@ -396,11 +395,7 @@ SELECT is(
 
 RESET ROLE;
 
--- 48–50. The registry, the bucket, the coordinator.
-SELECT ok(
-    EXISTS (SELECT 1 FROM private.transfer_registry WHERE table_name = 'listing_submission' AND parent_table = 'market_cell'),
-    'listing_submission is registered'
-);
+-- 48–49. The bucket, the coordinator.
 SELECT ok((SELECT public FROM storage.buckets WHERE id = 'listing-images'), 'listing-images is public');
 SELECT throws_ok(
     $$ INSERT INTO public.amazon_product_type_definition (marketplace_id, product_type, locale, version, schema, property_groups)
@@ -429,51 +424,12 @@ RESET ROLE;
 DELETE FROM public.customer_platform_account WHERE id = current_setting('test.acct')::UUID;
 SELECT is((SELECT count(*) FROM vault.secrets WHERE name = 'amazon:' || current_setting('test.acct'))::INT, 0, 'a deleted account leaves no secret');
 
--- 52. A connected account inserted by a transfer (the flag raised as 040's test does).
-INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.moesa')::UUID, 'ZZA', 'Zed Amazon', 'trading_partner');
-
-INSERT INTO public.transfer (id, tenant_id, source_tenant_id, customer_id, mode, path, started_by, report)
-VALUES ('00000000-0000-4000-8000-000000046001', current_setting('test.moesa')::UUID, current_setting('test.europe')::UUID,
-        current_setting('test.tho')::UUID, 'copy', 'copy', current_setting('test.akif')::UUID, '{}');
-
-SELECT set_config('moesa.transfer_id', '00000000-0000-4000-8000-000000046001', TRUE);
-
-WITH a AS (
-    INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id, api_connection, authorized_at, seller_id)
-    SELECT current_setting('test.moesa')::UUID, c.id, 'amazon', 'connected', now(), 'A3SOURCE'
-    FROM public.customer c WHERE c.code = 'ZZA' AND c.tenant_id = current_setting('test.moesa')::UUID
-    RETURNING api_connection
-)
-SELECT set_config('test.transferred_connection', a.api_connection::TEXT, TRUE) FROM a;
-
-SELECT set_config('moesa.transfer_id', '', TRUE);
-
-SELECT is(current_setting('test.transferred_connection'), 'none', 'a transferred account starts disconnected');
-
--- C1. A running transfer that moves a connected account moves it disconnected, without its token.
-SET LOCAL ROLE service_role;
-SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
-SELECT 1 FROM public.amazon_account_connect(
-    (SELECT a.id FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-     WHERE c.code = 'ZZA' AND a.platform_id = 'amazon'),
-    'Atzr|moved', 'A3MOVED'
-);
-RESET ROLE;
+-- The account the caller's-credentials tests below connect and disconnect.
 INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
 VALUES (current_setting('test.moesa')::UUID, 'ZZB', 'Zed Bravo', 'trading_partner');
-SELECT set_config('moesa.transfer_id', '00000000-0000-4000-8000-000000046001', TRUE);
-UPDATE public.customer_platform_account a
-SET customer_id = (SELECT id FROM public.customer WHERE code = 'ZZB' AND tenant_id = current_setting('test.moesa')::UUID)
-FROM public.customer c
-WHERE c.id = a.customer_id AND c.code = 'ZZA' AND a.platform_id = 'amazon';
-SELECT set_config('moesa.transfer_id', '', TRUE);
-SELECT ok(
-    (SELECT a.api_connection = 'none' AND a.seller_id IS NULL AND private.amazon_token(a.id) IS NULL
-     FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-     WHERE c.code = 'ZZB' AND a.platform_id = 'amazon'),
-    'a transfer moves a connected account disconnected'
-);
+INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id)
+SELECT current_setting('test.moesa')::UUID, c.id, 'amazon'
+FROM public.customer c WHERE c.code = 'ZZB' AND c.tenant_id = current_setting('test.moesa')::UUID;
 
 -- The caller's credentials. What is the user's act runs as the user (koordinator in MOESA LTD, who
 -- holds insert on listing_submission): beginning a submission, getting the parent cell,

@@ -38,10 +38,8 @@
 --   platform_account_connected        insufficient_privilege (42501): anyone changes customer_id,
 --                                     tenant_id or platform_id of an account that is not 'none' or
 --                                     has a token in Vault (the token would follow the row to another
---                                     customer). A running transfer (private.transferring()) moves it
---                                     disconnected instead and deletes its token.
--- A customer_platform_account inserted by a transfer (private.transferring()) starts disconnected:
--- the Vault token is keyed by the source row's id. The first two guards are SECURITY INVOKER, so
+--                                     customer).
+-- The first two guards are SECURITY INVOKER, so
 -- current_user is the writer; the service functions below are SECURITY DEFINER and pass them.
 --
 -- Vault  private.amazon_token(p_account_id) reads the secret named 'amazon:<account id>' (NULL
@@ -131,10 +129,6 @@
 -- failed → issues; accepted or processing → submitted; done → live; a done delete → draft; none,
 -- or an unsettled delete → not counted. Mirroring never overwrites the parent's own outcome.
 --
--- Transfer: listing_submission is carried with its cell (registry position 215, created_by is the
--- actor); the new product and cell columns are copied as plain data. Nothing resets listing_state:
--- the app treats a cell as draft while its customer's account is not connected.
---
 -- Module listing (core): select and insert on public.listing_submission, for the owner role and
 -- every role that may change products. The CASL subject is listing_submission; the insert right
 -- is what amazon-listing checks, and what the listing RPCs check again inside (the table privilege
@@ -210,8 +204,7 @@ CREATE TABLE IF NOT EXISTS public.listing_submission (
    -- clock_timestamp: two submissions of one transaction keep their order.
    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-   -- Deferrable like the other composite keys a transfer carries (041).
-   CONSTRAINT listing_submission_cell_fkey FOREIGN KEY (cell_id, tenant_id) REFERENCES public.market_cell (id, tenant_id) ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE
+   CONSTRAINT listing_submission_cell_fkey FOREIGN KEY (cell_id, tenant_id) REFERENCES public.market_cell (id, tenant_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_listing_submission_cell ON public.listing_submission (tenant_id, cell_id, created_at DESC);
@@ -250,22 +243,11 @@ OR
 UPDATE ON public.market_cell FOR EACH ROW
 EXECUTE FUNCTION private.market_cell_listing_server_only ();
 
--- A transfer's insert starts disconnected; a user writes none of the connection columns. The
--- transfer exit reads moesa.transfer_id first (041): authenticated cannot call
--- private.transferring().
+-- A user writes none of the connection columns.
 CREATE OR REPLACE FUNCTION private.platform_account_api_server_only () RETURNS TRIGGER LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 BEGIN
-    IF TG_OP = 'INSERT' AND nullif(current_setting('moesa.transfer_id', TRUE), '') IS NOT NULL THEN
-        IF private.transferring() THEN
-            NEW.api_connection := 'none';
-            NEW.authorized_at := NULL;
-            NEW.seller_id := NULL;
-            RETURN NEW;
-        END IF;
-    END IF;
-
     IF current_user = 'authenticated' AND (
         TG_OP = 'INSERT' AND (NEW.api_connection <> 'none' OR NEW.authorized_at IS NOT NULL OR NEW.seller_id IS NOT NULL)
         OR TG_OP = 'UPDATE' AND (
@@ -298,14 +280,6 @@ BEGIN
     END IF;
 
     IF OLD.api_connection = 'none' AND private.amazon_token(OLD.id) IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    IF private.transferring() THEN
-        NEW.api_connection := 'none';
-        NEW.authorized_at := NULL;
-        NEW.seller_id := NULL;
-        PERFORM private.amazon_token_set(OLD.id, NULL);
         RETURN NEW;
     END IF;
 
@@ -1015,26 +989,6 @@ FROM
 COMMENT ON VIEW public.market_cell_overview IS 'Per market cell: every column of the cell, customer_code, project_code, sku, product_name and gtin (its product), platform_name and cell_key (platform_id || ''_'' || country, the S05 hucre_id).';
 
 GRANT SELECT ON public.market_cell_overview TO authenticated;
-
--- The transfer carries the submissions with their cell.
-INSERT INTO
-   private.transfer_registry (
-      table_name,
-      position,
-      root,
-      parent_table,
-      parent_column,
-      key_columns,
-      entity,
-      late_columns,
-      array_columns,
-      user_columns,
-      code_kind,
-      copy_only
-   )
-VALUES
-   ('listing_submission', 215, 'product', 'market_cell', 'cell_id', NULL, NULL, '{}', '{}', '{"created_by": "actor"}', NULL, FALSE)
-ON CONFLICT (table_name) DO NOTHING;
 
 -- Module and permissions. Inserting a permission creates its RLS policies (see
 -- private.manage_policies). The insert permission is the CASL right amazon-listing checks and the

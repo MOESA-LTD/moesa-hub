@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(13);
 
 SELECT has_table('public', 'setting', 'setting table');
 
@@ -64,6 +64,11 @@ INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
 
 INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
     ('00000000-0000-4000-8000-000000001504', '00000000-0000-4000-8000-000000001501');
+
+-- M21 and the customer_viewer profile are retired (customer = tenant).
+SELECT hasnt_table('public', 'transfer', 'M21 retired');
+
+SELECT is_empty($$ SELECT 1 FROM private.field_default WHERE profile = 'customer_viewer' $$, 'customer_viewer retired');
 
 SELECT private.impersonate('00000000-0000-4000-8000-000000001504', '00000000-0000-4000-8000-000000001501');
 

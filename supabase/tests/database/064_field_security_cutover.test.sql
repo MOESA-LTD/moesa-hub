@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- their grants; api_owner still cannot write the tables its views only read (Task 10's carry).
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(27);
 
 SELECT is_empty($$ SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants
    WHERE table_schema = 'public' AND grantee IN ('anon','authenticated') $$, 'no public relation grants anything to anon or authenticated');
@@ -23,8 +23,6 @@ SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() 
 -- the tables whose api views are read-only.
 SELECT ok(NOT has_table_privilege('api_owner', 'public.code_sequence', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.code_sequence', 'UPDATE')
    AND NOT has_table_privilege('api_owner', 'public.code_sequence', 'DELETE'), 'api_owner cannot write public.code_sequence');
-SELECT ok(NOT has_table_privilege('api_owner', 'public.transfer', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.transfer', 'UPDATE')
-   AND NOT has_table_privilege('api_owner', 'public.transfer', 'DELETE'), 'api_owner cannot write public.transfer');
 SELECT ok(NOT has_table_privilege('api_owner', 'public.role_field_permission', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.role_field_permission', 'UPDATE')
    AND NOT has_table_privilege('api_owner', 'public.role_field_permission', 'DELETE'), 'api_owner cannot write public.role_field_permission');
 
@@ -110,7 +108,6 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('api.owned_via'),
    ('api.status'),
    ('public.amazon_account_disconnect'),
-   ('public.audit_transfer_locked'),
    ('public.can_write_user_field'),
    ('public.create_branch'),
    ('public.delete_branch'),
@@ -129,10 +126,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.save_plan'),
    ('public.save_role'),
    ('public.set_primary_media'),
-   ('public.set_user_roles'),
-   ('public.transfer_check_files'),
-   ('public.transfer_customer'),
-   ('public.transfer_options') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
+   ('public.set_user_roles') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
 
 SELECT * FROM finish();
 ROLLBACK;

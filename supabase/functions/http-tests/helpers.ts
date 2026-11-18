@@ -563,9 +563,8 @@ export const APP_SELECTS: [string, string][] = [
    ['media_link', '*'],
    ['media_library', '*'],
    ['media_library', 'link_count, document_count'],
-   // settings, transfer, dashboard
+   // settings, dashboard
    ['setting', 'id, key, value, description'],
-   ['transfer', '*'],
    ['dashboard_notification_feed', '*'],
    ['dashboard_shipment', '*'],
    ['dashboard_market', '*'],

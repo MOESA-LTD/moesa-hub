@@ -1,10 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- 059: masked audit history (OD4, R9), masked transfer reports (S4), the actor/reverter embeds over
+-- 059: masked audit history (OD4, R9), the actor/reverter embeds over
 -- api.user and the revert refused when a changed field is not writable (C3, R8).
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(25);
 
 SELECT private.field_test_fixtures();
 SELECT private.create_test_helpers();
@@ -137,28 +137,24 @@ SELECT private.unimpersonate();
 SELECT is(private.mask_audit_data('product', NULL, '{"sku":"A","purchase_price":1}'::JSONB, '{}'::JSONB, private.sensitive_fields_map()),
    '{"sku":"A","purchase_price":{"masked":true}}'::JSONB, 'a NULL tenant masks every sensitive key (fail closed)');
 SELECT is(private.mask_json_deep('{"rows":[{"table":"product","row":{"sku":"A","purchase_price":5}}]}'::JSONB, current_setting('test.moesa')::UUID, '{}'::JSONB, private.sensitive_fields_map()),
-   '{"rows":[{"table":"product","row":{"sku":"A","purchase_price":{"masked":true}}}]}'::JSONB, 'S4: nested sensitive keys in a JSON report are masked');
-SELECT is(private.mask_audit_data('transfer', current_setting('test.moesa')::UUID, '{"report":{"row":{"purchase_price":5}}}'::JSONB, '{}'::JSONB, private.sensitive_fields_map()),
-   '{"report":{"row":{"purchase_price":{"masked":true}}}}'::JSONB, 'S4: audit snapshots of transfer rows mask the report');
-SELECT ok(pg_get_viewdef('api.transfer'::REGCLASS) LIKE '%mask_json_deep(t.report%' AND pg_get_viewdef('api.transfer'::REGCLASS) LIKE '%mask_json_deep(t.decisions%',
-   'S4: api.transfer masks report and decisions');
+   '{"rows":[{"table":"product","row":{"sku":"A","purchase_price":{"masked":true}}}]}'::JSONB, 'nested sensitive keys in a JSON document are masked');
 SELECT is((SELECT pg_get_userbyid(proowner)::TEXT FROM pg_proc WHERE oid = 'public.revert_audit_transaction(uuid)'::REGPROCEDURE), 'api_owner', 'R8: revert runs as api_owner');
 SELECT is_empty($$ SELECT p.oid::REGPROCEDURE FROM pg_proc p WHERE p.oid IN ('private.mask_json_keys(jsonb,text[])'::REGPROCEDURE,
    'private.mask_json_deep(jsonb,uuid,jsonb,jsonb)'::REGPROCEDURE, 'private.mask_audit_data(text,uuid,jsonb,jsonb,jsonb)'::REGPROCEDURE,
    'api.display_name(api.user)'::REGPROCEDURE) AND pg_get_userbyid(p.proowner) <> 'api_owner' $$, 'R8: the masking definers and display_name are owned by api_owner');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() is empty');
 
--- Tamper: api.transfer with the report unmasked is reported by drift.
+-- Tamper: api.audit_log with old_data unmasked is reported by drift.
 DO $$
 BEGIN
-    EXECUTE format('CREATE OR REPLACE VIEW api.transfer WITH (security_invoker = false) AS SELECT %s FROM %s',
-        (SELECT string_agg(CASE WHEN a.attname = 'report' THEN 't.report' ELSE private.api_column_expr('transfer', a.attname) END, ', ' ORDER BY a.attnum)
-         FROM pg_attribute a WHERE a.attrelid = 'public.transfer'::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped),
-        private.api_view_from('transfer'));
+    EXECUTE format('CREATE OR REPLACE VIEW api.audit_log WITH (security_invoker = false) AS SELECT %s FROM %s',
+        (SELECT string_agg(CASE WHEN a.attname = 'old_data' THEN 't.old_data' ELSE private.api_column_expr('audit_log', a.attname) END, ', ' ORDER BY a.attnum)
+         FROM pg_attribute a WHERE a.attrelid = 'public.audit_log'::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped),
+        private.api_view_from('audit_log'));
 END;
 $$;
-SELECT results_eq($$ SELECT problem FROM private.api_view_drift() WHERE relation = 'transfer' AND problem LIKE '% report' $$,
-   $$ VALUES ('expression report') $$, 'drift reports an unmasked transfer report');
+SELECT results_eq($$ SELECT problem FROM private.api_view_drift() WHERE relation = 'audit_log' AND problem LIKE '% old_data' $$,
+   $$ VALUES ('expression old_data') $$, 'drift reports an unmasked audit_log old_data');
 
 SELECT * FROM finish();
 ROLLBACK;

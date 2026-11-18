@@ -23,15 +23,11 @@
 --
 -- R6. market_cell_listing_server_only and platform_account_api_server_only (046) refuse when
 --     auth.role() = 'authenticated' AND NOT private.server_write(), in place of current_user =
---     'authenticated'. They become SECURITY DEFINER (they call server_write). 046's transfer branch of
---     platform_account_api_server_only is kept as it is. market_cell_listing_server_only gains the
---     same INSERT exit for a running transfer: transfer_customer (a definer granted to
---     authenticated) copies a cell with its listing columns, which current_user = postgres let
---     through before.
+--     'authenticated'. They become SECURITY DEFINER (they call server_write).
 --
--- R7. The cascade exits of purchase_order_line_guard (041), purchase_order_child_guard (030),
+-- R7. The cascade exits of purchase_order_line_guard and purchase_order_child_guard (030),
 --     shipment_purchase_order_guard and shipment_line_guard (031), incident_child_guard (035) and
---     market_cell_guard (041) test private.parent_gone (050) for each ON DELETE CASCADE parent of
+--     market_cell_guard (034) test private.parent_gone (050) for each ON DELETE CASCADE parent of
 --     the guarded tables (pg_constraint.confdeltype = 'c'):
 --       purchase_order_line                       tenant, purchase_order
 --       purchase_order_payment, _update           tenant, purchase_order
@@ -71,13 +67,6 @@ CREATE OR REPLACE FUNCTION private.market_cell_listing_server_only () RETURNS TR
 SET
    search_path = '' AS $$
 BEGIN
-    -- A running transfer copies a cell as it is (041).
-    IF TG_OP = 'INSERT' AND nullif(current_setting('moesa.transfer_id', TRUE), '') IS NOT NULL THEN
-        IF private.transferring() THEN
-            RETURN NEW;
-        END IF;
-    END IF;
-
     IF auth.role() = 'authenticated' AND NOT private.server_write() AND (
         TG_OP = 'INSERT' AND (NEW.listing_state IS NOT NULL OR NEW.listing_checked_at IS NOT NULL OR NEW.listing_match IS NOT NULL)
         OR TG_OP = 'UPDATE' AND (
@@ -96,15 +85,6 @@ CREATE OR REPLACE FUNCTION private.platform_account_api_server_only () RETURNS T
 SET
    search_path = '' AS $$
 BEGIN
-    IF TG_OP = 'INSERT' AND nullif(current_setting('moesa.transfer_id', TRUE), '') IS NOT NULL THEN
-        IF private.transferring() THEN
-            NEW.api_connection := 'none';
-            NEW.authorized_at := NULL;
-            NEW.seller_id := NULL;
-            RETURN NEW;
-        END IF;
-    END IF;
-
     IF auth.role() = 'authenticated' AND NOT private.server_write() AND (
         TG_OP = 'INSERT' AND (NEW.api_connection <> 'none' OR NEW.authorized_at IS NOT NULL OR NEW.seller_id IS NOT NULL)
         OR TG_OP = 'UPDATE' AND (
@@ -222,15 +202,15 @@ DECLARE
     order_status public.purchase_order_status;
     spec_changed BOOLEAN;
 BEGIN
-    -- A running transfer (041).
-    IF current_setting('moesa.transfer_id', TRUE) <> '' THEN
-        IF private.transferring() THEN
-            RETURN coalesce(NEW, OLD);
-        END IF;
-    END IF;
-
     IF TG_OP = 'UPDATE' AND NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id THEN
         RAISE EXCEPTION 'po_line_identity_immutable' USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- A line names its product (whatever the bypass): only the product's delete empties it.
+    IF (TG_OP = 'INSERT' AND NEW.product_id IS NULL)
+       OR (TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id)) THEN
+        RAISE EXCEPTION 'po_line_product_required' USING ERRCODE = 'check_violation';
     END IF;
 
     IF private.rules_bypassed() THEN
@@ -242,6 +222,13 @@ BEGIN
         IF private.parent_gone('public.tenant', OLD.tenant_id) OR private.parent_gone('public.purchase_order', OLD.purchase_order_id) THEN
             RETURN OLD;
         END IF;
+    END IF;
+
+    -- The product link emptied because the product is gone (ON DELETE SET NULL): the client's
+    -- delete of its product is never refused, even on a locked order.
+    IF TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id) THEN
+        RETURN NEW;
     END IF;
 
     -- FOR SHARE: a concurrent status change (PI approval) waits for this line write to commit, so
@@ -277,9 +264,12 @@ BEGIN
             WHERE d.id = NEW.spec_document_id
               AND d.tenant_id = NEW.tenant_id
               AND d.type = 'spec_sheet'
-              AND d.entity_type = 'product'
-              AND d.entity_id = NEW.product_id
               AND d.status IN ('signed', 'approved')
+              AND ((d.entity_type = 'product' AND d.entity_id = NEW.product_id)
+                   OR (d.entity_type = 'sourcing' AND NEW.product_tenant_id <> NEW.tenant_id AND EXISTS (
+                        SELECT 1 FROM public.sourcing s
+                        WHERE s.id = d.entity_id AND s.tenant_id = NEW.tenant_id AND s.product_id = NEW.product_id
+                   )))
         ) THEN
         RAISE EXCEPTION 'po_line_spec_invalid' USING ERRCODE = 'check_violation';
     END IF;
@@ -517,13 +507,6 @@ SET
 DECLARE
     allowed BOOLEAN;
 BEGIN
-    -- A running transfer (041).
-    IF current_setting('moesa.transfer_id', TRUE) <> '' THEN
-        IF private.transferring() THEN
-            RETURN coalesce(NEW, OLD);
-        END IF;
-    END IF;
-
     -- 1. The product, platform and country are fixed.
     IF TG_OP = 'UPDATE' AND (
         NEW.product_id IS DISTINCT FROM OLD.product_id

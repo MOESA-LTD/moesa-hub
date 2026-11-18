@@ -142,7 +142,7 @@ FROM unnest(ARRAY['document', 'media', 'media_link', 'setting', 'tenant', 'tenan
                   'platform', 'subscription', 'task_template', 'amazon_product_type_definition']) AS t;
 
 SELECT private.enable_field_security (t, TRUE)
-FROM unnest(ARRAY['role_field_permission', 'field_class', 'field_group', 'transfer', 'code_sequence']) AS t;
+FROM unnest(ARRAY['role_field_permission', 'field_class', 'field_group', 'code_sequence']) AS t;
 
 -- api.document now exists: the R4 relationships to it (contract_document, pi_document and their
 -- reverses) are created by re-running the generator for their owners.

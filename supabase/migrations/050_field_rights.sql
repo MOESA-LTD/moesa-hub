@@ -556,10 +556,9 @@ GRANT EXECUTE ON FUNCTION private.sensitive_fields_map () TO authenticated;
 GRANT EXECUTE ON FUNCTION private.can_grant_field (UUID, TEXT, TEXT, BOOLEAN) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.field_guard_bypassed () TO authenticated;
 
--- field_guard_bypassed is not a definer, so whoever may call it needs its three parts; each answers
+-- field_guard_bypassed is not a definer, so whoever may call it needs its two parts; each answers
 -- only about the caller's own session.
 GRANT EXECUTE ON FUNCTION private.rules_bypassed () TO authenticated;
-GRANT EXECUTE ON FUNCTION private.transferring () TO authenticated;
 GRANT EXECUTE ON FUNCTION private.service_call () TO authenticated;
 
 -- Tests: private.impersonate (015) with a scope of several tenants. No SET clause (it would undo the

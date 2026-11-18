@@ -2,44 +2,23 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 -- 058: the derived api views (masked through the api views they read), the write RPCs as api_owner
 -- definers that check field write rights before writing (R8, S1), RPCs returning api row types (C2,
--- S6) and the catalog-driven transfer gate (S3).
+-- S6).
 BEGIN;
 
-SELECT plan(31);
+SELECT plan(29);
 
 SELECT private.field_test_fixtures();
 SELECT private.create_test_helpers();
 
--- t_no_notes (MOESA LTD and MOESA Europe): management's permissions and field defaults, without the
--- internal notes. can (seed: auditor of Atlas Danışmanlık) joins both tenants with it.
 DO $$
-DECLARE
-    can UUID := (SELECT id FROM public.user WHERE email = 'can@moesa-panel.test');
-    t RECORD;
-    r UUID;
 BEGIN
     PERFORM set_config('moesa.rules_bypass', '1', TRUE);
-    FOR t IN SELECT id FROM public.tenant WHERE display_name IN ('MOESA LTD', 'MOESA Europe') LOOP
-        INSERT INTO public.role (tenant_id, display_name) VALUES (t.id, 't_no_notes') RETURNING id INTO r;
-        INSERT INTO public.role_permission (role_id, permission_id)
-        SELECT r, rp.permission_id
-        FROM public.role_permission rp JOIN public.role m ON m.id = rp.role_id
-        WHERE m.tenant_id = t.id AND m.display_name = 'management'
-        ON CONFLICT DO NOTHING;
-        PERFORM private.apply_field_defaults(r, 'management');
-        DELETE FROM public.role_field_permission rfp
-        USING public.field_class f
-        WHERE rfp.role_id = r AND f.resource_name = rfp.resource_name AND f.field = rfp.field AND f.group_name = 'internal_note';
-        INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (t.id, can) ON CONFLICT DO NOTHING;
-        INSERT INTO public.user_role (user_id, role_id) VALUES (can, r);
-    END LOOP;
     -- A THO product without cost or supplier (the NULL-oracle cases), and the project's tasks done so
     -- its first gate can pass.
     INSERT INTO public.product (tenant_id, customer_id, sku, display_name)
     VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'NULL-COST', 'Null cost');
     UPDATE public.project_task SET status = 'done' WHERE project_id = current_setting('test.project')::UUID;
     PERFORM set_config('moesa.rules_bypass', '', TRUE);
-    PERFORM set_config('test.can', can::TEXT, TRUE);
 END;
 $$;
 
@@ -111,8 +90,8 @@ SELECT is((SELECT count(*)::INT FROM pg_proc WHERE pronamespace = 'public'::regn
    AND proname IN ('import_products','save_role','set_user_roles','pass_gate','rollback_gate','save_plan','set_primary_media')), 7,
    'R8: the seven write RPCs are api_owner definers');
 SELECT results_eq($$ SELECT p.proname::TEXT COLLATE "default", pg_get_function_result(p.oid) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
-   AND p.proname IN ('pass_gate','rollback_gate','set_primary_media','transfer_check_files') ORDER BY 1 $$,
-   $$ VALUES ('pass_gate','api.project_gate'),('rollback_gate','api.project_gate'),('set_primary_media','api.media_link'),('transfer_check_files','api.transfer') $$,
+   AND p.proname IN ('pass_gate','rollback_gate','set_primary_media') ORDER BY 1 $$,
+   $$ VALUES ('pass_gate','api.project_gate'),('rollback_gate','api.project_gate'),('set_primary_media','api.media_link') $$,
    'C2: converted RPCs return api row types');
 SELECT is_empty($$ SELECT p.proname FROM pg_proc p JOIN pg_type ty ON ty.oid = p.prorettype JOIN pg_class c ON c.oid = ty.typrelid
    WHERE p.pronamespace = 'public'::regnamespace AND c.relnamespace = 'public'::regnamespace AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -135,15 +114,9 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION t.plan_text (TEXT) TO authenticated;
 
--- As can in MOESA LTD (t_no_notes).
-SELECT private.impersonate(current_setting('test.can')::UUID, current_setting('test.moesa')::UUID);
-SELECT throws_ok($$ SELECT public.transfer_options(current_setting('test.moesa')::UUID) $$,
-   '42501', 'transfer_field_rights_required', 'S3: transfer needs every field of every copied table, incl. internal notes');
-
 -- As akif in MOESA LTD.
 RESET ROLE;
 SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
-SELECT lives_ok($$ SELECT public.transfer_options(current_setting('test.moesa')::UUID) $$, 'the transfer gate passes with every field right');
 -- R10: PostgREST's embed shape (a lateral subquery with LIMIT/OFFSET over the computed relationship):
 -- the function is inlined, never a per-row Function Scan.
 SELECT unalike(t.plan_text($$ SELECT p.id, s.code FROM api.product_with_evidence p LEFT JOIN LATERAL (SELECT x.code FROM api.supplier(p) x LIMIT ALL OFFSET 0) s ON TRUE ORDER BY p.created_at DESC LIMIT 50 $$),
