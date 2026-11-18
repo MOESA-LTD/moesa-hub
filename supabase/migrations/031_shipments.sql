@@ -6,9 +6,10 @@
 --                          client tenant it procures for, to a warehouse of the tenant the shipment
 --                          is for (warehouse_tenant_id = coalesce(client_tenant_id, tenant_id)).
 --                          delivery_address is the warehouse's address when linked, a snapshot
---                          kept when the client deletes the warehouse. Its code (SHP-THO-2026-001:
---                          the client_code of the relationship, or the tenant's code) comes from
---                          public.next_code and never changes; nor does its client.
+--                          kept when the client deletes the warehouse; whoever may read the
+--                          shipment reads it, provider staff included (not masked). Its code
+--                          (SHP-THO-2026-001: the client_code of the relationship, or the tenant's
+--                          code) comes from public.next_code and never changes; nor does its client.
 --                          The mode, parties, Incoterms (buy and sell), dates, container, free days,
 --                          packed quantities and the acceptance (who, when, whether the quantities
 --                          match, damage, the dispute deadline) sit on the shipment. Shipments are
@@ -59,6 +60,8 @@
 --                                       damage (from disputed it is accepted as it is)
 --   shipment_locked                     an order or line of a loaded (or later) or cancelled
 --                                       shipment changed
+--   shipment_po_link_immutable          a link's shipment or order changed (links are added or
+--                                       removed, never repointed)
 --   client_mismatch                     linking an order whose client is not the shipment's (an
 --                                       own order on a client shipment, or the reverse)
 --   shipment_po_not_open                linking an order outside pi_approved … balance_paid
@@ -76,8 +79,9 @@
 -- shipment for a client needs an active provider-procures relationship; its warehouse is one the
 -- caller may read in the tenant the shipment is for; delivery_address follows the warehouse link
 -- and is never written by the caller. The orders, lines and events of a shipment take its client
--- (private.inherit_client_tenant, 029_purchase_orders.sql) and are not added to a client shipment
--- once the relationship is no longer active; a child moved to a shipment of another client is
+-- (private.inherit_client_tenant, 029_purchase_orders.sql). Orders and lines are not added to a
+-- client shipment once the relationship is no longer active; events and status updates go on, so
+-- goods already on their way are closed out. A child moved to a shipment of another client is
 -- refused (client_tenant_immutable).
 --
 -- Every reference to a tenant-scoped table includes tenant_id. A client is named only under a
@@ -422,8 +426,10 @@ UPDATE ON public.shipment_event FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
 -- The shared rules of the shipment's child rows (019_products.sql, 029_purchase_orders.sql): the
--- client is the shipment's, whatever is sent, and never changes; a child is not added to a client
--- shipment once the relationship is no longer active (the link guard with no link to check).
+-- client is the shipment's, whatever is sent, and never changes; an order link or a line is not
+-- added to a client shipment once the relationship is no longer active (the link guard with no
+-- link to check). Events have no link guard: a shipment in transit when the relationship ends is
+-- still logged and closed out.
 CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
 UPDATE ON public.shipment_purchase_order FOR EACH ROW
 EXECUTE FUNCTION private.client_tenant_immutable ();
@@ -461,12 +467,9 @@ OR
 UPDATE ON public.shipment_event FOR EACH ROW
 EXECUTE FUNCTION private.inherit_client_tenant ('public.shipment', 'shipment_id');
 
-CREATE OR REPLACE TRIGGER ad_client_link_guard BEFORE INSERT
-OR
-UPDATE ON public.shipment_event FOR EACH ROW
-EXECUTE FUNCTION private.client_link_guard ();
 
--- A link's rules: the order's client is the shipment's (whatever the bypass flag; the link took the
+-- A link's rules: a link is added or removed, never repointed (shipment_po_link_immutable); the
+-- order's client is the shipment's (both whatever the bypass flag; the link took the
 -- shipment's client from ac_inherit_client_tenant); not on a loaded (or later) or cancelled
 -- shipment; only an order whose PI is approved and that is not closed; an order that still has
 -- lines on the shipment stays. This BEFORE trigger answers before the line's RESTRICT foreign key,
@@ -481,6 +484,13 @@ DECLARE
     order_status public.purchase_order_status;
     order_client UUID;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.shipment_id IS DISTINCT FROM OLD.shipment_id OR NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id THEN
+            RAISE EXCEPTION 'shipment_po_link_immutable' USING ERRCODE = 'check_violation';
+        END IF;
+        RETURN NEW;
+    END IF;
+
     IF TG_OP = 'INSERT' THEN
         SELECT po.client_tenant_id INTO order_client
         FROM public.purchase_order po
@@ -539,6 +549,8 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER shipment_purchase_order_guard BEFORE INSERT
+OR
+UPDATE
 OR DELETE ON public.shipment_purchase_order FOR EACH ROW
 EXECUTE FUNCTION private.shipment_purchase_order_guard ();
 

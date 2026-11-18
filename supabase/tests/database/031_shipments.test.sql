@@ -13,7 +13,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- rolled back.
 BEGIN;
 
-SELECT plan(73);
+SELECT plan(76);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet):
 --   provider         ...3101  code PRV; owned by staff; warehouse 3163 (Istanbul)
@@ -274,6 +274,15 @@ SELECT throws_ok($$ INSERT INTO api.shipment_purchase_order (shipment_id, purcha
                  '23514', 'shipment_locked', 'a loaded shipment takes no order');
 SELECT throws_ok($$ DELETE FROM api.shipment_purchase_order WHERE shipment_id = '00000000-0000-4000-8000-000000003153' $$,
                  '23514', 'shipment_po_has_lines', 'an order with lines on the shipment stays linked');
+-- Users have no update right on links; as postgres, a repoint is refused before any other rule.
+RESET ROLE;
+SELECT throws_ok($$ UPDATE public.shipment_purchase_order SET purchase_order_id = '00000000-0000-4000-8000-000000003194'
+                    WHERE shipment_id = '00000000-0000-4000-8000-000000003156' $$,
+                 '23514', 'shipment_po_link_immutable', 'a link is not repointed to another order');
+SELECT throws_ok($$ UPDATE public.shipment_purchase_order SET shipment_id = '00000000-0000-4000-8000-000000003154'
+                    WHERE shipment_id = '00000000-0000-4000-8000-000000003156' $$,
+                 '23514', 'shipment_po_link_immutable', 'a link is not moved to another shipment');
+SELECT private.impersonate('00000000-0000-4000-8000-000000003111', '00000000-0000-4000-8000-000000003101');
 SELECT throws_ok($$ UPDATE api.shipment SET client_tenant_id = '00000000-0000-4000-8000-000000003103' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                  '23514', 'client_tenant_immutable', 'the client is fixed');
 SELECT throws_ok($$ UPDATE api.shipment SET client_tenant_id = NULL WHERE id = '00000000-0000-4000-8000-000000003154' $$,
@@ -348,12 +357,14 @@ SELECT throws_ok($$ INSERT INTO api.shipment (tenant_id, client_tenant_id, mode,
                  '23514', 'relationship_inactive', 'no new shipment after the end');
 SELECT throws_ok($$ INSERT INTO api.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id) VALUES ('00000000-0000-4000-8000-000000003154', '00000000-0000-4000-8000-000000003191', '00000000-0000-4000-8000-000000003101') $$,
                  '23514', 'relationship_inactive', 'no new order on a client shipment after the end');
-SELECT throws_ok($$ INSERT INTO api.shipment_event (tenant_id, shipment_id, step) VALUES ('00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003154', 4) $$,
-                 '23514', 'relationship_inactive', 'no new event on a client shipment after the end');
+SELECT lives_ok($$ INSERT INTO api.shipment_event (tenant_id, shipment_id, step) VALUES ('00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003154', 4) $$,
+                'a client shipment is still logged after the end');
 SELECT throws_ok($$ UPDATE api.shipment SET delivery_warehouse_id = '00000000-0000-4000-8000-000000003161' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                  '23514', 'relationship_inactive', 'no relinking of the warehouse after the end');
 SELECT lives_ok($$ UPDATE api.shipment SET notes = 'relationship ended' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                 'other fields of a client shipment still change after the end');
+SELECT lives_ok($$ UPDATE api.shipment SET status = 'cancelled' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
+                'a client shipment''s status still moves after the end');
 RESET ROLE;
 SELECT private.impersonate('00000000-0000-4000-8000-000000003113', '00000000-0000-4000-8000-000000003102');
 SELECT lives_ok($$ DELETE FROM api.warehouse WHERE id = '00000000-0000-4000-8000-000000003161' $$,

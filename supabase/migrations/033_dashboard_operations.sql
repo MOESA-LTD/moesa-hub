@@ -13,7 +13,9 @@
 --                           ETA, whether the shipment is late (its ETA has passed and it has not
 --                           been delivered yet: planned, booked, loaded, in_transit or at_customs),
 --                           the delivery warehouse (its name when the caller may read it, and the
---                           address snapshot) and the dispute deadline (S16).
+--                           address snapshot) and the dispute deadline (S16). delivery_address is
+--                           a deliberate snapshot: whoever reads the shipment reads it, provider
+--                           staff included (not masked).
 --
 -- The app groups the rows into the boxes (groupPurchaseOrders, groupShipments); no rule is added
 -- and nothing here raises. The views run as the caller (security_invoker) over the two overviews,
