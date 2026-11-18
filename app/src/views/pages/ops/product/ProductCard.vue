@@ -7,6 +7,7 @@ import Documents from './tabs/Documents.vue';
 import General from './tabs/General.vue';
 import Media from './tabs/Media.vue';
 import Orders from './tabs/Orders.vue';
+import Sourcing from './tabs/Sourcing.vue';
 import {
    PRODUCT_CARD_TABS,
    PRODUCT_FORM,
@@ -16,6 +17,7 @@ import {
 } from './useProductForm';
 
 // The product card's tabs around its one form, which the general and dimensions tabs share.
+// The sourcing tab edits the active tenant's sourcing row of the product in a form of its own.
 // The orders tab (its purchase orders and shipments) is read-only and has no form of its own; the
 // Amazon tab has its own (the Amazon columns), read-only without the right to update products.
 // Manage re-creates the card when a new product is saved, so the form goes on under its id.
@@ -41,12 +43,12 @@ provide(PRODUCT_FORM, { ...form, submit });
 
 const ability = useAbility();
 const tabs = computed(() =>
-   PRODUCT_CARD_TABS.filter(
-      (key) =>
-         key !== 'orders' ||
-         ability.can('read', 'purchase_order') ||
-         ability.can('read', 'shipment')
-   )
+   PRODUCT_CARD_TABS.filter((key) => {
+      if (key === 'sourcing') return ability.can('read', 'sourcing');
+      if (key === 'orders')
+         return ability.can('read', 'purchase_order') || ability.can('read', 'shipment');
+      return true;
+   })
 );
 </script>
 
@@ -63,6 +65,9 @@ const tabs = computed(() =>
          </TabPanel>
          <TabPanel value="dimensions">
             <Dimensions v-if="id" />
+         </TabPanel>
+         <TabPanel v-if="tabs.includes('sourcing')" value="sourcing">
+            <Sourcing v-if="id && activeTab === 'sourcing'" :id />
          </TabPanel>
          <TabPanel v-if="tabs.includes('orders')" value="orders">
             <Orders v-if="id && activeTab === 'orders'" :id />

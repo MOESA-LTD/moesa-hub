@@ -10,10 +10,14 @@ import { inject, type InjectionKey } from 'vue';
 
 export type ProductFormTab = 'general' | 'dimensions';
 
-/** The product card's tabs: the form's, then the documents, the media and the Amazon content. */
+/**
+ * The product card's tabs: the form's, the sourcing (the procuring tenants' cost, supplier and sell
+ * price, a form of its own), the orders, then the documents, the media and the Amazon content.
+ */
 export const PRODUCT_CARD_TABS = [
    'general',
    'dimensions',
+   'sourcing',
    'orders',
    'documents',
    'media',

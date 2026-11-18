@@ -413,6 +413,21 @@ const routes: RouteRecordRaw[] = [
                         }
                      },
                      {
+                        path: 'sourcing',
+                        name: 'ops-product-manage-sourcing',
+                        props: true,
+                        meta: {
+                           label: 'route.label.ops_product_sourcing',
+                           icon: PrimeIcons.EURO,
+                           visible: false,
+                           anyPermission: [{ action: 'select', subject: 'sourcing' }]
+                        },
+                        components: {
+                           default: () => import('@/views/pages/ops/product/tabs/Sourcing.vue'),
+                           skeleton: () => import('@/views/pages/ops/product/tabs/Sourcing.vue')
+                        }
+                     },
+                     {
                         path: 'orders',
                         name: 'ops-product-manage-orders',
                         props: true,
