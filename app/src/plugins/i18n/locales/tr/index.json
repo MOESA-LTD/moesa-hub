@@ -275,6 +275,10 @@
       "branch_move_forbidden": "Bir şube başka bir şubenin altına taşınamaz.",
       "plan_default_required": "Bir varsayılan plan olmalı: bunun yerine başka bir planı varsayılan yapın.",
       "plan_default_inactive": "Varsayılan plan sunuluyor olmalı.",
+      "super_admin_required": "Bunu yalnızca süper yönetici yapabilir.",
+      "platform_setting_invalid": "Platform ayarı geçerli değil.",
+      "platform_setting_unknown": "Böyle bir platform ayarı yok.",
+      "plan_not_found": "Böyle bir plan yok.",
       "invalid_website": "Geçerli bir web adresi girin.",
       "invalid_tax_number": "Yalnızca harf, rakam, boşluk ve tire kullanın (en fazla 32).",
       "logo_type": "Logo PNG, JPEG veya WebP olmalı.",
@@ -1002,6 +1006,7 @@
             "year": "yıl"
          },
          "description": "Açıklama",
+         "audience": "Kime uygun",
          "pricing": "Fiyatlandırma",
          "billing_period": "Faturalama dönemi",
          "unlimited": "Sınırsız",

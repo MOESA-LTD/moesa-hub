@@ -106,6 +106,9 @@ SELECT private.unimpersonate();
 --   42501 as a forbidden one. It returns nothing (VOID), so no provider-only field (notes, drive URL)
 --   reaches the client. Definer for that check across both tenants and for the status write, which
 --   the client owner cannot make through the provider's row.
+--   platform_settings, set_platform_setting (070): super admin only, both refuse anyone else with 42501
+--   super_admin_required; they read and write private.platform_setting, which no role can reach. The
+--   third function of 070, open_signup_enabled, is granted to the service role alone and is not listed.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
 --   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
@@ -132,10 +135,12 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.next_code'),
    ('public.owned_via'),
    ('public.pass_gate'),
+   ('public.platform_settings'),
    ('public.revert_audit_transaction'),
    ('public.rollback_gate'),
    ('public.save_plan'),
    ('public.save_role'),
+   ('public.set_platform_setting'),
    ('public.set_primary_media'),
    ('public.set_user_roles') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
 

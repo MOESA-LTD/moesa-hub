@@ -545,6 +545,10 @@
       "branch_move_forbidden": "Una sucursal no se puede mover bajo otra.",
       "plan_default_required": "Debe haber un plan predeterminado: haga predeterminado otro plan en su lugar.",
       "plan_default_inactive": "El plan predeterminado debe estar ofrecido.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Introduzca una dirección web válida.",
       "invalid_tax_number": "Use solo letras, dígitos, espacios y guiones (máximo 32).",
       "logo_type": "El logotipo debe ser una imagen PNG, JPEG o WebP.",
@@ -1001,6 +1005,7 @@
             "year": "año"
          },
          "description": "Descripción",
+         "audience": "Who it suits",
          "pricing": "Precios",
          "billing_period": "Periodo de facturación",
          "unlimited": "Ilimitado",

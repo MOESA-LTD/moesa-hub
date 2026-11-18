@@ -416,6 +416,10 @@
       "branch_move_forbidden": "지점을 다른 지점 아래로 옮길 수 없습니다.",
       "plan_default_required": "기본 요금제가 있어야 합니다. 대신 다른 요금제를 기본으로 지정하세요.",
       "plan_default_inactive": "기본 요금제는 제공 중이어야 합니다.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "올바른 웹 주소를 입력하세요.",
       "invalid_tax_number": "문자, 숫자, 공백, 하이픈만 사용하세요(최대 32자).",
       "logo_type": "로고는 PNG, JPEG 또는 WebP 이미지여야 합니다.",
@@ -1001,6 +1005,7 @@
             "year": "년"
          },
          "description": "설명",
+         "audience": "Who it suits",
          "pricing": "가격 책정",
          "billing_period": "청구 주기",
          "unlimited": "무제한",

@@ -82,6 +82,23 @@ const unlimitedFlags = { max_branches: unlimitedBranches, max_users: unlimitedUs
             />
          </FormField>
 
+         <FormField
+            fluid
+            :label="$t('admin.plan.audience')"
+            :error="errors.audience"
+            :readonly
+            class="!flex-auto !max-w-none w-full"
+            v-slot="slotProps"
+         >
+            <Textarea
+               v-bind="slotProps"
+               :model-value="values.audience ?? ''"
+               @update:model-value="values.audience = $event"
+               autoResize
+               rows="2"
+            />
+         </FormField>
+
          <FormBox :legend="$t('admin.plan.pricing')" class="!flex-auto">
             <FormField fluid :label="$t('admin.plan.price')" :error="errors.price" :readonly>
                <template #default="slotProps">

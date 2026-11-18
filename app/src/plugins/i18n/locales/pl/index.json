@@ -416,6 +416,10 @@
       "branch_move_forbidden": "Oddziału nie można przenieść pod inny.",
       "plan_default_required": "Musi istnieć plan domyślny: zamiast tego ustaw inny plan jako domyślny.",
       "plan_default_inactive": "Plan domyślny musi być oferowany.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Wpisz prawidłowy adres strony.",
       "invalid_tax_number": "Tylko litery, cyfry, spacje i myślniki (maksymalnie 32).",
       "logo_type": "Logo musi być obrazem PNG, JPEG lub WebP.",
@@ -1001,6 +1005,7 @@
             "year": "rok"
          },
          "description": "Opis",
+         "audience": "Who it suits",
          "pricing": "Cennik",
          "billing_period": "Okres rozliczeniowy",
          "unlimited": "Bez limitu",

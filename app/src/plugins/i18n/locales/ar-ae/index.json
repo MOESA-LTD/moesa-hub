@@ -513,6 +513,10 @@
       "branch_move_forbidden": "لا يمكن نقل فرع تحت فرع آخر.",
       "plan_default_required": "يجب وجود خطة افتراضية: اجعل خطة أخرى افتراضية بدلًا من ذلك.",
       "plan_default_inactive": "يجب أن تكون الخطة الافتراضية معروضة.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "أدخل عنوان ويب صالحًا.",
       "invalid_tax_number": "استخدم الحروف والأرقام والمسافات والشرطات فقط (32 كحد أقصى).",
       "logo_type": "يجب أن يكون الشعار صورة PNG أو JPEG أو WebP.",
@@ -1001,6 +1005,7 @@
             "year": "سنة"
          },
          "description": "الوصف",
+         "audience": "Who it suits",
          "pricing": "التسعير",
          "billing_period": "فترة الفوترة",
          "unlimited": "غير محدود",

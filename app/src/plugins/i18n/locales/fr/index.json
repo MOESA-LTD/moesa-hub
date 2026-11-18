@@ -416,6 +416,10 @@
       "branch_move_forbidden": "Une agence ne peut pas être déplacée sous une autre.",
       "plan_default_required": "Il faut une formule par défaut : définissez plutôt une autre formule par défaut.",
       "plan_default_inactive": "La formule par défaut doit être proposée.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Saisissez une adresse web valide.",
       "invalid_tax_number": "Uniquement des lettres, chiffres, espaces et tirets (32 au plus).",
       "logo_type": "Le logo doit être une image PNG, JPEG ou WebP.",
@@ -1001,6 +1005,7 @@
             "year": "an"
          },
          "description": "Description",
+         "audience": "Who it suits",
          "pricing": "Tarification",
          "billing_period": "Période de facturation",
          "unlimited": "Illimité",

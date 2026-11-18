@@ -86,6 +86,7 @@ export const planSchema = z.object({
    id: z.string().optional(),
    display_name: requiredText(),
    description: z.string().nullish(),
+   audience: z.string().nullish(),
    price: z.number().min(0).nullable(),
    currency: z.string().length(3).nullable(),
    billing_period: z.enum(['month', 'year']).nullable(),
@@ -108,6 +109,7 @@ export const toPlanFormValues = (plan?: Partial<PlanWithTerms> | null): PlanForm
       id: plan?.id ?? undefined,
       display_name: plan?.display_name ?? '',
       description: plan?.description ?? null,
+      audience: plan?.audience ?? null,
       price: plan?.price ?? null,
       currency: plan?.currency ?? null,
       billing_period: (plan?.billing_period as 'month' | 'year' | null) ?? null,
@@ -126,9 +128,10 @@ export const toPlanPayload = ({
    max_branches,
    max_users,
    description,
+   audience,
    ...plan
 }: z.output<typeof planSchema>): PlanInput => ({
-   plan: { ...plan, description: description || null },
+   plan: { ...plan, description: description || null, audience: audience || null },
    moduleIds: modules,
    limits: Object.fromEntries(
       LIMIT_KEYS.map((key) => [key, { max_branches, max_users }[key]])

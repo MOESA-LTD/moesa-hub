@@ -421,6 +421,10 @@
       "branch_move_forbidden": "A branch cannot be moved under another tenant.",
       "plan_default_required": "There must be a default plan: make another plan the default instead.",
       "plan_default_inactive": "The default plan must be offered.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Enter a valid web address.",
       "invalid_tax_number": "Use only letters, digits, spaces and dashes (at most 32).",
       "logo_type": "The logo must be a PNG, JPEG or WebP image.",
@@ -1002,6 +1006,7 @@
             "year": "year"
          },
          "description": "Description",
+         "audience": "Who it suits",
          "pricing": "Pricing",
          "billing_period": "Billing period",
          "unlimited": "Unlimited",

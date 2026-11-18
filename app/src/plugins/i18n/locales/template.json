@@ -361,6 +361,10 @@
       "branch_move_forbidden": "",
       "plan_default_required": "",
       "plan_default_inactive": "",
+      "super_admin_required": "",
+      "platform_setting_invalid": "",
+      "platform_setting_unknown": "",
+      "plan_not_found": "",
       "invalid_website": "",
       "invalid_tax_number": "",
       "logo_type": "",
@@ -522,6 +526,7 @@
             "year": ""
          },
          "description": "",
+         "audience": "",
          "pricing": "",
          "billing_period": "",
          "unlimited": "",

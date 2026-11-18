@@ -416,6 +416,10 @@
       "branch_move_forbidden": "分店不能移动到其他分店之下。",
       "plan_default_required": "必须有一个默认套餐：请改为将其他套餐设为默认。",
       "plan_default_inactive": "默认套餐必须在售。",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "请输入有效的网址。",
       "invalid_tax_number": "仅限字母、数字、空格和连字符（最多 32 个）。",
       "logo_type": "标志必须是 PNG、JPEG 或 WebP 图片。",
@@ -1001,6 +1005,7 @@
             "year": "年"
          },
          "description": "描述",
+         "audience": "Who it suits",
          "pricing": "定价",
          "billing_period": "计费周期",
          "unlimited": "不限",

@@ -416,6 +416,10 @@
       "branch_move_forbidden": "Филиал нельзя перенести под другой.",
       "plan_default_required": "Тариф по умолчанию обязателен: вместо этого назначьте по умолчанию другой тариф.",
       "plan_default_inactive": "Тариф по умолчанию должен предлагаться.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Введите корректный веб-адрес.",
       "invalid_tax_number": "Только буквы, цифры, пробелы и дефисы (не более 32).",
       "logo_type": "Логотип должен быть изображением PNG, JPEG или WebP.",
@@ -1001,6 +1005,7 @@
             "year": "год"
          },
          "description": "Описание",
+         "audience": "Who it suits",
          "pricing": "Цены",
          "billing_period": "Период оплаты",
          "unlimited": "Без ограничений",

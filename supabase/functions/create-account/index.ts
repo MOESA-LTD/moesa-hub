@@ -21,9 +21,21 @@ const COMPANY_CONFLICTS: Record<string, string> = {
    tenant_phone_key: 'company_phone_exists'
 };
 
-serve(async (req) => {
-   const { account, company } = createAccountSchema.parse(await req.json());
+/** Self-signup is a platform setting, off by default (decision 17); the service role alone reads it. */
+const openSignup = async (service: ReturnType<typeof supabaseAdmin>) => {
+   const { data } = await service.rpc('open_signup_enabled').throwOnError();
+   return data === true;
+};
+
+export const handler = async (req: Request): Promise<Response> => {
    const service = supabaseAdmin();
+
+   if (req.method === 'GET') return json({ open: await openSignup(service) });
+
+   // Refused before the body is read and before any user is created.
+   if (!(await openSignup(service))) return json({ message: 'signup_closed', code: 'signup_closed' }, 403);
+
+   const { account, company } = createAccountSchema.parse(await req.json());
 
    // The Auth API cannot join a database transaction, so the user comes first and is removed again
    // if the company cannot be registered.
@@ -56,4 +68,6 @@ serve(async (req) => {
       }
       throw error;
    }
-});
+};
+
+if (import.meta.main) serve(handler);

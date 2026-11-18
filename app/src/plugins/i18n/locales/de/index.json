@@ -416,6 +416,10 @@
       "branch_move_forbidden": "Eine Filiale kann nicht unter eine andere verschoben werden.",
       "plan_default_required": "Es muss einen Standardtarif geben: Machen Sie stattdessen einen anderen Tarif zum Standard.",
       "plan_default_inactive": "Der Standardtarif muss angeboten werden.",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "Geben Sie eine gültige Webadresse ein.",
       "invalid_tax_number": "Nur Buchstaben, Ziffern, Leerzeichen und Bindestriche (höchstens 32).",
       "logo_type": "Das Logo muss ein PNG-, JPEG- oder WebP-Bild sein.",
@@ -1001,6 +1005,7 @@
             "year": "Jahr"
          },
          "description": "Beschreibung",
+         "audience": "Who it suits",
          "pricing": "Preisgestaltung",
          "billing_period": "Abrechnungszeitraum",
          "unlimited": "Unbegrenzt",

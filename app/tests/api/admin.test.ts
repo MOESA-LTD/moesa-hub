@@ -5,6 +5,7 @@ const plan = (overrides: Partial<PlanWithTerms> = {}): PlanWithTerms => ({
    id: 'plan',
    display_name: 'Pro',
    description: null,
+   audience: null,
    price: 499,
    currency: 'TRY',
    billing_period: 'month',
@@ -38,5 +39,6 @@ describe('plan form', () => {
       expect(payload.limits).toEqual({ max_branches: 3, max_users: null });
       expect(payload.plan).not.toHaveProperty('modules');
       expect(payload.plan.description).toBeNull();
+      expect(payload.plan.audience).toBeNull();
    });
 });

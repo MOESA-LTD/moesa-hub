@@ -416,6 +416,10 @@
       "branch_move_forbidden": "支店を別の支店の下に移動することはできません。",
       "plan_default_required": "デフォルトプランが必要です。代わりに別のプランをデフォルトにしてください。",
       "plan_default_inactive": "デフォルトプランは提供中である必要があります。",
+      "super_admin_required": "Only the super admin can do this.",
+      "platform_setting_invalid": "The platform setting is not valid.",
+      "platform_setting_unknown": "That platform setting does not exist.",
+      "plan_not_found": "That plan does not exist.",
       "invalid_website": "有効なウェブアドレスを入力してください。",
       "invalid_tax_number": "英数字、スペース、ハイフンのみ（32 文字まで）。",
       "logo_type": "ロゴは PNG、JPEG、WebP 画像にしてください。",
@@ -1001,6 +1005,7 @@
             "year": "年"
          },
          "description": "説明",
+         "audience": "Who it suits",
          "pricing": "料金",
          "billing_period": "請求期間",
          "unlimited": "無制限",

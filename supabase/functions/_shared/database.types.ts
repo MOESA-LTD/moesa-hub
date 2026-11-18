@@ -1680,6 +1680,7 @@ export type Database = {
       }
       plan: {
         Row: {
+          audience: string | null
           billing_period: string | null
           created_at: string | null
           currency: string | null
@@ -1693,6 +1694,7 @@ export type Database = {
           trial_days: number | null
         }
         Insert: {
+          audience?: string | null
           billing_period?: string | null
           created_at?: string | null
           currency?: string | null
@@ -1706,6 +1708,7 @@ export type Database = {
           trial_days?: number | null
         }
         Update: {
+          audience?: string | null
           billing_period?: string | null
           created_at?: string | null
           currency?: string | null
@@ -5671,6 +5674,7 @@ export type Database = {
       }
       plan: {
         Row: {
+          audience: string | null
           billing_period: string | null
           created_at: string | null
           currency: string | null
@@ -5684,6 +5688,7 @@ export type Database = {
           trial_days: number
         }
         Insert: {
+          audience?: string | null
           billing_period?: string | null
           created_at?: string | null
           currency?: string | null
@@ -5697,6 +5702,7 @@ export type Database = {
           trial_days?: number
         }
         Update: {
+          audience?: string | null
           billing_period?: string | null
           created_at?: string | null
           currency?: string | null
@@ -9367,6 +9373,10 @@ export type Database = {
         }
         Returns: string
       }
+      open_signup_enabled: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
       owned_via: {
         Args: {
           "": unknown
@@ -9413,6 +9423,10 @@ export type Database = {
           code: Database["public"]["Enums"]["gate_code"]
         }
         Returns: Database["public"]["Enums"]["project_phase"]
+      }
+      platform_settings: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
       }
       register_tenant: {
         Args: {
@@ -9496,6 +9510,13 @@ export type Database = {
           field_rights?: Json
         }
         Returns: string
+      }
+      set_platform_setting: {
+        Args: {
+          key: string
+          value: Json
+        }
+        Returns: Json
       }
       set_primary_media: {
         Args: {
