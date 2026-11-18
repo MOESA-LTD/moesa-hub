@@ -792,23 +792,29 @@ export type Database = {
       field_class: {
         Row: {
           class: Database["public"]["Enums"]["field_class_kind"] | null
+          client_visible: boolean | null
           field: string | null
           group_name: string | null
           resource_name: string | null
+          rights_column: string | null
           self_readable: boolean | null
         }
         Insert: {
           class?: Database["public"]["Enums"]["field_class_kind"] | null
+          client_visible?: boolean | null
           field?: string | null
           group_name?: string | null
           resource_name?: string | null
+          rights_column?: string | null
           self_readable?: boolean | null
         }
         Update: {
           class?: Database["public"]["Enums"]["field_class_kind"] | null
+          client_visible?: boolean | null
           field?: string | null
           group_name?: string | null
           resource_name?: string | null
+          rights_column?: string | null
           self_readable?: boolean | null
         }
         Relationships: [
@@ -4754,23 +4760,29 @@ export type Database = {
       field_class: {
         Row: {
           class: Database["public"]["Enums"]["field_class_kind"]
+          client_visible: boolean
           field: string
           group_name: string | null
           resource_name: string
+          rights_column: string | null
           self_readable: boolean
         }
         Insert: {
           class: Database["public"]["Enums"]["field_class_kind"]
+          client_visible?: boolean
           field: string
           group_name?: string | null
           resource_name: string
+          rights_column?: string | null
           self_readable?: boolean
         }
         Update: {
           class?: Database["public"]["Enums"]["field_class_kind"]
+          client_visible?: boolean
           field?: string
           group_name?: string | null
           resource_name?: string
+          rights_column?: string | null
           self_readable?: boolean
         }
         Relationships: [
