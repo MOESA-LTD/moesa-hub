@@ -15,7 +15,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Signing in (F4): `RESET ROLE; SELECT private.impersonate_scope(user, active, scope);`.
 BEGIN;
 
-SELECT plan(66);
+SELECT plan(68);
 
 -- Fixture, built here as postgres (ids 0000000068xx):
 --   P  ...6801  provider (code LPV); C ...6802 client (rel_c ...6821); D ...6803 another client (rel_d ...6822)
@@ -435,6 +435,18 @@ SELECT throws_ok($$ SELECT public.revert_audit_transaction(current_setting('test
                  '42501', 'audit_revert_field_forbidden', 'client owner cannot revert the provider''s cost change');
 SELECT throws_ok($$ SELECT public.revert_audit_transaction(current_setting('test.log_tx')::UUID) $$,
                  '42501', 'audit_revert_field_forbidden', 'client owner cannot revert the provider''s log cost change');
+
+-- The overview labels a provider link with the provider order's code (client-visible), looked up in
+-- coalesce(entity_tenant_id, tenant_id) through the masked api views; a non-member sees no row.
+RESET ROLE;
+SELECT set_config('test.po_c_code', (SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006851'), TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT is((SELECT entity_label FROM api.incident_overview WHERE id = '00000000-0000-4000-8000-000000006895'),
+          current_setting('test.po_c_code'), 'client owner: the overview labels a provider link with the order code');
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006811', '00000000-0000-4000-8000-000000006801', ARRAY['00000000-0000-4000-8000-000000006801']::UUID[]);
+SELECT is_empty($$ SELECT entity_label FROM api.incident_overview WHERE id = '00000000-0000-4000-8000-000000006895' $$,
+                'non-member of the client: no overview row, no label');
 
 SELECT * FROM finish();
 ROLLBACK;

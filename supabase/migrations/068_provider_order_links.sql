@@ -257,6 +257,70 @@ VALUES
 SELECT private.enable_field_security (t)
 FROM unnest(ARRAY['incident', 'change_request']) AS t;
 
+-- 058's incident_overview; 068: a provider link's label (the order's or shipment's code, client-visible)
+-- is looked up in coalesce(entity_tenant_id, tenant_id), through the masked api views.
+CREATE OR REPLACE VIEW api.incident_overview WITH (security_invoker = true) AS
+SELECT i.id,
+    i.tenant_id,
+    i.code,
+    i.family,
+    i.incident_type,
+    i.severity,
+    i.status,
+    i.owner_id,
+    i.title,
+    i.what_happened,
+    i.reported_by,
+    i.current_state,
+    i.immediate_action,
+    i.entity_type,
+    i.entity_id,
+    i.opened_at,
+    i.affected_parties,
+    i.management_notified_at,
+    i.customer_notice_due_at,
+    i.customer_notified_at,
+    i.outcome,
+    i.root_cause,
+    i.root_cause_note,
+    i.impact_note,
+    i.lessons,
+    i.preventive_action,
+    i.customer_closure_notified_on,
+    i.closed_on,
+    i.closed_by,
+    i.created_at,
+    i.updated_at,
+    CASE i.entity_type
+        WHEN 'project'::public.document_entity THEN pj.code
+        WHEN 'purchase_order'::public.document_entity THEN po.code
+        WHEN 'shipment'::public.document_entity THEN s.code
+        WHEN 'product'::public.document_entity THEN pr.sku
+        WHEN 'market_cell'::public.document_entity THEN (((mp.sku || ' · '::TEXT) || m.platform_id) || '_'::TEXT) || m.country
+        ELSE NULL::TEXT
+    END AS entity_label,
+    d.next_deadline_at,
+    d.overdue_deadline_count,
+    (EXISTS (
+        SELECT 1
+        FROM api.incident r
+        WHERE r.tenant_id = i.tenant_id AND r.incident_type = i.incident_type AND r.id <> i.id
+          AND r.opened_at < i.opened_at AND r.opened_at >= (i.opened_at - '90 days'::INTERVAL)
+    )) AS is_repeat
+FROM api.incident i
+LEFT JOIN api.project pj ON i.entity_type = 'project'::public.document_entity AND pj.id = i.entity_id AND pj.tenant_id = i.tenant_id
+LEFT JOIN api.purchase_order po ON i.entity_type = 'purchase_order'::public.document_entity AND po.id = i.entity_id AND po.tenant_id = coalesce(i.entity_tenant_id, i.tenant_id)
+LEFT JOIN api.shipment s ON i.entity_type = 'shipment'::public.document_entity AND s.id = i.entity_id AND s.tenant_id = coalesce(i.entity_tenant_id, i.tenant_id)
+LEFT JOIN api.product pr ON i.entity_type = 'product'::public.document_entity AND pr.id = i.entity_id AND pr.tenant_id = i.tenant_id
+LEFT JOIN api.market_cell m ON i.entity_type = 'market_cell'::public.document_entity AND m.id = i.entity_id AND m.tenant_id = i.tenant_id
+LEFT JOIN api.product mp ON mp.id = m.product_id AND mp.tenant_id = m.tenant_id
+LEFT JOIN LATERAL (
+    SELECT min(dl.due_at) AS next_deadline_at,
+        count(*) FILTER (WHERE dl.due_at < now())::INTEGER AS overdue_deadline_count
+    FROM api.incident_deadline dl
+    WHERE dl.incident_id = i.id AND dl.tenant_id = i.tenant_id AND dl.met_at IS NULL
+) d ON TRUE;
+
 -- ====================================================================================== 2. guarded
 --
 -- Section 2, provider-guarded cost (Task 6). The cost of a change request on a provider's order is
