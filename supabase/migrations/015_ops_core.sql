@@ -13,7 +13,7 @@
 --                code other tables refer to (platform_account.platform_id). Read by every
 --                signed-in user and written only by migrations, so it has no permissions and is
 --                not audited (its TEXT id is not a UUID the audit trail could record).
--- code_sequence  The counters behind the business codes (K5): per tenant, kind, customer code and
+-- code_sequence  The counters behind the business codes (K5): per tenant, kind, scope code and
 --                year. Written only by public.next_code; no permissions, so no direct access.
 --
 -- public.next_code is SECURITY DEFINER: code_sequence has RLS with only the restrictive tenant

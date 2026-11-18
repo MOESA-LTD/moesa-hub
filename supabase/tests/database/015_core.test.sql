@@ -67,7 +67,7 @@ INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
 
 SELECT private.impersonate('00000000-0000-4000-8000-000000001504', '00000000-0000-4000-8000-000000001501');
 
--- Counter: consecutive within one customer and year, independent across customers.
+-- Counter: consecutive within one scope code and year, independent across scope codes.
 SELECT is(public.next_code('project', 'THO'), 'THO-' || extract(year FROM now())::INT || '-001');
 
 SELECT is(public.next_code('project', 'THO'), 'THO-' || extract(year FROM now())::INT || '-002');
