@@ -19,7 +19,8 @@ const PREVIEW_ROWS = 20;
 const { t } = useI18n();
 const toast = useToast();
 const dialogRef = useDialogRef();
-const fieldAccess = useFieldAccess('product');
+// The product's own columns and its sourcing columns follow the rights on their own table.
+const fieldAccess = { product: useFieldAccess('product'), sourcing: useFieldAccess('sourcing') };
 const { mutateAsync: importProducts, isPending } = useImportProducts();
 
 const fileName = ref<string | null>(null);

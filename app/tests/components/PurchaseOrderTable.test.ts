@@ -1,5 +1,6 @@
 import '../setup/mockMain';
 import en from '@/plugins/i18n/locales/en/index.json';
+import LineProduct from '@/components/service-components/purchase-order-table/LineProduct.vue';
 import PurchaseOrderTable from '@/components/service-components/purchase-order-table/PurchaseOrderTable.vue';
 import i18n, { i18NPlugin } from '@plugins/i18n';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -91,5 +92,28 @@ describe('purchase order table', () => {
          matchMode: 'equals'
       });
       expect(api.tableFilters).not.toHaveProperty('id');
+   });
+});
+
+describe('order line product', () => {
+   it('renders a line without product_id from its snapshot', () => {
+      const wrapper = mount(LineProduct, {
+         props: { line: { product_id: null, product_sku: 'THO-MOP', product_name: 'Mop' } }
+      });
+      expect(wrapper.text()).toBe('THO-MOP · Mop');
+   });
+
+   it('renders a linked line from its product, which may have been renamed', () => {
+      const wrapper = mount(LineProduct, {
+         props: {
+            line: {
+               product_id: 'p1',
+               product_sku: 'THO-MOP',
+               product_name: 'Mop',
+               product: { sku: 'THO-MOP', display_name: 'Mop, 40 cm' }
+            }
+         }
+      });
+      expect(wrapper.text()).toBe('THO-MOP · Mop, 40 cm');
    });
 });

@@ -10,7 +10,10 @@ import {
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { toS10Csv, type ProductExportRow } from '@/api/product/csv';
+import { toS10Csv, withSourcing } from '@/api/product/csv';
+import { CLIENT_RELATIONSHIP_SELECT, type ClientRelationship } from '@/api/relationship';
+import { SOURCING_SELECT, type SourcingCard } from '@/api/sourcing';
+import { useAuthStore } from '@/store/auth';
 import { supabase } from '@/lib/supabase';
 import dayjs from 'dayjs';
 import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
@@ -34,6 +37,8 @@ const router = useRouter();
 const route = useRoute();
 const { t } = useI18n();
 const fieldAccess = useFieldAccess('product');
+// The export's sourcing columns follow the rights on sourcing.
+const sourcingAccess = useFieldAccess('sourcing');
 
 const columns = computed<Props['columns']>(() => [
    // The primary image (its thumbnail), named for screen readers only.
@@ -130,19 +135,36 @@ const rowActions: Props['rowActions'] = [
 const EXPORT_PAGE = 1000;
 const exporting = ref(false);
 
-const fetchExportRows = async () => {
-   const products: ProductExportRow[] = [];
+/** Every row of a table in scope, page by page, in a stable order. */
+const fetchAll = async <Row,>(table: 'product' | 'sourcing', select: string, order: string) => {
+   const rows: Row[] = [];
    for (let from = 0; ; from += EXPORT_PAGE) {
       const { data } = await supabase
-         .from('product')
-         .select('*')
-         .order('sku')
+         .from(table)
+         .select(select)
+         .order(order)
          .order('id')
          .range(from, from + EXPORT_PAGE - 1)
          .throwOnError();
-      products.push(...(data as ProductExportRow[]));
-      if (data.length < EXPORT_PAGE) return products;
+      rows.push(...(data as unknown as Row[]));
+      if (data.length < EXPORT_PAGE) return rows;
    }
+};
+
+// The products, with the sourcing rows their supplier, cost and price columns come from, and the
+// relationships naming the clients of those rows.
+const fetchExportRows = async () => {
+   const [products, sourcing, { data: relationships }] = await Promise.all([
+      fetchAll<Tables['product']['Row']>('product', '*', 'sku'),
+      fetchAll<SourcingCard>('sourcing', SOURCING_SELECT, 'created_at'),
+      supabase.from('provider_relationship').select(CLIENT_RELATIONSHIP_SELECT).throwOnError()
+   ]);
+   return withSourcing(
+      products,
+      sourcing,
+      (relationships ?? []) as ClientRelationship[],
+      useAuthStore().currentTenant?.id
+   );
 };
 
 const exportCsv = async () => {
@@ -150,7 +172,13 @@ const exportCsv = async () => {
    try {
       // With a byte order mark, so spreadsheets read the file as UTF-8.
       const blob = new Blob(
-         [String.fromCharCode(0xfeff), toS10Csv(await fetchExportRows(), fieldAccess)],
+         [
+            String.fromCharCode(0xfeff),
+            toS10Csv(await fetchExportRows(), {
+               product: fieldAccess,
+               sourcing: sourcingAccess
+            })
+         ],
          {
             type: 'text/csv;charset=utf-8'
          }

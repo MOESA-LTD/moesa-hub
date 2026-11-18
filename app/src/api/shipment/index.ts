@@ -33,7 +33,10 @@ export type ShipmentCardOrder = Pick<
    PurchaseOrderRow,
    'id' | 'code' | 'status' | 'tolerance_pct'
 > & {
-   purchase_order_line: (Pick<PurchaseOrderLineRow, 'id' | 'quantity'> & {
+   purchase_order_line: (Pick<
+      PurchaseOrderLineRow,
+      'id' | 'quantity' | 'product_sku' | 'product_name'
+   > & {
       product: Pick<ProductRow, 'sku' | 'display_name' | 'is_hazmat'> | null;
    })[];
 };
@@ -261,7 +264,7 @@ export function documentChecklist(
 export const SHIPMENT_SELECT = [
    '*',
    'warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
-   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
+   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product_sku, product_name, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
    'shipment_line!shipment_line_shipment_fkey(*)'
 ].join(', ');
 
@@ -326,6 +329,9 @@ const amount = () => optional(z.number().min(0));
 
 export const shipmentSchema = z.object({
    id: z.string().optional(),
+   // The client the shipment is for (an active provider-procures relationship), or null for an
+   // own shipment. Set on a new shipment only (client_tenant_immutable).
+   client_tenant_id: z.uuid().nullable().default(null),
    mode: required(z.enum(SHIPMENT_MODES)),
    delivery_warehouse_id: required(z.uuid()),
    forwarder: text(),
@@ -366,6 +372,7 @@ export const toShipmentFormValues = (
    shipment?: Partial<ShipmentRow> | null
 ): ShipmentFormValues => ({
    id: shipment?.id ?? undefined,
+   client_tenant_id: shipment?.client_tenant_id ?? null,
    mode: shipment?.mode ?? null,
    delivery_warehouse_id: shipment?.delivery_warehouse_id ?? null,
    forwarder: shipment?.forwarder ?? '',
@@ -400,13 +407,13 @@ export const toShipmentFormValues = (
 const instantTime = (value: unknown) => (value instanceof Date ? value.getTime() : null);
 
 /**
- * The row to save, empty fields as null. The code, the status (useSetShipmentStatus) and the
- * acceptance date are the database's. The dispute deadline goes only when it differs from `loaded`
+ * The row to save, empty fields as null. The client goes with a new shipment only. The code, the
+ * status (useSetShipmentStatus) and the acceptance date are the database's. The dispute deadline goes only when it differs from `loaded`
  * (the form's values as loaded, none for a new shipment): entering delivered fills it in the
  * database, and a form loaded before that must not write its empty one back.
  */
 export function toShipmentPayload(
-   { id, dispute_deadline_at, ...values }: ShipmentValues,
+   { id, dispute_deadline_at, client_tenant_id, ...values }: ShipmentValues,
    loaded?: Pick<ShipmentFormValues, 'dispute_deadline_at'> | null
 ): ResourceInput<'shipment'> {
    const deadlineChanged =
@@ -421,7 +428,7 @@ export function toShipmentPayload(
       has_damage: values.has_damage ?? null
    };
    if (id) return { id, ...editable } as ResourceInput<'shipment'>;
-   return editable as ResourceInput<'shipment'>;
+   return { ...editable, client_tenant_id } as ResourceInput<'shipment'>;
 }
 
 /** Moves a shipment to another status; the database checks the flow and its data (031). */

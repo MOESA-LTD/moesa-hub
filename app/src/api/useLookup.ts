@@ -11,6 +11,11 @@ export type LookupOptions = {
    order?: string;
    /** Restricts rows to those whose `column` is one of `values` (skipped when empty). */
    in?: { column: string; values: readonly unknown[] };
+   /**
+    * Reads this tenant alone instead of the form's (e.g. the client a provider order is for, whose
+    * products and projects its lines and project name).
+    */
+   tenantId?: string | null;
 };
 
 /**
@@ -27,9 +32,11 @@ export function useLookup<Row = Record<string, any>>(
    // Inside a form, the form's tenant alone (see provideFormTenant).
    const formTenant = useFormTenant();
 
+   const tenant = () => toValue(options).tenantId || formTenant?.value;
+
    return useQuery({
       queryKey: computed(() =>
-         queryKeys.list(formTenant?.value ?? tenantKey.value, table, {
+         queryKeys.list(tenant() ?? tenantKey.value, table, {
             view: 'lookup',
             ...toValue(options)
          })
@@ -40,7 +47,7 @@ export function useLookup<Row = Record<string, any>>(
          // The row type of a table name held in a variable cannot be inferred; callers type it.
          let query = forTenant(
             (supabase.from(table as keyof Tables) as any).select(select).abortSignal(signal),
-            formTenant?.value
+            tenant()
          );
          if (order) query = query.order(order);
          if (within?.values.length) query = query.in(within.column, within.values);

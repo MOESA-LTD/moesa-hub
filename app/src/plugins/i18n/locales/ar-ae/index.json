@@ -807,6 +807,7 @@
          "ops_shipment_event_add": "New shipment event",
          "ops_shipment_event_edit": "Edit shipment event",
          "ops_supplier_purchase_orders": "Purchase orders",
+         "ops_product_sourcing": "Sourcing",
          "ops_product_orders": "Orders and shipments",
          "ops_project_purchase_orders": "Purchase orders",
          "ops_project_shipments": "Shipments",
@@ -1164,6 +1165,9 @@
             }
          }
       },
+      "client": {
+         "own": "No client (our own)"
+      },
       "company": {
          "title": "Company profile",
          "tabs": {
@@ -1227,11 +1231,21 @@
       "product": {
          "title": "Products",
          "select": "Select a product",
+         "sourcing": {
+            "none": "This company has no sourcing for the product yet.",
+            "add": "Add sourcing",
+            "no_relationship": "The product belongs to another company. You can add sourcing for it only under an active relationship in which you procure for that company.",
+            "spec_sheets": "Our spec sheets for this product",
+            "others": "Other companies' sourcing",
+            "other_company": "Another company",
+            "notes": "Internal note"
+         },
          "tabs": {
             "general": "General",
             "dimensions": "Dimensions",
             "documents": "Documents",
             "media": "Media",
+            "sourcing": "Sourcing",
             "orders": "Orders and shipments",
             "amazon": "Amazon"
          },
@@ -1284,7 +1298,7 @@
             "landed_cost_eur": "Landed cost (EUR)",
             "landed_cost_on": "Landed cost date",
             "target_price_eur": "Target price (EUR)",
-            "company_price_eur": "Company price (EUR)",
+            "sell_price_eur": "Sell price (EUR)",
             "price_list_version": "Price list version",
             "notes": "Notes",
             "supplier": "Supplier",
@@ -1665,6 +1679,7 @@
             }
          },
          "spec_missing": "Spec sheet missing",
+         "project_locked_hint": "The project can be changed only while the order is a draft.",
          "locked_hint": "Fixed since the PI was approved.",
          "no_rows": "No purchase orders.",
          "no_lines": "No lines yet.",

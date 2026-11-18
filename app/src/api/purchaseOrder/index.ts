@@ -282,6 +282,9 @@ const T_PO = 'purchase_order';
 export const purchaseOrderSchema = z.object({
    id: z.string().optional(),
    supplier_id: sensitive(T_PO, 'supplier_id', required(z.uuid())),
+   // The client the order is for (an active provider-procures relationship), or null for an own
+   // order. Set on a new order only (client_tenant_immutable).
+   client_tenant_id: z.uuid().nullable().default(null),
    project_id: optional(z.uuid()),
    packing_instruction_document_id: optional(z.uuid()),
    pi_document_id: sensitive(T_PO, 'pi_document_id', optional(z.uuid())),
@@ -316,6 +319,7 @@ export const toPurchaseOrderFormValues = (
 ): PurchaseOrderFormValues => ({
    id: po?.id ?? undefined,
    supplier_id: po?.supplier_id ?? null,
+   client_tenant_id: po?.client_tenant_id ?? null,
    project_id: po?.project_id ?? null,
    packing_instruction_document_id: po?.packing_instruction_document_id ?? null,
    pi_document_id: po?.pi_document_id ?? null,
@@ -338,12 +342,13 @@ export const toPurchaseOrderFormValues = (
 });
 
 /**
- * The row to save, empty fields as null. The supplier never changes, so it goes with a new order
- * only. The status (useSetPurchaseOrderStatus), the code and the PI check stamp are the
- * database's; the locked terms (PO_LOCKED_FIELDS) are left out once the order's `status` locks them.
+ * The row to save, empty fields as null. The supplier and the client never change, so they go with
+ * a new order only. The status (useSetPurchaseOrderStatus), the code and the PI check stamp are the
+ * database's; the project is left out once the order is no longer a draft (po_project_locked), the
+ * locked terms (PO_LOCKED_FIELDS) once the order's `status` locks them.
  */
 export function toPurchaseOrderPayload(
-   { id, supplier_id, ...values }: PurchaseOrderValues,
+   { id, supplier_id, client_tenant_id, ...values }: PurchaseOrderValues,
    status?: PurchaseOrderStatus
 ): ResourceInput<'purchase_order'> {
    const editable: Partial<Record<keyof typeof values, unknown>> = {
@@ -367,11 +372,12 @@ export function toPurchaseOrderPayload(
       pi_discount_amount: values.pi_discount_amount,
       pi_check: values.pi_check
    };
+   if (status && status !== 'draft') delete editable.project_id;
    if (status && isPurchaseOrderLocked(status))
       for (const field of PO_LOCKED_FIELDS) delete editable[field];
 
    if (id) return { id, ...editable } as ResourceInput<'purchase_order'>;
-   return { ...editable, supplier_id } as ResourceInput<'purchase_order'>;
+   return { ...editable, supplier_id, client_tenant_id } as ResourceInput<'purchase_order'>;
 }
 
 /** Moves an order to another status; the database checks the flow and its gates (030). */
@@ -498,6 +504,28 @@ export const toPurchaseOrderLinePayload = ({
    };
    if (id) return { id, ...editable } as ResourceInput<'purchase_order_line'>;
    return { purchase_order_id, ...editable } as ResourceInput<'purchase_order_line'>;
+};
+
+/** What an order line knows of its product: the linked product, and the snapshot it keeps. */
+export type LineProductSource = {
+   product?: { sku?: string | null; display_name?: string | null } | null;
+   product_sku?: string | null;
+   product_name?: string | null;
+};
+
+/**
+ * A line's product SKU and name: the linked product's when it can be read, else the snapshot the
+ * line kept (a client's product deleted, or not in the tenants read).
+ */
+export const lineProduct = (line: LineProductSource) => ({
+   sku: line.product?.sku ?? line.product_sku ?? '',
+   name: line.product?.display_name ?? line.product_name ?? ''
+});
+
+/** A line's product as one label: `SKU · name`. */
+export const lineProductLabel = (line: LineProductSource) => {
+   const { sku, name } = lineProduct(line);
+   return [sku, name].filter(Boolean).join(' · ');
 };
 
 /** A purchase price (the product's sourcing) as a line's unit price, in the order's currency. */

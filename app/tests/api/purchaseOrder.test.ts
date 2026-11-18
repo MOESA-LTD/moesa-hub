@@ -324,6 +324,37 @@ describe('purchase order form', () => {
          expect(draft).not.toHaveProperty(key);
    });
 
+   it('payload carries client_tenant_id and no customer_id', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000009';
+      expect(purchaseOrderSchema.parse(validValues).client_tenant_id).toBeNull();
+      const created = toPurchaseOrderPayload(
+         purchaseOrderSchema.parse({ ...validValues, client_tenant_id: CLIENT })
+      );
+      expect(created).toMatchObject({ client_tenant_id: CLIENT, supplier_id: SUPPLIER });
+      expect(created).not.toHaveProperty('customer_id');
+      expect(toPurchaseOrderPayload(purchaseOrderSchema.parse(validValues))).toMatchObject({
+         client_tenant_id: null
+      });
+      expect(
+         purchaseOrderSchema.safeParse({ ...validValues, client_tenant_id: 'THO' }).success
+      ).toBe(false);
+
+      // The client never changes (client_tenant_immutable): a saved order does not send it.
+      const update = toPurchaseOrderPayload(
+         purchaseOrderSchema.parse({ ...validValues, id: 'p1', client_tenant_id: CLIENT }),
+         'draft'
+      );
+      expect(update).not.toHaveProperty('client_tenant_id');
+      expect(update).not.toHaveProperty('customer_id');
+      expect(toPurchaseOrderFormValues({ client_tenant_id: CLIENT }).client_tenant_id).toBe(CLIENT);
+   });
+
+   it('keeps the project once the order is past its draft (po_project_locked)', () => {
+      const values = purchaseOrderSchema.parse({ ...validValues, id: 'p1', project_id: null });
+      expect(toPurchaseOrderPayload(values, 'draft')).toHaveProperty('project_id', null);
+      expect(toPurchaseOrderPayload(values, 'sent')).not.toHaveProperty('project_id');
+   });
+
    it('leaves the locked terms out once the PI is approved', () => {
       const update = toPurchaseOrderPayload(
          purchaseOrderSchema.parse({ ...validValues, id: 'p1', notes: 'late' }),

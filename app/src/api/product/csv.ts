@@ -5,6 +5,7 @@ import {
    type ProductRow,
    type ProductStatus
 } from '@/api/product';
+import type { SourcingRow } from '@/api/sourcing';
 import type { FieldAccess } from '@/composables/useFieldAccess';
 import { serializeCsv } from '@/lib/csv/serialize';
 import { gtinValid } from '@/lib/gtin';
@@ -406,8 +407,33 @@ export const S10_TO_PRODUCT: Record<string, ImportField> = {
 };
 
 /**
- * The product field (a column of the `product` table, as field rights name it) behind each S10
- * header; null for a header with no field of its own (deferred and computed columns).
+ * The import fields that are sourcing columns: the procuring tenant's supplier, cost and prices
+ * of the product (public.import_products writes them to its `sourcing` row). The others are the
+ * product's own.
+ */
+export const SOURCING_FIELDS: ReadonlySet<ImportField> = new Set<ImportField>([
+   'manufacturer_art_no',
+   'supplier_code',
+   'supplier_product_code',
+   'purchase_price',
+   'purchase_currency',
+   'purchase_incoterm',
+   'landed_cost_eur',
+   'landed_cost_on',
+   'target_price_eur',
+   'sell_price_eur',
+   'price_list_version'
+]);
+
+/** The tables whose field rights an import or export asks. */
+export type CsvTable = 'product' | 'sourcing';
+/** The user's field rights on each table the S10 file covers. */
+export type CsvAccess<K extends keyof FieldAccess> = Record<CsvTable, Pick<FieldAccess, K>>;
+
+/**
+ * The field (a column of the `product` or the `sourcing` table, as field rights name it) behind
+ * each S10 header; null for a header with no field of its own (deferred and computed columns).
+ * S10_TABLE_OF names its table.
  */
 export const S10_FIELD_OF: Record<(typeof S10_COLUMNS)[number], string | null> = Object.fromEntries(
    S10_COLUMNS.map((column) => {
@@ -416,6 +442,23 @@ export const S10_FIELD_OF: Record<(typeof S10_COLUMNS)[number], string | null> =
       return [column, named ?? null];
    })
 ) as Record<(typeof S10_COLUMNS)[number], string | null>;
+
+/** The table of the field behind each S10 header (S10_FIELD_OF), or null. */
+export const S10_TABLE_OF: Record<(typeof S10_COLUMNS)[number], CsvTable | null> =
+   Object.fromEntries(
+      S10_COLUMNS.map((column) => {
+         const field = S10_TO_PRODUCT[column] as ImportField | undefined;
+         if (!field) return [column, null];
+         return [column, SOURCING_FIELDS.has(field) ? 'sourcing' : 'product'];
+      })
+   ) as Record<(typeof S10_COLUMNS)[number], CsvTable | null>;
+
+/** The rights on the field behind an S10 header, or null for a header without one. */
+const columnField = <K extends keyof FieldAccess>(column: string, access: CsvAccess<K>) => {
+   const field = S10_FIELD_OF[column as (typeof S10_COLUMNS)[number]];
+   const table = S10_TABLE_OF[column as (typeof S10_COLUMNS)[number]];
+   return field && table ? { field, access: access[table] } : null;
+};
 
 /** The S10 column of each import field, to name it to the user. */
 export const PRODUCT_TO_S10 = Object.fromEntries(
@@ -466,7 +509,7 @@ const withHazmatNote = (row: ProductImportRow, hazmat: string | undefined): Prod
 export function mapS10Rows(
    header: readonly string[],
    rows: readonly (readonly string[])[],
-   { canWrite }: Pick<FieldAccess, 'canWrite'>
+   access: CsvAccess<'canWrite'>
 ): { rows: ProductImportRow[]; warnings: ImportWarning[]; errors: ImportError[] } {
    const columns = header.map((column) => column.trim().toLowerCase());
    const warnings: ImportWarning[] = [];
@@ -491,11 +534,15 @@ export function mapS10Rows(
    const mapped: ProductImportRow[] = [];
    const errors: ImportError[] = [];
 
-   // A column the user may not write must stay empty; the server refuses it as well (row 0 = the
-   // header).
+   // A column the user may not write (in the product or its sourcing) must stay empty; the server
+   // refuses it as well (row 0 = the header).
    columns.forEach((column, index) => {
-      const field = S10_FIELD_OF[column as (typeof S10_COLUMNS)[number]];
-      if (field && !canWrite(field) && rows.some((row) => row[index]?.trim())) {
+      const target = columnField(column, access);
+      if (
+         target &&
+         !target.access.canWrite(target.field) &&
+         rows.some((row) => row[index]?.trim())
+      ) {
          errors.push({ row: 0, field: column, code: 'csv_column_not_writable' });
       }
    });
@@ -541,9 +588,16 @@ export function mapS10Rows(
 
 // Export
 
-/** A product with the codes the export writes in place of its ids. */
-export type ProductExportRow = ProductRow & {
+/** The sourcing of an exported product, with the codes the export writes in place of its ids. */
+export type ProductExportSourcing = Partial<SourcingRow> & {
    supplier?: { code: string } | null;
+   /** The client the row names (its relationship's code), for the company code column. */
+   client_code?: string | null;
+};
+
+/** A product and the sourcing row the export takes its supplier, cost and price columns from. */
+export type ProductExportRow = ProductRow & {
+   sourcing?: ProductExportSourcing | null;
 };
 
 const formatCell = (value: unknown) => {
@@ -553,35 +607,61 @@ const formatCell = (value: unknown) => {
 };
 
 /**
- * The products as an S10 file: the template's columns in order, the supplier as its code and the
- * parent as its SKU (among the products given). Deferred columns stay empty; the columns of fields
- * the user may not read are left out.
+ * The products as an S10 file: the template's columns in order, the parent as its SKU (among the
+ * products given). The supplier, cost and price columns come from the product's sourcing row, the
+ * supplier as its code and the company code as the client the row names. Deferred columns stay
+ * empty; the columns of fields the user may not read (in the product or its sourcing) are left out.
  */
 export function toS10Csv(
    products: readonly ProductExportRow[],
-   { canRead }: Pick<FieldAccess, 'canRead'>
+   access: CsvAccess<'canRead'>
 ): string {
    const skuById = new Map(products.map(({ id, sku }) => [id, sku]));
 
    const valueOf = (product: ProductExportRow, column: string): unknown => {
-      switch (S10_TO_PRODUCT[column]) {
-         case undefined:
-            return null;
-         case 'supplier_code':
-            return product.supplier?.code;
-         case 'parent_sku':
-            return product.parent_id ? skuById.get(product.parent_id) : null;
-         default:
-            return product[S10_TO_PRODUCT[column] as keyof ProductRow];
-      }
+      const field = S10_TO_PRODUCT[column];
+      if (column === 'musteri_kodu') return product.sourcing?.client_code;
+      if (field === undefined) return null;
+      if (field === 'supplier_code') return product.sourcing?.supplier?.code;
+      if (field === 'parent_sku') return product.parent_id ? skuById.get(product.parent_id) : null;
+      if (SOURCING_FIELDS.has(field))
+         return product.sourcing?.[field as keyof ProductExportSourcing];
+      return product[field as keyof ProductRow];
    };
 
    const columns = S10_COLUMNS.filter((column) => {
-      const field = S10_FIELD_OF[column];
-      return !field || canRead(field);
+      const target = columnField(column, access);
+      return !target || target.access.canRead(target.field);
    });
    return serializeCsv(
       columns,
       products.map((product) => columns.map((column) => formatCell(valueOf(product, column))))
    );
+}
+
+/**
+ * Gives each product the sourcing row the export reads: the active tenant's (the row an import
+ * writes back to), else the product's own tenant's. The row's client is named by its code from
+ * the relationships given.
+ */
+export function withSourcing(
+   products: readonly ProductRow[],
+   sourcing: readonly (Partial<SourcingRow> & { supplier?: { code: string } | null })[],
+   relationships: readonly { tenant_id: string; client_tenant_id: string; client_code: string }[],
+   activeTenantId: string | null | undefined
+): ProductExportRow[] {
+   const codes = new Map(
+      relationships.map((row) => [`${row.tenant_id}|${row.client_tenant_id}`, row.client_code])
+   );
+   return products.map((product) => {
+      const rows = sourcing.filter(({ product_id }) => product_id === product.id);
+      const row =
+         rows.find(({ tenant_id }) => tenant_id === activeTenantId) ??
+         rows.find(({ tenant_id }) => tenant_id === product.tenant_id);
+      if (!row) return { ...product, sourcing: null };
+      const client_code = row.client_tenant_id
+         ? (codes.get(`${row.tenant_id}|${row.client_tenant_id}`) ?? null)
+         : null;
+      return { ...product, sourcing: { ...row, client_code } };
+   });
 }

@@ -570,6 +570,7 @@
          "ops_product_manage": "Ürün kartı",
          "ops_product_general": "Genel",
          "ops_product_dimensions": "Ölçüler",
+         "ops_product_sourcing": "Tedarik",
          "ops_product_orders": "PO/sevkiyat geçmişi",
          "ops_product_documents": "Belgeler",
          "ops_product_media": "Ortam",
@@ -1164,6 +1165,9 @@
             }
          }
       },
+      "client": {
+         "own": "Müşteri yok (kendi kaydımız)"
+      },
       "company": {
          "title": "Şirket profili",
          "tabs": {
@@ -1227,9 +1231,19 @@
       "product": {
          "title": "Ürünler",
          "select": "Ürün seçin",
+         "sourcing": {
+            "none": "Bu şirketin bu ürün için henüz tedarik kaydı yok.",
+            "add": "Tedarik kaydı ekle",
+            "no_relationship": "Ürün başka bir şirkete ait. Tedarik kaydını yalnızca o şirket adına tedarik yaptığınız etkin bir ilişki varsa ekleyebilirsiniz.",
+            "spec_sheets": "Bu ürün için kendi teknik şartnamelerimiz",
+            "others": "Diğer şirketlerin tedarik kayıtları",
+            "other_company": "Başka bir şirket",
+            "notes": "İç not"
+         },
          "tabs": {
             "general": "Genel",
             "dimensions": "Ölçüler",
+            "sourcing": "Tedarik",
             "orders": "PO/sevkiyat geçmişi",
             "documents": "Belgeler",
             "media": "Ortam",
@@ -1284,7 +1298,7 @@
             "landed_cost_eur": "Varış maliyeti (EUR)",
             "landed_cost_on": "Varış maliyeti tarihi",
             "target_price_eur": "Hedef fiyat (EUR)",
-            "company_price_eur": "Şirket fiyatı (EUR)",
+            "sell_price_eur": "Satış fiyatı (EUR)",
             "price_list_version": "Fiyat listesi sürümü",
             "notes": "Notlar",
             "supplier": "Tedarikçi",
@@ -1530,6 +1544,7 @@
       "purchase_order": {
          "title": "Satın alma (PO)",
          "spec_missing": "Spec sheet eksik",
+         "project_locked_hint": "Proje yalnız sipariş taslakken değiştirilebilir.",
          "locked_hint": "PI onaylandığından beri sabit.",
          "no_rows": "Satın alma siparişi yok.",
          "no_lines": "Henüz satır yok.",

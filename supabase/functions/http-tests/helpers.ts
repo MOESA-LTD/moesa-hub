@@ -494,6 +494,10 @@ export const APP_SELECTS: [string, string][] = [
    // company data and the provider relationship
    ['provider_relationship', '*'],
    ['provider_relationship', 'id, client_tenant_id, client_code, client_name, status'],
+   [
+      'provider_relationship',
+      'tenant_id, client_tenant_id, client_code, client_name, procurement_model, status'
+   ],
    ['contact', '*'],
    ['warehouse', '*'],
    ['warehouse', 'id, display_name, city, is_default, dock_hours, appointment_rule'],
@@ -508,6 +512,7 @@ export const APP_SELECTS: [string, string][] = [
    ['product', '*'],
    ['sourcing', '*, supplier(code, display_name)'],
    ['sourcing', 'id, product_id, client_tenant_id, supplier_id, purchase_price, purchase_currency, sell_price_eur'],
+   ['sourcing', 'id, product_id, purchase_price, purchase_currency'],
    ['product', 'id'],
    ['product', 'id, sku, display_name'],
    ['product', 'id, sku, display_name, status'],
@@ -546,7 +551,7 @@ export const APP_SELECTS: [string, string][] = [
       [
          '*',
          'warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
-         'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
+         'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product_sku, product_name, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
          'shipment_line!shipment_line_shipment_fkey(*)',
       ].join(', '),
    ],

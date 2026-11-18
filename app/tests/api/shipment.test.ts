@@ -292,6 +292,22 @@ describe('shipment form', () => {
       ).toMatchObject({ mode: 'fcl20', delivered_at: '2027-01-10T10:00:00.000Z' });
    });
 
+   it('sends the client with a new shipment only', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000009';
+      const values = { ...toShipmentFormValues({ mode: 'road', delivery_warehouse_id: W }) };
+      expect(shipmentSchema.parse(values).client_tenant_id).toBeNull();
+      const created = toShipmentPayload(
+         shipmentSchema.parse({ ...values, client_tenant_id: CLIENT })
+      );
+      expect(created).toMatchObject({ client_tenant_id: CLIENT });
+      expect(created).not.toHaveProperty('customer_id');
+      const update = toShipmentPayload(
+         shipmentSchema.parse({ ...values, id: SHIPMENT, client_tenant_id: CLIENT })
+      );
+      expect(update).not.toHaveProperty('client_tenant_id');
+      expect(toShipmentFormValues({ client_tenant_id: CLIENT }).client_tenant_id).toBe(CLIENT);
+   });
+
    it("never sends a saved shipment's code, status or acceptance date", () => {
       const payload = toShipmentPayload(
          shipmentSchema.parse(
