@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(88);
+SELECT plan(92);
 
 SELECT private.create_test_helpers();
 
@@ -596,6 +596,12 @@ SELECT results_eq($$ SELECT forwarder, customs_broker, demurrage_note, notes, is
                      WHERE id = '00000000-0000-4000-8000-000000006771' $$,
                   $$ VALUES (NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, '2026-12-24'::DATE) $$,
                   'shipment_overview: provider-only fields NULL');
+-- Task 12: the dashboard and the shipment list as the client sees them.
+SELECT results_eq($$ SELECT purchase_order_id, status::TEXT, client_status::TEXT FROM api.dashboard_purchase_order $$,
+                  $$ VALUES ('00000000-0000-4000-8000-000000006751'::UUID, NULL::TEXT, 'pending') $$,
+                  'dashboard_purchase_order: a shared order is open by client_status (raw status NULL)');
+SELECT is((SELECT psi_missing_po_codes FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000006771'), NULL,
+          'shipment_overview: no PSI warning on a shared shipment (the provider documents are not the client''s)');
 SELECT is(pg_temp.sentinel_hits(ARRAY['purchase_order_overview', 'dashboard_purchase_order', 'shipment_overview', 'dashboard_shipment']), '{}'::TEXT[],
           'the derived views show no provider-only sentinel');
 SELECT ok(private.field_calls_only_in_initplans('SELECT * FROM api.purchase_order ORDER BY created_at DESC LIMIT 50'),
@@ -660,6 +666,12 @@ SELECT set_eq($$ SELECT * FROM pg_temp.cells('00000000-0000-4000-8000-0000000067
                    AND (tbl, row_key) IN (SELECT b.tbl, b.row_key FROM base_cells b) $$,
               $$ SELECT * FROM base_cells WHERE tbl <> 'provider_relationship' AND tbl <> 'sourcing' $$,
               'provider coordinator reads every field of the rows it shares');
+-- Task 12: the provider's dashboard keeps the raw status filter (its orders are drafts), and its
+-- shipment list keeps the PSI warning.
+SELECT is((SELECT count(*)::INT FROM api.dashboard_purchase_order), 0, 'provider dashboard: draft orders are not open');
+SELECT results_eq($$ SELECT psi_missing_po_codes FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000006771' $$,
+                  $$ SELECT ARRAY[code] FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751' $$,
+                  'provider shipment_overview: the PSI warning names the order without an approved PSI');
 RESET ROLE;
 SELECT private.unimpersonate();
 

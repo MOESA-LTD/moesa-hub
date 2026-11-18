@@ -653,6 +653,9 @@ export type Database = {
         Row: {
           balance_planned_on: string | null
           client_code: string | null
+          client_status:
+            | Database["public"]["Enums"]["purchase_order_client_status"]
+            | null
           client_tenant_id: string | null
           code: string | null
           currency: string | null

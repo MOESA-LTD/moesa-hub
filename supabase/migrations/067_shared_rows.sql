@@ -191,7 +191,10 @@ ORDER BY c.relname;
 --
 -- The derived views (058) read the api twins, so they mask alike. purchase_order_overview gains
 -- client_status, and its spec_missing_line_ids is NULL outside the order's own tenant: it would
--- read a masked spec_document_id through the provider's spec setting (F16).
+-- read a masked spec_document_id through the provider's spec setting (F16). dashboard_purchase_order
+-- gains client_status and keeps a shared order open by it (its raw status reads NULL), and
+-- shipment_overview's psi_missing_po_codes is NULL outside the shipment's own tenant (the client
+-- cannot read the provider's PSI documents, so every order would read as missing one).
 --
 -- Restated (F12, pinned in 052_guard_restatements.test.sql): api_column_expr (059's body),
 -- api_view_from (053's), api_view_query (053's), api_view_drift (059's) and enable_field_security
@@ -842,6 +845,101 @@ LEFT JOIN LATERAL (
     FROM api.purchase_order_payment p
     WHERE p.purchase_order_id = po.id AND p.tenant_id = po.tenant_id
 ) pay ON TRUE;
+
+-- 058's dashboard_purchase_order plus client_status (appended). An order is open by its raw status;
+-- a shared order, whose raw status reads NULL outside its own tenant (Q1), by client_status.
+CREATE OR REPLACE VIEW api.dashboard_purchase_order WITH (security_invoker = true) AS
+SELECT o.id AS purchase_order_id,
+    o.code,
+    o.client_tenant_id,
+    o.client_code,
+    o.supplier_code,
+    o.tenant_id,
+    o.status,
+    o.ready_on,
+    o.ready_on - CURRENT_DATE AS days_to_ready,
+    o.deposit_planned_on,
+    o.balance_planned_on,
+    o.system_total,
+    o.currency,
+    o.client_status
+FROM api.purchase_order_overview o
+WHERE CASE WHEN o.status IS NULL
+           THEN o.client_status <> ALL (ARRAY['delivered'::public.purchase_order_client_status, 'cancelled'::public.purchase_order_client_status])
+           ELSE o.status <> ALL (ARRAY['draft'::public.purchase_order_status, 'closed'::public.purchase_order_status, 'cancelled'::public.purchase_order_status])
+      END;
+
+-- 058's shipment_overview with psi_missing_po_codes NULL outside the shipment's own tenant.
+CREATE OR REPLACE VIEW api.shipment_overview WITH (security_invoker = true) AS
+SELECT s.id,
+    s.tenant_id,
+    s.client_tenant_id,
+    s.code,
+    s.status,
+    s.mode,
+    s.delivery_warehouse_id,
+    s.warehouse_tenant_id,
+    s.delivery_address,
+    s.forwarder,
+    s.customs_broker,
+    s.carrier,
+    s.incoterm_buy,
+    s.incoterm_sell,
+    s.is_insured,
+    s.ready_on,
+    s.booking_confirmed_on,
+    s.etd,
+    s.eta,
+    s.customs_cleared_on,
+    s.planned_delivery_on,
+    s.delivered_at,
+    s.container_no,
+    s.seal_no,
+    s.free_days_port,
+    s.free_days_detention,
+    s.demurrage_note,
+    s.carton_count,
+    s.pallet_count,
+    s.volume_m3,
+    s.gross_kg,
+    s.accepted_by,
+    s.accepted_on,
+    s.quantity_matches,
+    s.has_damage,
+    s.dispute_deadline_at,
+    s.notes,
+    s.created_at,
+    s.updated_at,
+    r.client_code,
+    w.display_name AS warehouse_name,
+    o.purchase_order_ids,
+    o.purchase_order_codes,
+    -- 067: the provider's documents are not the client's, so outside the shipment's own tenant every order
+    -- would read as missing its PSI.
+    CASE WHEN s.tenant_id = ANY (private.tenant_scope()) THEN o.psi_missing_po_codes END AS psi_missing_po_codes,
+    ln.product_ids
+FROM api.shipment s
+LEFT JOIN api.provider_relationship r ON r.tenant_id = s.tenant_id AND r.client_tenant_id = s.client_tenant_id
+LEFT JOIN api.warehouse w ON w.id = s.delivery_warehouse_id AND w.tenant_id = s.warehouse_tenant_id
+LEFT JOIN LATERAL (
+    SELECT coalesce(array_agg(po.id ORDER BY po.code, po.id), '{}'::UUID[]) AS purchase_order_ids,
+        coalesce(array_agg(po.code ORDER BY po.code, po.id), '{}'::TEXT[]) AS purchase_order_codes,
+        coalesce(array_agg(po.code ORDER BY po.code, po.id) FILTER (WHERE NOT (EXISTS (
+            SELECT 1
+            FROM api.document d
+            WHERE d.tenant_id = po.tenant_id AND d.entity_type = 'purchase_order'::public.document_entity AND d.entity_id = po.id
+              AND d.type = 'psi_report'::public.document_type AND d.status = 'approved'::public.document_status
+        ))), '{}'::TEXT[]) AS psi_missing_po_codes
+    FROM api.shipment_purchase_order sp
+    JOIN api.purchase_order po ON po.id = sp.purchase_order_id AND po.tenant_id = sp.tenant_id
+    WHERE sp.shipment_id = s.id AND sp.tenant_id = s.tenant_id
+) o ON TRUE
+LEFT JOIN LATERAL (
+    SELECT coalesce(array_agg(DISTINCT pol.product_id), '{}'::UUID[]) AS product_ids
+    FROM api.shipment_line l
+    JOIN api.purchase_order_line pol ON pol.id = l.purchase_order_line_id AND pol.tenant_id = l.tenant_id
+    WHERE l.shipment_id = s.id AND l.tenant_id = s.tenant_id
+) ln ON TRUE;
 
 -- ======================================================================================== 3. writes
 --
