@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(25);
+SELECT plan(36);
 
 -- Fixture, built here as postgres (the seed is not on the new model yet). A provider procuring for
 -- one client tenant:
@@ -15,12 +15,19 @@ SELECT plan(25);
 --   client owner     00000000-0000-4000-8000-000000001913
 --   client_product   00000000-0000-4000-8000-000000001941  THO-MOP
 --   client_product2  00000000-0000-4000-8000-000000001942  THO-BKT
+--   second tenant    00000000-0000-4000-8000-000000001903  also owned by staff; no relationship
+--   no-relationship  00000000-0000-4000-8000-000000001904  product 1945
+--   client-procures  00000000-0000-4000-8000-000000001905  relationship 1922, product 1946
+--   provider_product 00000000-0000-4000-8000-000000001944  PRV-001, in the provider
 -- A plan is made first, so each new company is subscribed (a company without one is read-only).
 INSERT INTO public.plan (display_name, is_active) VALUES ('Products test plan', TRUE);
 
 INSERT INTO public.tenant (id, display_name) VALUES
    ('00000000-0000-4000-8000-000000001901', 'Provider Trading'),
-   ('00000000-0000-4000-8000-000000001902', 'Thor Trading');
+   ('00000000-0000-4000-8000-000000001902', 'Thor Trading'),
+   ('00000000-0000-4000-8000-000000001903', 'Provider Second'),
+   ('00000000-0000-4000-8000-000000001904', 'Loki Wares'),
+   ('00000000-0000-4000-8000-000000001905', 'Freya Home');
 
 INSERT INTO public.user (id, email) VALUES
    ('00000000-0000-4000-8000-000000001911', 'staff@products.test'),
@@ -29,11 +36,13 @@ INSERT INTO public.user (id, email) VALUES
 
 INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901'),
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001903'),
    ('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
 
 INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901'),
    ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001902'),
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001903'),
    ('00000000-0000-4000-8000-000000001912', '00000000-0000-4000-8000-000000001901'),
    ('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
 
@@ -57,11 +66,16 @@ INSERT INTO public.user_role (user_id, role_id) VALUES
 
 INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
    ('00000000-0000-4000-8000-000000001921', '00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902',
-    'THO', 'Thor Trading', 'provider');
+    'THO', 'Thor Trading', 'provider'),
+   ('00000000-0000-4000-8000-000000001922', '00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001905',
+    'FRY', 'Freya Home', 'client');
 
 INSERT INTO public.product (id, tenant_id, sku, display_name) VALUES
    ('00000000-0000-4000-8000-000000001941', '00000000-0000-4000-8000-000000001902', 'THO-MOP', 'Mop 40 cm'),
-   ('00000000-0000-4000-8000-000000001942', '00000000-0000-4000-8000-000000001902', 'THO-BKT', 'Bucket 10 l');
+   ('00000000-0000-4000-8000-000000001942', '00000000-0000-4000-8000-000000001902', 'THO-BKT', 'Bucket 10 l'),
+   ('00000000-0000-4000-8000-000000001944', '00000000-0000-4000-8000-000000001901', 'PRV-001', 'Provider own'),
+   ('00000000-0000-4000-8000-000000001945', '00000000-0000-4000-8000-000000001904', 'LOK-001', 'Loki item'),
+   ('00000000-0000-4000-8000-000000001946', '00000000-0000-4000-8000-000000001905', 'FRY-001', 'Freya item');
 
 -- The relation users read and write: the api view once the api views exist (the base tables are
 -- closed to users then), the base table before.
@@ -217,7 +231,40 @@ RESET ROLE;
 
 SELECT is((SELECT product_sku FROM public.sourcing WHERE product_id = '00000000-0000-4000-8000-000000001941'), 'THO-MOP', 'sku snapshot');
 
+-- The snapshot changes only with the link: an update cannot forge it.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT lives_ok(
+    format($$
+        UPDATE %s SET product_sku = 'FORGED', product_name = 'Forged'
+        WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    'an update naming the snapshot runs'
+);
+
+RESET ROLE;
+
+SELECT results_eq(
+    $$ SELECT product_sku, product_name FROM public.sourcing WHERE product_id = '00000000-0000-4000-8000-000000001941' $$,
+    $$ VALUES ('THO-MOP', 'Mop 40 cm') $$,
+    'the snapshot is not forged while the link is kept'
+);
+
+-- Invited staff, unknown id: refused by the existence check, with the forbidden message.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902', gen_random_uuid())
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'client_link_forbidden',
+    'unknown id refused with the same message'
+);
+
 -- Provider staff not invited into the client.
+RESET ROLE;
 SELECT private.impersonate('00000000-0000-4000-8000-000000001912', '00000000-0000-4000-8000-000000001901');
 
 SELECT throws_ok(
@@ -231,24 +278,118 @@ SELECT throws_ok(
     'uninvited staff refused'
 );
 
+-- An own-tenant link needs the read right on the product too: the snapshot would reveal it.
 SELECT throws_ok(
     format($$
-        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
-        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902', gen_random_uuid())
+        INSERT INTO %s (tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001944')
     $$, pg_temp.rel('sourcing')),
     '23514',
     'client_link_forbidden',
-    'unknown id refused with the same message'
+    'an own-tenant link without the product read right is refused'
 );
 
--- The client deletes its product (product deletes are not a user action: run as postgres).
+-- The relationship: a new sourcing row naming a client needs an active provider-procures one.
+RESET ROLE;
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001904',
+                '00000000-0000-4000-8000-000000001945')
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'relationship_inactive',
+    'no relationship, no link'
+);
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001905',
+                '00000000-0000-4000-8000-000000001946')
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'relationship_inactive',
+    'a client-procures client gets no provider sourcing'
+);
+
+-- The client and the tenant of a row naming a client are fixed.
+SELECT throws_ok(
+    format($$
+        UPDATE %s SET client_tenant_id = NULL WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'client_tenant_immutable',
+    'client_tenant_id cannot change'
+);
+
+-- A user working in both of its tenants cannot move the row to the one without a relationship.
+SELECT set_config('request.headers', json_build_object(
+    'x-tenant-id', '00000000-0000-4000-8000-000000001901',
+    'x-tenant-ids', '00000000-0000-4000-8000-000000001901,00000000-0000-4000-8000-000000001903')::TEXT, TRUE);
+
+SELECT throws_ok(
+    format($$
+        UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000001903'
+        WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'client_tenant_immutable',
+    'a row naming a client cannot move to another tenant'
+);
+
+-- The relationship ends.
+RESET ROLE;
+UPDATE public.provider_relationship SET status = 'ended' WHERE id = '00000000-0000-4000-8000-000000001921';
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902',
+                '00000000-0000-4000-8000-000000001942')
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'relationship_inactive',
+    'no new row after the end'
+);
+
+SELECT throws_ok(
+    format($$
+        UPDATE %s SET product_id = '00000000-0000-4000-8000-000000001942'
+        WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'relationship_inactive',
+    'no relink after the end'
+);
+
+SELECT lives_ok(
+    format($$
+        UPDATE %s SET sell_price_eur = 10.50 WHERE product_id = '00000000-0000-4000-8000-000000001941'
+    $$, pg_temp.rel('sourcing')),
+    'a price edit passes after the end'
+);
+
+-- The relationship is not deleted while rows name it.
 RESET ROLE;
 
+SELECT throws_ok(
+    $$ DELETE FROM public.provider_relationship WHERE id = '00000000-0000-4000-8000-000000001921' $$,
+    '23503',
+    NULL,
+    'a relationship named by sourcing cannot be deleted'
+);
+
+-- The client deletes its product after the end (product deletes are not a user action: run as
+-- postgres).
 SELECT lives_ok($$ DELETE FROM public.product WHERE id = '00000000-0000-4000-8000-000000001941' $$, 'client delete is not blocked');
 
 SELECT results_eq(
-    $$ SELECT product_id IS NULL, product_sku FROM public.sourcing WHERE product_sku = 'THO-MOP' $$,
-    $$ VALUES (TRUE, 'THO-MOP') $$,
+    $$ SELECT product_id IS NULL, product_sku, sell_price_eur FROM public.sourcing WHERE product_sku = 'THO-MOP' $$,
+    $$ VALUES (TRUE, 'THO-MOP', 10.50::NUMERIC(12, 2)) $$,
     'client product delete keeps the snapshot'
 );
 

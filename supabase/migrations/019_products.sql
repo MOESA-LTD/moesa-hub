@@ -235,12 +235,14 @@ $$;
 
 REVOKE ALL ON FUNCTION private.rules_bypassed () FROM PUBLIC, anon, authenticated;
 
--- client_tenant_id is set on insert and never changed, whatever the bypass.
+-- client_tenant_id is set on insert and never changed, whatever the bypass; nor is the tenant of a
+-- row naming a client, which would put the row under a pair no relationship was checked for.
 CREATE OR REPLACE FUNCTION private.client_tenant_immutable () RETURNS TRIGGER LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 BEGIN
-    IF NEW.client_tenant_id IS DISTINCT FROM OLD.client_tenant_id THEN
+    IF NEW.client_tenant_id IS DISTINCT FROM OLD.client_tenant_id
+       OR (OLD.client_tenant_id IS NOT NULL AND NEW.tenant_id IS DISTINCT FROM OLD.tenant_id) THEN
         RAISE EXCEPTION 'client_tenant_immutable' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -259,11 +261,15 @@ REVOKE ALL ON FUNCTION private.client_tenant_immutable () FROM PUBLIC, anon, aut
 --    provider may finish its open orders; after the end, nothing changes). A link that becomes
 --    NULL because its row is gone (ON DELETE SET NULL) is not a change: the client's delete is
 --    never blocked.
--- 2. Each link set or changed: with a client, the caller must read <resource> in the client tenant
---    (an invitation with that right); then the row must exist in the tenant the link points into.
---    Both refusals are client_link_forbidden, so an id of the client cannot be probed. The
---    snapshot columns of the link are written from that row: product_sku, product_name (product);
---    project_code (project); delivery_address (warehouse).
+-- 2. Each link set or changed: the caller must read <resource> in the tenant the link points into
+--    (in a client tenant, an invitation with that right; in its own tenant, its own right, so a
+--    link cannot reveal a row's identity the caller may not read); then the row must exist there.
+--    Both refusals are client_link_forbidden, so ids cannot be probed. The read right is not asked
+--    for the test bypass, nor for an own-tenant link written without a user (the seed, a service).
+--    The snapshot columns of the link are written from that row: product_sku, product_name
+--    (product); project_code (project); delivery_address (warehouse). They change only with the
+--    link: while a link is kept, or once it is emptied, they keep their values, so an update cannot
+--    forge them. Only a row that never had a link holds a snapshot of its own.
 -- 3. <resource>_tenant_id, where the row has it, is set to the tenant the links point into.
 --
 -- SECURITY DEFINER: it reads the target rows whatever the caller may see, and calls the private
@@ -277,7 +283,10 @@ DECLARE
     provider CONSTANT UUID := (new_row ->> 'tenant_id')::UUID;
     client CONSTANT UUID := (new_row ->> 'client_tenant_id')::UUID;
     target_tenant CONSTANT UUID := coalesce(client, provider);
-    checked CONSTANT BOOLEAN := client IS NOT NULL AND NOT private.rules_bypassed();
+    bypassed CONSTANT BOOLEAN := private.rules_bypassed();
+    checked CONSTANT BOOLEAN := client IS NOT NULL AND NOT bypassed;
+    read_checked CONSTANT BOOLEAN := NOT bypassed AND (client IS NOT NULL OR auth.uid() IS NOT NULL);
+    snapshot_columns TEXT[];
     relinked BOOLEAN := FALSE;
     patch JSONB := '{}';
     id_column TEXT;
@@ -322,11 +331,27 @@ BEGIN
         END IF;
 
         link_id := (new_row ->> id_column)::UUID;
-        CONTINUE WHEN link_id IS NULL
-            OR (TG_OP = 'UPDATE' AND link_id IS NOT DISTINCT FROM (old_row ->> id_column)::UUID);
+        old_id := (old_row ->> id_column)::UUID;
+        snapshot_columns := CASE resource
+            WHEN 'public.product' THEN ARRAY['product_sku', 'product_name']
+            WHEN 'public.project' THEN ARRAY['project_code']
+            WHEN 'public.warehouse' THEN ARRAY['delivery_address']
+            ELSE '{}'::TEXT[]
+        END;
 
-        -- 2. The caller's read right in the client tenant, then the row itself.
-        IF checked AND NOT (client = ANY (private.tenants_permitting(auth.uid(), ARRAY[client], resource, 'select'))) THEN
+        -- A link kept or emptied keeps its snapshot.
+        IF TG_OP = 'UPDATE' AND old_id IS NOT NULL AND (link_id IS NULL OR link_id = old_id) THEN
+            patch := patch || coalesce((
+                SELECT jsonb_object_agg(c, old_row -> c) FROM unnest(snapshot_columns) AS c WHERE old_row ? c
+            ), '{}');
+            CONTINUE;
+        END IF;
+
+        CONTINUE WHEN link_id IS NULL;
+
+        -- 2. The caller's read right in the tenant the link points into, then the row itself.
+        IF read_checked
+           AND NOT (target_tenant = ANY (private.tenants_permitting(auth.uid(), ARRAY[target_tenant], resource, 'select'))) THEN
             RAISE EXCEPTION 'client_link_forbidden' USING ERRCODE = 'check_violation';
         END IF;
 
