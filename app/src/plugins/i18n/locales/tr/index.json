@@ -1898,7 +1898,7 @@
             "pending": "Bekliyor"
          },
          "stock_source": {
-            "customer_warehouse": "Müşteri deposu",
+            "own_warehouse": "Kendi depo",
             "3pl": "3PL",
             "platform": "Platform deposu",
             "pan_eu": "Pan-Avrupa"
@@ -2607,7 +2607,7 @@
          "pending": "Henüz taranmadı (PL1/P1)."
       },
       "stock_source": {
-         "customer_warehouse": "Müşterinin kendi deposundan gönderilir.",
+         "own_warehouse": "Satıcının kendi deposundan gönderilir.",
          "3pl": "Üçüncü taraf lojistik firmasından gönderilir.",
          "platform": "Platform deposunda tutulur, platform gönderir (ör. FBA).",
          "pan_eu": "Amazon Pan-Avrupa FBA stoğu AB ülkelerine dağıtır."

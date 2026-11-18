@@ -2,7 +2,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(17);
 
 SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Danışmanlık')::TEXT, TRUE);
 
@@ -23,6 +23,8 @@ SELECT hasnt_column('public', 'dashboard_gate_pending', 'customer_id', 'the gate
 SELECT hasnt_column('public', 'dashboard_task_due', 'customer_id', 'the task list has no customer');
 
 SELECT hasnt_column('public', 'dashboard_product_evidence', 'customer_id', 'the evidence is per tenant, not per customer');
+
+SELECT hasnt_column('public', 'dashboard_purchase_order', 'customer_id', 'dashboard without customer');
 
 -- Two brand sourcing projects of the company; the second is put on hold below.
 INSERT INTO api.project (id, tenant_id, display_name, type, path, packages)

@@ -1,12 +1,14 @@
--- Incidents (S17, Y10): what went wrong, for which customer, how bad, who was told, what was
--- logged and paid, the deadlines it runs against, and how it closed.
+-- Incidents (S17, Y10): what went wrong, how bad, who was told, what was logged and paid, the
+-- deadlines it runs against, and how it closed.
 --
--- incident           One incident of one customer. Its code is the family, the customer's code,
---                    the year and the customer's next number of that family (OL-THO-2026-001,
---                    public.next_code), whatever the client sends; the code, the customer and the
---                    family never change. incident_type is the Y10 card (OL-09, …) of the same
---                    family, NULL while not yet classified. It may name one linked record of the
---                    same customer (a project, purchase order, shipment, product or market cell).
+-- incident           One incident of the tenant it lives in (the company the goods and the work
+--                    belong to). Its code is the family, the tenant's code, the year and the
+--                    tenant's next number of that family (OL-THO-2026-001, public.next_code under
+--                    private.code_scope(tenant_id, NULL)), whatever the client sends; the code and
+--                    the family never change. incident_type is the Y10 card (OL-09, …) of the same
+--                    family, NULL while not yet classified. It may name one linked record of its
+--                    own tenant (a project, purchase order, shipment, product or market cell); a
+--                    provider's order or shipment is not linked here (a later sharing step).
 --                    Incidents are never deleted.
 -- incident_log       The running log (S17 C): what was done, with whom, what was decided and what
 --                    it cost, who pays and whether the customer approved it.
@@ -32,10 +34,10 @@
 -- time is UTC.
 --
 -- Each rule is a violation whose message is the rule's code (check_violation unless stated):
---   incident_customer_missing            the customer is not there (foreign_key_violation)
---   incident_immutable_field             the code, customer or family changed
+--   incident_scope_missing               the tenant has no code to number the incident under
+--   incident_immutable_field             the code or family changed
 --   incident_type_family                 the Y10 card is of another family
---   incident_entity_invalid              the linked record is missing or another customer's
+--   incident_entity_invalid              the linked record is not there in the incident's tenant
 --   incident_status_order                not an allowed transition, or out of closed
 --   incident_management_notice_required  an s1 or s2 leaves open before management was told
 --   incident_closure_incomplete          closing without the outcome, root cause or preventive
@@ -50,18 +52,17 @@
 -- and incident_entity_kind (the linked record), incident_log_cost_complete (a cost with its
 -- currency and payer).
 --
--- Every reference to a tenant-scoped table includes tenant_id. Customers are not deleted while
--- they have incidents (ON DELETE RESTRICT); users are (ON DELETE SET NULL).
+-- Every reference to a tenant-scoped table includes tenant_id; users are deleted (ON DELETE SET
+-- NULL).
 --
--- The code trigger runs as the caller: it reads the customer through RLS and gets the code from
--- public.next_code. The notice, deadline and guard triggers are SECURITY DEFINER (they read the
--- settings, the incident and the linked record whatever the caller may read) and filter on the
+-- The code, notice, deadline and guard triggers are SECURITY DEFINER (they read the tenant's code,
+-- the settings, the incident and the linked record whatever the caller may read) and filter on the
 -- row's own tenant_id. The guards sort after the other BEFORE triggers (<table>_z_guard). The
 -- immutability rule ignores private.rules_bypassed() (030_purchase_order_rules.sql); the other
 -- rules return at once when it holds. A delete cascaded from the incident or the tenant
 -- (pg_trigger_depth() > 1) is not checked.
 --
--- public.incident_overview: each incident with its customer's code, the linked record's label,
+-- public.incident_overview: each incident with the linked record's label,
 -- its next unmet deadline, how many are overdue and whether it repeats (S17 D "Tekrar mı").
 -- public.next_code knows the incident families.
 --
@@ -69,7 +70,7 @@
 -- (private.grant_group_to_product_editors); private.seed_ops_roles gives it to the demo company's
 -- roles.
 
--- The next code of `kind` for the customer `scope` in the active tenant, this year:
+-- The next code of `kind` for the `scope` (private.code_scope) in the active tenant, this year:
 -- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr and the incident families (ol, oa, ou, ot, om) →
 -- <KIND>-<SCOPE>-<YYYY>-<NNN>. The 015_ops_core.sql body, with the incident families added to the
 -- kinds. The upsert locks the counter row, so concurrent calls wait for each other and never get
@@ -195,7 +196,6 @@ CREATE TYPE public.cost_payer AS ENUM ('company', 'customer', 'supplier', 'carri
 CREATE TABLE IF NOT EXISTS public.incident (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   customer_id UUID NOT NULL,
    -- Set by the incident_set_code trigger; whatever the client sends is replaced.
    code TEXT,
    family public.incident_family NOT NULL,
@@ -233,15 +233,12 @@ CREATE TABLE IF NOT EXISTS public.incident (
    CONSTRAINT unique_incident_code UNIQUE (tenant_id, code),
    -- Target of the tenant-scoped foreign keys of the incident's child rows and of gate rollbacks.
    CONSTRAINT incident_id_tenant_id_key UNIQUE (id, tenant_id),
-   CONSTRAINT incident_customer_fkey FOREIGN KEY (customer_id, tenant_id) REFERENCES public.customer (id, tenant_id) ON DELETE RESTRICT,
    CONSTRAINT incident_owner_fkey FOREIGN KEY (owner_id) REFERENCES public.user (id) ON DELETE SET NULL,
    CONSTRAINT incident_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public.user (id) ON DELETE SET NULL,
    CONSTRAINT incident_type_format CHECK (incident_type IS NULL OR incident_type ~ '^(OL|OA|OU|OT|OM)-[0-9]{2}$'),
    CONSTRAINT incident_entity_pair CHECK ((entity_type IS NULL) = (entity_id IS NULL)),
    CONSTRAINT incident_entity_kind CHECK (entity_type IS NULL OR entity_type IN ('project', 'purchase_order', 'shipment', 'product', 'market_cell'))
 );
-
-CREATE INDEX IF NOT EXISTS idx_incident_customer ON public.incident (tenant_id, customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_incident_tenant_status ON public.incident (tenant_id, status);
 
@@ -254,24 +251,20 @@ CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.incident FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
--- The incident's code: the family, the customer's code, the year and the customer's next number of
--- that family; and the open status, whatever the client sends. A customer the caller cannot see in
--- the incident's tenant is a missing customer (23503), as the foreign key would report it.
-CREATE OR REPLACE FUNCTION private.incident_set_code () RETURNS TRIGGER LANGUAGE plpgsql
+-- The incident's code: the family, the tenant's code, the year and the tenant's next number of that
+-- family; and the open status, whatever the client sends. SECURITY DEFINER, as the other code
+-- triggers (private.code_scope is revoked from callers).
+CREATE OR REPLACE FUNCTION private.incident_set_code () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    customer_code TEXT;
+    scope TEXT := private.code_scope(NEW.tenant_id, NULL);
 BEGIN
-    SELECT c.code INTO customer_code
-    FROM public.customer c
-    WHERE c.id = NEW.customer_id AND c.tenant_id = NEW.tenant_id;
-
-    IF customer_code IS NULL THEN
-        RAISE EXCEPTION 'incident_customer_missing' USING ERRCODE = 'foreign_key_violation';
+    IF scope IS NULL THEN
+        RAISE EXCEPTION 'incident_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code(NEW.family::TEXT, customer_code);
+    NEW.code := public.next_code(NEW.family::TEXT, scope);
     NEW.status := 'open';
     RETURN NEW;
 END;
@@ -313,17 +306,18 @@ OR
 UPDATE ON public.incident FOR EACH ROW
 EXECUTE FUNCTION private.incident_notice_due ();
 
--- The incident's rules (see the header), in this order: the fixed code, customer and family
+-- The incident's rules (see the header), in this order: the fixed code and family
 -- (whatever the bypass flag); the Y10 card's family; the linked record; lowering an s1 or s2; the
 -- status flow; the management notice; what closing needs.
 CREATE OR REPLACE FUNCTION private.incident_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
+DECLARE
+    linked BOOLEAN;
 BEGIN
-    -- 1. The code, the customer and the family are fixed.
+    -- 1. The code and the family are fixed.
     IF TG_OP = 'UPDATE' AND (
         NEW.code IS DISTINCT FROM OLD.code
-        OR NEW.customer_id IS DISTINCT FROM OLD.customer_id
         OR NEW.family IS DISTINCT FROM OLD.family
     ) THEN
         RAISE EXCEPTION 'incident_immutable_field' USING ERRCODE = 'check_violation';
@@ -338,14 +332,21 @@ BEGIN
         RAISE EXCEPTION 'incident_type_family' USING ERRCODE = 'check_violation';
     END IF;
 
-    -- 3. The linked record is there and the customer's (its kinds are incident_entity_kind), when
-    --    it is set or changed: a linked candidate market cell may be deleted later.
+    -- 3. The linked record is there in the incident's own tenant (its kinds are
+    --    incident_entity_kind, each a table of that name), when it is set or changed: a linked
+    --    candidate market cell may be deleted later. Another tenant's record and an unknown id get
+    --    the same refusal.
     IF NEW.entity_type IS NOT NULL AND (
         TG_OP = 'INSERT'
         OR NEW.entity_type IS DISTINCT FROM OLD.entity_type
         OR NEW.entity_id IS DISTINCT FROM OLD.entity_id
-    ) AND private.entity_customer(NEW.entity_type, NEW.entity_id, NEW.tenant_id) IS DISTINCT FROM NEW.customer_id THEN
-        RAISE EXCEPTION 'incident_entity_invalid' USING ERRCODE = 'check_violation';
+    ) THEN
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE id = $1 AND tenant_id = $2)', NEW.entity_type::TEXT)
+        INTO linked
+        USING NEW.entity_id, NEW.tenant_id;
+        IF NOT linked THEN
+            RAISE EXCEPTION 'incident_entity_invalid' USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
 
     -- Lowering an s1 or s2 (the enum orders s1 < s2 < s3) needs the management right, so a
@@ -562,13 +563,12 @@ REVOKE ALL ON FUNCTION private.incident_deadline_defaults () FROM PUBLIC, anon, 
 REVOKE ALL ON FUNCTION private.incident_child_guard () FROM PUBLIC, anon, authenticated;
 
 -- The incident list and card header. Runs as the caller (security_invoker), so it shows only the
--- incidents, customers, linked records and deadlines the caller may read.
+-- incidents, linked records and deadlines the caller may read.
 CREATE OR REPLACE VIEW public.incident_overview
 WITH
    (security_invoker = TRUE) AS
 SELECT
    i.*,
-   c.code::TEXT AS customer_code,
    CASE i.entity_type
       WHEN 'project' THEN pj.code
       WHEN 'purchase_order' THEN po.code
@@ -585,7 +585,6 @@ SELECT
          public.incident r
       WHERE
          r.tenant_id = i.tenant_id
-         AND r.customer_id = i.customer_id
          AND r.incident_type = i.incident_type
          AND r.id <> i.id
          AND r.opened_at < i.opened_at
@@ -593,8 +592,6 @@ SELECT
    ) AS is_repeat
 FROM
    public.incident i
-   LEFT JOIN public.customer c ON c.id = i.customer_id
-   AND c.tenant_id = i.tenant_id
    LEFT JOIN public.project pj ON i.entity_type = 'project'
    AND pj.id = i.entity_id
    AND pj.tenant_id = i.tenant_id
@@ -627,7 +624,7 @@ FROM
          AND dl.met_at IS NULL
    ) d ON TRUE;
 
-COMMENT ON VIEW public.incident_overview IS 'Per incident: every column of the incident, customer_code, entity_label (the linked record: the project, purchase order or shipment code, the product SKU, or <sku> · <platform>_<country> for a market cell), next_deadline_at (the earliest due time of its unmet deadlines), overdue_deadline_count (its unmet deadlines past due) and is_repeat (another incident of the same customer and Y10 card opened in the 90 days before, S17 D "Tekrar mı").';
+COMMENT ON VIEW public.incident_overview IS 'Per incident: every column of the incident, entity_label (the linked record: the project, purchase order or shipment code, the product SKU, or <sku> · <platform>_<country> for a market cell), next_deadline_at (the earliest due time of its unmet deadlines), overdue_deadline_count (its unmet deadlines past due) and is_repeat (another incident of the same tenant and Y10 card opened in the 90 days before, S17 D "Tekrar mı").';
 
 GRANT SELECT ON public.incident_overview TO authenticated;
 

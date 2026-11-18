@@ -1898,7 +1898,7 @@
             "pending": "Pending"
          },
          "stock_source": {
-            "customer_warehouse": "Customer warehouse",
+            "own_warehouse": "Own warehouse",
             "3pl": "3PL",
             "platform": "Platform warehouse",
             "pan_eu": "Pan-European"
@@ -2607,7 +2607,7 @@
          "pending": "Not screened yet (PL1/P1)."
       },
       "stock_source": {
-         "customer_warehouse": "Shipped from the customer's own warehouse.",
+         "own_warehouse": "Shipped from the seller's own warehouse.",
          "3pl": "Shipped by a third-party logistics provider.",
          "platform": "Stored and shipped by the platform (e.g. FBA).",
          "pan_eu": "Amazon Pan-European FBA spreads the stock across EU countries."

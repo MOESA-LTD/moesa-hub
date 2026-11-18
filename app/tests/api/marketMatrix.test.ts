@@ -92,7 +92,7 @@ describe('market cell enums', () => {
          'removed'
       ]);
       expect(MARKET_COMPLIANCES).toEqual(['green', 'yellow', 'red', 'pending']);
-      expect(STOCK_SOURCES).toEqual(['customer_warehouse', '3pl', 'platform', 'pan_eu']);
+      expect(STOCK_SOURCES).toEqual(['own_warehouse', '3pl', 'platform', 'pan_eu']);
       expect(CONTENT_STATUSES).toEqual(['none', 'en_master', 'translated', 'approved']);
       expect(TARGET_STATUSES).toEqual([
          'planned',

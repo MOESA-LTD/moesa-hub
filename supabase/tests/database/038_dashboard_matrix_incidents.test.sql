@@ -1,39 +1,55 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- Dashboard boxes for the market matrix, incidents and change requests (038) on the MOESA demo
--- company of seed.sql: the live, preparing and suppressed cells of a customer against its target,
--- the open incidents only with the missing management notice and the late customer notice, the
--- change requests past their decision date, applied requests leaving the box, and another tenant
--- that sees none of them. What it writes is rolled back.
+-- Dashboard boxes for the market matrix, incidents and change requests (038): the live, preparing
+-- and suppressed cells of the tenant against its target, the open incidents only with the missing
+-- management notice and the late customer notice, the change requests past their decision date,
+-- applied requests leaving the box, no customer column, and another tenant that sees none of them.
+-- What it writes is rolled back.
 BEGIN;
 
-SELECT plan(7);
+SELECT plan(8);
 
-SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
-FROM (VALUES
-    ('moesa', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
-    ('koordinator', (SELECT id FROM public.user WHERE email = 'koordinator@moesa-panel.test')),
-    ('tho', (SELECT id FROM public.customer WHERE code = 'THO')),
-    ('mop', (SELECT id FROM public.product WHERE sku = 'THO-MOP40-2P')),
-    ('tips', (SELECT id FROM public.product WHERE sku = 'THO-TIPS-6-50')),
-    ('cones', (SELECT id FROM public.product WHERE sku = 'THO-CONES-100'))
-) AS x (k, v);
-SELECT private.impersonate(current_setting('test.koordinator')::UUID, current_setting('test.moesa')::UUID);
+-- Fixture, built here as postgres (the seed is not on the new model yet):
+--   tenant ...3801  Thor Trading (THO), owned by 3811; products 3821, 3822, 3823
+--   other  ...3802  Other Company (OTH), owned by 3812
+INSERT INTO public.plan (display_name, is_active) VALUES ('Dashboard matrix test plan', TRUE);
 
+INSERT INTO public.tenant (id, display_name, code) VALUES
+   ('00000000-0000-4000-8000-000000003801', 'Thor Trading', 'THO'),
+   ('00000000-0000-4000-8000-000000003802', 'Other Company', 'OTH');
+
+INSERT INTO public.user (id, email) VALUES
+   ('00000000-0000-4000-8000-000000003811', 'owner@dashboard-matrix.test'),
+   ('00000000-0000-4000-8000-000000003812', 'other@dashboard-matrix.test');
+
+INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000003811', '00000000-0000-4000-8000-000000003801'),
+   ('00000000-0000-4000-8000-000000003812', '00000000-0000-4000-8000-000000003802');
+
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000003811', '00000000-0000-4000-8000-000000003801'),
+   ('00000000-0000-4000-8000-000000003812', '00000000-0000-4000-8000-000000003802');
+
+SELECT private.impersonate('00000000-0000-4000-8000-000000003811', '00000000-0000-4000-8000-000000003801');
+
+INSERT INTO api.product (id, tenant_id, sku, display_name)
+VALUES ('00000000-0000-4000-8000-000000003821', '00000000-0000-4000-8000-000000003801', 'THO-MOP40-2P', 'Mop'),
+       ('00000000-0000-4000-8000-000000003822', '00000000-0000-4000-8000-000000003801', 'THO-TIPS-6-50', 'Tips'),
+       ('00000000-0000-4000-8000-000000003823', '00000000-0000-4000-8000-000000003801', 'THO-CONES-100', 'Cones');
 INSERT INTO api.market_cell (id, tenant_id, product_id, platform_id, country)
-SELECT x.id, current_setting('test.moesa')::UUID, x.product, x.platform, x.country
-FROM (VALUES ('00000000-0000-4000-8000-000000038011'::UUID, current_setting('test.mop')::UUID, 'amazon', 'DE'),
-             ('00000000-0000-4000-8000-000000038012', current_setting('test.mop')::UUID, 'amazon', 'FR'),
-             ('00000000-0000-4000-8000-000000038013', current_setting('test.tips')::UUID, 'ebay', 'DE'),
-             ('00000000-0000-4000-8000-000000038014', current_setting('test.cones')::UUID, 'amazon', 'IT')) AS x (id, product, platform, country);
-INSERT INTO api.incident (id, tenant_id, customer_id, family, severity, title, what_happened, opened_at)
-VALUES ('00000000-0000-4000-8000-000000038021', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'ol', 's1', 'Truck refused', 'The warehouse refused the truck.', now() - INTERVAL '5 hours'),
-       ('00000000-0000-4000-8000-000000038022', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'ot', 's3', 'Late sample', 'The supplier sent the sample late.', now()),
-       ('00000000-0000-4000-8000-000000038023', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'om', 's3', 'Old', 'Closed.', now());
-INSERT INTO api.change_request (id, tenant_id, customer_id, title, source, change_kinds, current_value, requested_value, reason, created_at)
-VALUES ('00000000-0000-4000-8000-000000038031', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'Carton print', 'company', ARRAY['packaging']::public.change_kind[],
+SELECT x.id, '00000000-0000-4000-8000-000000003801', x.product, x.platform, x.country
+FROM (VALUES ('00000000-0000-4000-8000-000000038011'::UUID, '00000000-0000-4000-8000-000000003821'::UUID, 'amazon', 'DE'),
+             ('00000000-0000-4000-8000-000000038012', '00000000-0000-4000-8000-000000003821', 'amazon', 'FR'),
+             ('00000000-0000-4000-8000-000000038013', '00000000-0000-4000-8000-000000003822', 'ebay', 'DE'),
+             ('00000000-0000-4000-8000-000000038014', '00000000-0000-4000-8000-000000003823', 'amazon', 'IT')) AS x (id, product, platform, country);
+INSERT INTO api.incident (id, tenant_id, family, severity, title, what_happened, opened_at)
+VALUES ('00000000-0000-4000-8000-000000038021', '00000000-0000-4000-8000-000000003801', 'ol', 's1', 'Truck refused', 'The warehouse refused the truck.', now() - INTERVAL '5 hours'),
+       ('00000000-0000-4000-8000-000000038022', '00000000-0000-4000-8000-000000003801', 'ot', 's3', 'Late sample', 'The supplier sent the sample late.', now()),
+       ('00000000-0000-4000-8000-000000038023', '00000000-0000-4000-8000-000000003801', 'om', 's3', 'Old', 'Closed.', now());
+INSERT INTO api.change_request (id, tenant_id, title, source, change_kinds, current_value, requested_value, reason, created_at)
+VALUES ('00000000-0000-4000-8000-000000038031', '00000000-0000-4000-8000-000000003801', 'Carton print', 'company', ARRAY['packaging']::public.change_kind[],
         'Black print', 'Two-colour print', 'Brand guide v2.', now() - INTERVAL '10 days'),
-       ('00000000-0000-4000-8000-000000038032', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'Price', 'supplier', ARRAY['price']::public.change_kind[],
+       ('00000000-0000-4000-8000-000000038032', '00000000-0000-4000-8000-000000003801', 'Price', 'supplier', ARRAY['price']::public.change_kind[],
         '1.90 USD', '1.95 USD', 'Cotton price.', now());
 RESET ROLE;
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
@@ -48,9 +64,9 @@ ALTER TABLE public.change_request DISABLE TRIGGER change_request_due;
 UPDATE public.change_request SET decision_due_on = current_date - 3 WHERE id = '00000000-0000-4000-8000-000000038031';
 ALTER TABLE public.change_request ENABLE TRIGGER change_request_due;
 SELECT set_config('moesa.rules_bypass', '', TRUE);
-SELECT private.impersonate(current_setting('test.koordinator')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate('00000000-0000-4000-8000-000000003811', '00000000-0000-4000-8000-000000003801');
 
-SELECT is((SELECT live_count || ':' || preparing_count || ':' || suppressed_count || ':' || target_count FROM api.dashboard_market WHERE customer_id = current_setting('test.tho')::UUID),
+SELECT is((SELECT live_count || ':' || preparing_count || ':' || suppressed_count || ':' || target_count FROM api.dashboard_market WHERE tenant_id = '00000000-0000-4000-8000-000000003801'),
           '1:1:1:3', 'live, preparing and suppressed against the target (candidates are not targets)');
 SELECT is((SELECT count(*)::INT FROM api.dashboard_incident WHERE incident_id IN ('00000000-0000-4000-8000-000000038021', '00000000-0000-4000-8000-000000038022', '00000000-0000-4000-8000-000000038023')),
           2, 'open incidents only');
@@ -62,10 +78,12 @@ SELECT is((SELECT overdue FROM api.dashboard_change_request WHERE change_request
           'a request past its decision date');
 SELECT is((SELECT count(*)::INT FROM api.dashboard_change_request WHERE change_request_id = '00000000-0000-4000-8000-000000038032'), 0,
           'applied requests leave the dashboard');
+SELECT ok(NOT EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name IN ('dashboard_market', 'dashboard_incident', 'dashboard_change_request')
+                        AND column_name IN ('customer_id', 'customer_code')), 'the dashboards name no customer');
 
 RESET ROLE;
-SELECT private.impersonate((SELECT id FROM public.user WHERE email = 'ayse@moesa-panel.test'),
-                           (SELECT id FROM public.tenant WHERE display_name = 'Atlas Danışmanlık'));
+SELECT private.impersonate('00000000-0000-4000-8000-000000003812', '00000000-0000-4000-8000-000000003802');
 SELECT is((SELECT count(*)::INT FROM api.dashboard_market), 0, 'another tenant sees none');
 
 SELECT * FROM finish();

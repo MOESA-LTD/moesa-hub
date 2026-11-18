@@ -55,7 +55,7 @@ export const MARKET_COMPLIANCES = allValues<MarketCompliance>()([
 ]);
 
 export const STOCK_SOURCES = allValues<StockSource>()([
-   'customer_warehouse',
+   'own_warehouse',
    '3pl',
    'platform',
    'pan_eu'

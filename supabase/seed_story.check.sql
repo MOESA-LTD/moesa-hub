@@ -401,7 +401,7 @@ WHERE m.id::TEXT LIKE '5eed0007-%' AND m.status IN ('live', 'suppressed', 'stopp
   AND (nullif(btrim(m.platform_product_id), '') IS NULL OR nullif(btrim(m.platform_sku), '') IS NULL OR m.price IS NULL OR m.currency IS NULL
        OR m.stock_source IS NULL OR m.content_status <> 'approved' OR m.launched_on IS NULL OR m.launched_on > pg_temp.today());
 -- m9.reasons: stock sources and the notes of the cells that need them
-SELECT 'm9.reasons', x.nn FROM (VALUES ('01', 'customer_warehouse'), ('02', 'pan_eu'), ('08', '3pl'), ('12', 'platform')) x (nn, src)
+SELECT 'm9.reasons', x.nn FROM (VALUES ('01', 'own_warehouse'), ('02', 'pan_eu'), ('08', '3pl'), ('12', 'platform')) x (nn, src)
 WHERE NOT EXISTS (SELECT 1 FROM public.market_cell WHERE id = ('5eed0007-0000-4000-8000-0000000000' || x.nn)::UUID AND stock_source = x.src::public.stock_source)
 UNION ALL
 SELECT 'm9.notes', m.id::TEXT FROM public.market_cell m WHERE m.id::TEXT LIKE '5eed0007-%'

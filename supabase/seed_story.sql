@@ -1053,7 +1053,7 @@ BEGIN
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000001', 'THO-MOP40-2P', 'amazon', 'DE',
         ARRAY['planned', 'preparing', 'uploaded', 'live']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY001', 'platform_sku', 'THO-MOP40-2P-DE', 'price', 24.90,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 12, 'last_checked_on', current_date - 1));
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000002', 'THO-MOP40-2P', 'amazon', 'FR',
         ARRAY['planned', 'preparing', 'uploaded', 'live']::public.market_cell_status[],
@@ -1070,7 +1070,7 @@ BEGIN
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000005', 'THO-MOP40-2P', 'amazon', 'NL',
         ARRAY['planned', 'preparing', 'uploaded', 'live', 'suppressed']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY005', 'platform_sku', 'THO-MOP40-2P-NL', 'price', 26.50,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 6, 'last_checked_on', current_date - 1,
                            'open_issue', 'OA-06: ilan platform tarafından askıya alındı, eksik ürün bilgisi bekleniyor'));
 
@@ -1081,7 +1081,7 @@ BEGIN
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000007', 'THO-TIPS-6-50', 'amazon', 'IT',
         ARRAY['planned', 'preparing', 'uploaded', 'live', 'stopped']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY007', 'platform_sku', 'THO-TIPS-6-50-IT', 'price', 12.90,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 30, 'last_checked_on', current_date - 4,
                            'notes', 'Düşük satış nedeniyle bu pazarda durduruldu'));
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000008', 'THO-TIPS-6-50', 'kaufland', 'DE',

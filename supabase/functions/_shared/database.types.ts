@@ -9873,7 +9873,7 @@ export type Database = {
         | "accepted"
         | "disputed"
         | "cancelled"
-      stock_source: "customer_warehouse" | "3pl" | "platform" | "pan_eu"
+      stock_source: "own_warehouse" | "3pl" | "platform" | "pan_eu"
       supplier_status: "candidate" | "approved" | "suspended"
       task_status: "todo" | "doing" | "done" | "blocked"
       type_permission_command: "select" | "insert" | "update" | "delete"
