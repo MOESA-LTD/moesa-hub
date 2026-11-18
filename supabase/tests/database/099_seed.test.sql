@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- writes is rolled back.
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(37);
 
 SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD')::TEXT, TRUE);
 SELECT set_config('test.tho', (SELECT t.id FROM public.tenant t WHERE t.code = 'THO')::TEXT, TRUE);
@@ -246,6 +246,32 @@ SELECT throws_ok(
     NULL,
     'the viewer cannot change a product'
 );
+
+-- Who holds which role is read only within the request's tenants, plus one's own assignments: the
+-- viewer sees THO's assignments and its own, none of another tenant's user or role ids.
+RESET ROLE;
+CREATE TEMP TABLE expected_user_role ON COMMIT DROP AS
+SELECT ur.id
+FROM public.user_role ur
+JOIN public.role r ON r.id = ur.role_id
+WHERE r.tenant_id = current_setting('test.tho')::UUID
+   OR ur.user_id = (SELECT u.id FROM public.user u WHERE u.email = 'portal@moesa-panel.test');
+CREATE TEMP TABLE expected_role_permission ON COMMIT DROP AS
+SELECT rp.id
+FROM public.role_permission rp
+JOIN public.role r ON r.id = rp.role_id
+WHERE r.tenant_id = current_setting('test.tho')::UUID;
+GRANT SELECT ON expected_user_role, expected_role_permission TO authenticated;
+SELECT ok((SELECT count(*) FROM public.user_role) > (SELECT count(*) FROM expected_user_role),
+          'the seed has assignments outside the viewer''s reach');
+SELECT private.impersonate(
+    (SELECT u.id FROM public.user u WHERE u.email = 'portal@moesa-panel.test'),
+    current_setting('test.tho')::UUID
+);
+SELECT set_eq($$ SELECT id FROM api.user_role $$, $$ SELECT id FROM expected_user_role $$,
+              'the viewer reads THO''s role assignments and its own, nothing else');
+SELECT set_eq($$ SELECT id FROM api.role_permission $$, $$ SELECT id FROM expected_role_permission $$,
+              'the viewer reads the permissions of THO''s roles only');
 
 SELECT * FROM finish();
 

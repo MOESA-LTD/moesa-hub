@@ -52,7 +52,16 @@ VALUES
     --
     --
     -- user_role 
-    ('public.user_role', 'role', 'select', 'read', TRUE, FALSE, NULL),
+    -- Read without a permission, but only one's own assignments and those of the request's tenants.
+    (
+        'public.user_role',
+        'role',
+        'select',
+        'read',
+        TRUE,
+        FALSE,
+        'user_id = (SELECT auth.uid()) OR role_id = ANY ((SELECT private.scope_role_ids())::UUID[])'
+    ),
     (
         'public.user_role',
         'role',
@@ -83,7 +92,16 @@ VALUES
     --
     --
     -- role_permission   
-    ('public.role_permission', 'role', 'select', 'read', TRUE, FALSE, NULL),
+    -- Read without a permission, but only for the roles of the request's tenants.
+    (
+        'public.role_permission',
+        'role',
+        'select',
+        'read',
+        TRUE,
+        FALSE,
+        'role_id = ANY ((SELECT private.scope_role_ids())::UUID[])'
+    ),
     (
         'public.role_permission',
         'role',

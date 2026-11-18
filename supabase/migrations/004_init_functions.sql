@@ -139,6 +139,9 @@ BEGIN
             permission_record.condition := 'TRUE'; -- Default condition
         END IF;
 
+        -- A bypass row needs no permission, but its resource_condition (TRUE when empty) still
+        -- limits the rows.
+
         -- Construct a dynamic policy name based on the resource and command
         command := permission_record.command;
         kind := permission_record.kind;
@@ -182,12 +185,14 @@ BEGIN
                   EXECUTE format(
                     $f$
                         CREATE POLICY %I ON %I.%I FOR %s TO authenticated
-                        USING(true) WITH CHECK (TRUE)
+                        USING (%s) WITH CHECK (%s)
                     $f$
                   , policy_name
                   , target_schema
                   , target_table
                   , command
+                  , permission_record.resource_condition
+                  , permission_record.resource_condition
                   );
                ELSE
                   EXECUTE format(
@@ -235,13 +240,14 @@ BEGIN
                   EXECUTE format(
                     $f$
                         CREATE POLICY %I ON %I.%I FOR %s TO authenticated
-                        %s (TRUE)
+                        %s (%s)
                     $f$
                     , policy_name
                     , target_schema
                     , target_table
                     , command
                     , policy_clause
+                    , permission_record.resource_condition
                   );
                ELSE
                   -- Default for SELECT and DELETE
@@ -414,6 +420,18 @@ BEGIN
     );
     PERFORM set_config('access.tenant_scope', cache_key || '=' || scope::TEXT, true);
     RETURN scope;
+END;
+$$;
+
+-- The roles of the tenants a request reads from (private.tenant_scope). The select policies of
+-- user_role and role_permission (008) limit their rows to these roles, so no one reads another
+-- tenant's assignments or role contents. SECURITY DEFINER: the caller may not read every role of
+-- its tenants (public.role needs the read permission), yet may see who holds them.
+CREATE OR REPLACE FUNCTION private.scope_role_ids () RETURNS UUID[] LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+    search_path = '' AS $$
+BEGIN
+    RETURN ARRAY(SELECT r.id FROM public.role r WHERE r.tenant_id = ANY (private.tenant_scope()));
 END;
 $$;
 
