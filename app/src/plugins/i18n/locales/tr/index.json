@@ -63,7 +63,10 @@
          "write": "Yazma",
          "all": "Tümü",
          "not_grantable": "Bu yetkiye siz sahip olmadığınız için bir role veremezsiniz.",
-         "other_tenant": "Bu rol başka bir kuruma ait; alan yetkileri buradan değiştirilemez."
+         "other_tenant": "Bu rol başka bir kuruma ait; alan yetkileri buradan değiştirilemez.",
+         "section_own": "Bu kurumun kayıtları",
+         "section_shared": "Tedarikçi tarafından paylaşılan",
+         "shared_note": "Tedarikçinin gizli tuttuğu alanlar, bu rol ne izin verirse versin paylaşılan kayıtlarda asla gösterilmez."
       },
       "select_permission": {
          "table": {

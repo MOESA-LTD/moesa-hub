@@ -24,12 +24,21 @@ const f = (field: string, group_name: string | null, cls = 'sensitive') => ({
    class: cls,
    group_name
 });
+const line = (field: string, client_visible: boolean) => ({
+   resource_name: 'public.purchase_order_line',
+   field,
+   class: 'sensitive',
+   group_name: null,
+   client_visible
+});
 const FIELDS = [
    f('purchase_price', 'cost'),
    f('landed_cost_eur', 'cost'),
    f('company_price_eur', 'sell_price'),
    f('notes', 'internal_note'),
-   f('sku', null, 'open')
+   f('sku', null, 'open'),
+   line('sell_price_eur', true),
+   line('unit_price', false)
 ];
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));

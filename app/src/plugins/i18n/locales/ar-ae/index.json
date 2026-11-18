@@ -306,7 +306,10 @@
          "write": "Write",
          "all": "All",
          "not_grantable": "You cannot grant a right you do not hold yourself.",
-         "other_tenant": "This role belongs to another tenant; its field rights cannot be changed from here."
+         "other_tenant": "This role belongs to another tenant; its field rights cannot be changed from here.",
+         "section_own": "This company's records",
+         "section_shared": "Shared by a provider",
+         "shared_note": "Fields a provider keeps private are never shown on shared records, whatever this role allows."
       },
       "select_permission": {
          "table": {
