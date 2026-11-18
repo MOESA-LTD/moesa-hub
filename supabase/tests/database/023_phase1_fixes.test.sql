@@ -1,14 +1,14 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- The Phase 1 fixes on the MOESA demo company of seed.sql: approved spec sheets need signatures,
--- superseded ones stay superseded and documents keep their identity; the product list's evidence
--- view. (Contract terms are tested in 018_tenant_relations.test.sql.) What it
+-- The Phase 1 fixes on the THOMETZKI client tenant of seed.sql (its products live in THO; akif is
+-- a management member there): approved spec sheets need signatures, superseded ones stay superseded
+-- and documents keep their identity; the product list's evidence view. (Contract terms are tested in 018_tenant_relations.test.sql.) What it
 -- writes is rolled back.
 BEGIN;
 
 SELECT plan(9);
 
-SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD')::TEXT, TRUE);
+SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.code = 'THO')::TEXT, TRUE);
 SELECT set_config('test.tips', (SELECT p.id FROM public.product p
                                 WHERE p.tenant_id = current_setting('test.tenant_id')::UUID AND p.sku = 'THO-TIPS-6-50')::TEXT, TRUE);
 
