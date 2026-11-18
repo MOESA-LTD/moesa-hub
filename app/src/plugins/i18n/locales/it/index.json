@@ -687,6 +687,7 @@
       "provider_link_forbidden": "You may not link to this record of your provider.",
       "cost_link_forbidden": "The cost of this change request belongs to the provider, so you may not change its order.",
       "order_tenant_immutable": "The company of a change request's order cannot change.",
+      "incident_entity_tenant_immutable": "This incident's link to a provider's record cannot change.",
       "client_mismatch": "The order is for another client than the shipment.",
       "purchase_order_scope_missing": "The order cannot get a code: the company or the client has none.",
       "po_project_locked": "An order's project can change only while it is a draft.",

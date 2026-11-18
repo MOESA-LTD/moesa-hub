@@ -29,8 +29,10 @@ SELECT set_eq($$ SELECT resource_name || '.' || field FROM public.field_class WH
 SELECT is_empty($$ SELECT resource_name, field FROM public.field_class WHERE resource_name IN ('public.shipment_line','public.shipment_purchase_order') AND NOT client_visible $$,
    'every shipment_line and shipment_purchase_order column is client-visible');
 SELECT results_eq($$ SELECT resource_name, field, rights_column FROM public.field_class WHERE rights_column IS NOT NULL ORDER BY 1, 2 $$,
-   $$ VALUES ('public.change_request', 'cost_impact', 'guard_tenant_id'), ('public.change_request', 'cost_payer', 'guard_tenant_id') $$,
-   'the rights columns: the change request cost (068, Task 6)');
+   $$ VALUES ('public.change_request', 'cost_impact', 'guard_tenant_id'), ('public.change_request', 'cost_payer', 'guard_tenant_id'),
+             ('public.incident_log', 'cost_amount', 'guard_tenant_id'), ('public.incident_log', 'cost_currency', 'guard_tenant_id'),
+             ('public.incident_log', 'cost_payer', 'guard_tenant_id') $$,
+   'the rights columns: the change request and incident log cost (068, Task 6)');
 SELECT is_empty($$ SELECT unnest(ARRAY['client_visible','rights_column']) EXCEPT
    SELECT column_name::TEXT FROM information_schema.columns WHERE table_schema = 'api' AND table_name = 'field_class' $$,
    'api.field_class exposes client_visible and rights_column');

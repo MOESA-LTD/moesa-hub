@@ -5,7 +5,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
 -- policies' shared-row call, the api view generator's shared-row masking, and the forwarder's and
 -- the base write guard's rights tenant, 068 the incident guard's
--- provider link and the audit snapshots' rights columns), or extends it (a chain such as 021 → 032 → 036). A restated body is
+-- provider link and the audit snapshots' rights columns, and the revert's and the forwarder's rights
+-- tenant), or extends it (a chain such as 021 → 032 → 036). A restated body is
 -- the owner's current body plus only the restating migration's own delta, so an edit of the owner
 -- that is not carried into the restatement would be undone silently, and so would a chain step a
 -- later restatement forgot. Each row below names, for the live function, every rule its owner raises
@@ -70,8 +71,10 @@ VALUES
     ARRAY['$1.actor_id', 'FROM api.user u']),
    ('public.reverter(public.audit_transaction)', '010', '058',
     ARRAY['$1.reverted_by', 'FROM api.user u']),
-   ('public.revert_audit_transaction(uuid)', '010', '059',
-    ARRAY['audit_already_reverted', 'audit_conflict', 'audit_revert_field_forbidden']),
+   -- 068: the revert's pre-check reads a field's rights tenant from its rights column.
+   ('public.revert_audit_transaction(uuid)', '010', '059, 068',
+    ARRAY['audit_already_reverted', 'audit_conflict', 'audit_revert_field_forbidden', 'private.field_rights_column(chk.table_schema',
+          'coalesce(rights_tenant, chk.tenant_id) = ANY (private.field_write_tenants(']),
    ('private.can_read_media_file(text)', '024', '060',
     ARRAY['private.tenants_permitting', 'private.media_restriction']),
    -- Chains: each later definition extends the one before; the live body holds every step.
@@ -140,11 +143,12 @@ VALUES
           'INSTEAD OF INSERT OR UPDATE OR DELETE', 'field_security_unsupported', '_by_', 'private.enable_field_write_guard(p_table)',
           'private.is_shared_table(p_table)', 'f.client_visible']),
    -- 067: a written sensitive field is checked in its rights tenant, computed from base columns (F1).
-   ('private.api_forward()', '053', '067',
+   -- 068: a rights column kept by triggers is left to the base write guard.
+   ('private.api_forward()', '053', '067, 068',
     ARRAY['field_security_unsupported', 'field_write_forbidden', 'gate_one_at_a_time', 'private.api_is_sensitive(resource, a.attname)',
           'private.field_user_ids(col.name, TRUE)', 'typbasetype', 'FOR UPDATE', 'jsonb_populate_record(NULL::%2$s, $1)',
           'private.field_rights_column(resource, col.name)', 'private.field_rights_generated(resource, col.name)',
-          'ARRAY[old_j, new_j]', 'pg_catalog.jsonb_to_record($1)']),
+          'ARRAY[old_j, new_j]', 'pg_catalog.jsonb_to_record($1)', 'IF rc <> ''tenant_id'' AND rc_expr IS NULL THEN']),
    ('private.enable_field_write_guard(text)', '051', '067',
     ARRAY['tenant_move_forbidden', 'field_write_forbidden', 'field_security_unsupported', 'private.field_guard_bypassed()',
           'aa_field_write_guard', 'private.field_user_ids(%L, TRUE)', 'NEXTVALEXPR',

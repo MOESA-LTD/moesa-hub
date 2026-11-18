@@ -2,7 +2,8 @@
 -- order or shipment shared with it.
 --
 -- Section 1, links (Task 5). Section 2, provider-guarded cost (Task 6, its own header below; it adds
--- cost_link_forbidden to provider_order_link_guard here).
+-- cost_link_forbidden to provider_order_link_guard here). Section 3, provider-guarded incident cost and
+-- the revert's rights tenant (Task 6 fix round 1; it adds incident_entity_tenant_immutable here).
 --
 -- incident.entity_tenant_id         The tenant of the linked record when it is a provider's order or
 --                                   shipment; NULL when it is the incident's own tenant (an own-tenant
@@ -86,6 +87,13 @@ BEGIN
         target_tenant := CASE WHEN by_kind THEN NULL ELSE own END;
     END IF;
     NEW := jsonb_populate_record(NEW, jsonb_build_object(tenant_column, target_tenant));
+
+    -- Section 3: a set incident entity tenant never changes, so its logs' cost stays under the
+    -- provider's rights (no unlink, no relink to an own record).
+    IF by_kind AND TG_OP = 'UPDATE' AND (old_row ->> tenant_column) IS NOT NULL
+       AND target_tenant IS DISTINCT FROM (old_row ->> tenant_column)::UUID THEN
+        RAISE EXCEPTION 'incident_entity_tenant_immutable' USING ERRCODE = 'check_violation';
+    END IF;
 
     -- Section 2 (Task 6): a change request whose cost is its provider's (guard_tenant_id <> tenant_id)
     -- changes its order only with the right to write that cost there, so a client cannot unlink or
@@ -596,3 +604,511 @@ SELECT private.enable_field_security ('change_request');
 SELECT private.enable_field_security ('audit_log', TRUE);
 
 DROP FUNCTION private.mask_audit_data (TEXT, UUID, JSONB, JSONB, JSONB);
+
+-- ===================================================================================== 3. incident
+--
+-- Section 3, provider-guarded incident cost and the revert (Task 6, fix round 1). The spec's "Calls
+-- made": an incident's cost amount and cost payer are the provider's when the incident is about a
+-- provider's order or shipment. incident_log.cost_amount, cost_currency and cost_payer keep their
+-- class and group (sensitive, finance, 049) and gain the rights column guard_tenant_id:
+--   incident_log.guard_tenant_id  coalesce(incident.entity_tenant_id, incident.tenant_id) of the log's
+--                                 incident. A generated column cannot read the parent, so it is kept
+--                                 by triggers and never taken from the writer (nullable only so a
+--                                 writer need not send it; the trigger always sets it, and a NULL would
+--                                 mask and refuse, fail closed):
+--   private.incident_log_guard_tenant (trigger a0_incident_log_guard_tenant, before
+--                                 aa_field_write_guard) sets it from the parent on every insert and
+--                                 update. A log whose cost is its provider's (OLD.guard_tenant_id <>
+--                                 tenant_id) leaves those rights (another incident) only with the right
+--                                 to write the cost there: cost_link_forbidden (42501); not on a
+--                                 system path.
+--   private.incident_guard_tenant_sync (trigger incident_guard_tenant_sync, AFTER UPDATE of an
+--                                 incident whose entity_tenant_id changed) sets its logs' value. The
+--                                 logs' rules still apply (a closed incident's logs refuse it:
+--                                 incident_closed, so a closed incident with logs is not relinked).
+--   incident_entity_tenant_immutable (23514, provider_order_link_guard, section 1)
+--                                 a set entity_tenant_id never changes (an own-tenant link is stored
+--                                 as NULL, so citing a provider's record later only narrows): no
+--                                 unlink or relink out of the provider's rights. Like order_tenant_id.
+--   private.api_forward (067's body, restated, pinned in 052) cannot read such a column from the row it
+--                                 forwards, so it leaves a field with one to the base write guard
+--                                 (aa_, after a0_ has set the column).
+-- No right is lost by the classification (the three fields were sensitive already), so no backfill.
+--
+-- public.revert_audit_transaction (059's body, restated, pinned in 052): its pre-check reads a
+-- sensitive key's rights tenant from the field's rights column in the stored row (the snapshots when
+-- the row is gone or out of the caller's reach), the row's tenant otherwise, so a client undoing the
+-- provider's change of a guarded field gets audit_revert_field_forbidden before anything is written.
+
+ALTER TABLE public.incident_log
+ADD COLUMN guard_tenant_id UUID;
+
+UPDATE public.incident_log l
+SET
+   guard_tenant_id = coalesce(i.entity_tenant_id, i.tenant_id)
+FROM
+   public.incident i
+WHERE
+   i.id = l.incident_id
+   AND i.tenant_id = l.tenant_id;
+
+CREATE OR REPLACE FUNCTION private.incident_log_guard_tenant () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    -- The parent's; a missing parent is refused by the foreign key.
+    NEW.guard_tenant_id := coalesce(
+        (SELECT coalesce(i.entity_tenant_id, i.tenant_id) FROM public.incident i
+         WHERE i.id = NEW.incident_id AND i.tenant_id = NEW.tenant_id),
+        NEW.tenant_id
+    );
+    IF TG_OP = 'UPDATE'
+       AND NEW.guard_tenant_id IS DISTINCT FROM OLD.guard_tenant_id
+       AND OLD.guard_tenant_id <> OLD.tenant_id
+       AND NOT private.field_guard_bypassed()
+       AND NOT coalesce(OLD.guard_tenant_id = ANY (private.field_write_tenants('public.incident_log', 'cost_amount')), FALSE) THEN
+        RAISE EXCEPTION 'cost_link_forbidden' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.incident_log_guard_tenant () FROM PUBLIC, anon, authenticated;
+
+-- a0 sorts before aa_field_write_guard (BEFORE triggers fire in name order).
+CREATE OR REPLACE TRIGGER a0_incident_log_guard_tenant BEFORE INSERT
+OR
+UPDATE ON public.incident_log FOR EACH ROW
+EXECUTE FUNCTION private.incident_log_guard_tenant ();
+
+CREATE OR REPLACE FUNCTION private.incident_guard_tenant_sync () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    UPDATE public.incident_log l
+    SET guard_tenant_id = coalesce(NEW.entity_tenant_id, NEW.tenant_id)
+    WHERE l.incident_id = NEW.id AND l.tenant_id = NEW.tenant_id;
+    RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.incident_guard_tenant_sync () FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE TRIGGER incident_guard_tenant_sync
+AFTER
+UPDATE ON public.incident FOR EACH ROW WHEN (OLD.entity_tenant_id IS DISTINCT FROM NEW.entity_tenant_id)
+EXECUTE FUNCTION private.incident_guard_tenant_sync ();
+
+-- 067's api_forward; 068: a rights column kept by triggers is left to the base write guard.
+CREATE OR REPLACE FUNCTION private.api_forward () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    base REGCLASS := pg_catalog.format('public.%I', TG_TABLE_NAME)::REGCLASS;
+    resource TEXT := 'public.' || TG_TABLE_NAME;
+    is_user BOOLEAN := TG_TABLE_NAME = 'user';
+    has_tenant BOOLEAN;
+    pk TEXT[];
+    new_j JSONB;
+    old_j JSONB;
+    row_j JSONB;
+    key_j JSONB;
+    col RECORD;
+    cols TEXT[] := '{}';
+    allowed BOOLEAN;
+    reread RECORD;
+    n BIGINT;
+    cast_sql TEXT;
+    rc TEXT;
+    rc_expr TEXT;
+    rc_tenants UUID[];
+    rc_row JSONB;
+    rc_tenant UUID;
+    rec_def TEXT;
+BEGIN
+    pk := ARRAY(
+        SELECT a.attname::TEXT
+        FROM pg_catalog.pg_index i
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey::INT2[])
+        WHERE i.indrelid = base AND i.indisprimary
+        ORDER BY pg_catalog.array_position(i.indkey::INT2[], a.attnum)
+    );
+    IF cardinality(pk) = 0 THEN
+        RAISE EXCEPTION 'field_security_unsupported' USING DETAIL = 'no primary key: ' || resource;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        EXECUTE pg_catalog.format(
+            'DELETE FROM %s b WHERE %s', base,
+            (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($1).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+        ) USING OLD;
+        GET DIAGNOSTICS n = ROW_COUNT;
+        IF n = 0 THEN
+            RETURN NULL;
+        END IF;
+        RETURN OLD;
+    END IF;
+
+    has_tenant := EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped
+    );
+    -- S1 compares at the column type: the view's columns carry no typmod and no domain (a per-row cast
+    -- would cost on every read), so each side is cast to the base column's type (a domain: its base type
+    -- and typmod, so a NULL never trips a NOT NULL domain) before the comparison. 12.50000 or 12.50004 for
+    -- a numeric(12,4) 12.5000, or 'EUR ' for a char(3) 'EUR', is then the stored value: a no-op, as the
+    -- base write would store the same. Per written row only.
+    cast_sql := pg_catalog.format(
+        'SELECT pg_catalog.to_jsonb(x) FROM (SELECT %s) x',
+        (SELECT pg_catalog.string_agg(
+                    pg_catalog.format('($1).%1$I::%2$s AS %1$I', a.attname,
+                        CASE WHEN ty.typtype = 'd' THEN pg_catalog.format_type(ty.typbasetype, ty.typtypmod)
+                             ELSE pg_catalog.format_type(a.atttypid, a.atttypmod) END),
+                    ', ' ORDER BY a.attnum)
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+         WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped)
+    );
+    EXECUTE cast_sql INTO new_j USING NEW;
+    -- The row whose rights apply: the stored (masked) row on UPDATE, the sent one on INSERT.
+    IF TG_OP = 'UPDATE' THEN
+        EXECUTE cast_sql INTO old_j USING OLD;
+        row_j := old_j;
+    ELSE
+        row_j := new_j;
+    END IF;
+
+    FOR col IN
+        SELECT a.attname::TEXT AS name, private.api_is_sensitive(resource, a.attname) AS sensitive
+        FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+        ORDER BY a.attnum
+    LOOP
+        IF TG_OP = 'UPDATE' THEN
+            CONTINUE WHEN NOT (new_j -> col.name IS DISTINCT FROM old_j -> col.name);
+        ELSE
+            CONTINUE WHEN coalesce(new_j -> col.name, 'null'::JSONB) = 'null'::JSONB;
+        END IF;
+
+        IF col.sensitive THEN
+            IF is_user THEN
+                allowed := (row_j ->> 'id')::UUID = auth.uid()
+                        OR (row_j ->> 'id')::UUID = ANY (private.field_user_ids(col.name, TRUE));
+            ELSIF has_tenant THEN
+                -- 067: the rights tenant, from base columns (F1): the rights column as sent or stored, or a
+                -- generated one's expression over the other columns (its own value is never read).
+                rc := private.field_rights_column(resource, col.name);
+                rc_expr := private.field_rights_generated(resource, col.name);
+                rc_tenants := private.field_write_tenants(resource, col.name);
+                IF rc_expr IS NOT NULL AND rec_def IS NULL THEN
+                    -- The base columns at the types new_j and old_j were cast to (a domain's base type).
+                    rec_def := (
+                        SELECT pg_catalog.string_agg(
+                                   pg_catalog.format('%I %s', a.attname,
+                                       CASE WHEN ty.typtype = 'd' THEN pg_catalog.format_type(ty.typbasetype, ty.typtypmod)
+                                            ELSE pg_catalog.format_type(a.atttypid, a.atttypmod) END),
+                                   ', ' ORDER BY a.attnum)
+                        FROM pg_catalog.pg_attribute a
+                        JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+                        WHERE a.attrelid = base AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+                    );
+                END IF;
+                allowed := TRUE;
+                -- 068: a rights column neither tenant_id nor generated is kept by the table's triggers
+                -- from other rows (incident_log.guard_tenant_id, from its incident): this row cannot
+                -- show it, so the base write guard decides, after those triggers have set it.
+                IF rc <> 'tenant_id' AND rc_expr IS NULL THEN
+                    cols := cols || col.name;
+                    CONTINUE;
+                END IF;
+                FOREACH rc_row IN ARRAY CASE WHEN TG_OP = 'UPDATE' THEN ARRAY[old_j, new_j] ELSE ARRAY[new_j] END LOOP
+                    IF rc_expr IS NULL THEN
+                        rc_tenant := (rc_row ->> rc)::UUID;
+                    ELSE
+                        EXECUTE pg_catalog.format('SELECT %s::UUID FROM pg_catalog.jsonb_to_record($1) AS x (%s)', rc_expr, rec_def)
+                        INTO rc_tenant USING rc_row;
+                    END IF;
+                    allowed := allowed AND coalesce(rc_tenant = ANY (rc_tenants), FALSE);
+                END LOOP;
+            ELSE
+                allowed := FALSE;
+            END IF;
+            IF NOT coalesce(allowed, FALSE) THEN
+                RAISE EXCEPTION 'field_write_forbidden' USING ERRCODE = '42501', DETAIL = TG_TABLE_NAME || '.' || col.name;
+            END IF;
+        END IF;
+
+        cols := cols || col.name;
+    END LOOP;
+
+    IF TG_OP = 'UPDATE' THEN
+        -- One pass per project per statement (project_gate_guard): the forwarder writes one row at a time, each
+        -- its own base statement, so the guard's flag is cleared between rows. Rows of one view statement share
+        -- the statement timestamp; a second pass of a project under the same one is refused.
+        IF TG_TABLE_NAME = 'project_gate' AND new_j ->> 'status' = 'passed' AND old_j ->> 'status' IS DISTINCT FROM 'passed' THEN
+            IF pg_catalog.current_setting('moesa.api_gate_pass_' || replace(new_j ->> 'project_id', '-', '_'), TRUE) = pg_catalog.statement_timestamp()::TEXT THEN
+                RAISE EXCEPTION 'gate_one_at_a_time' USING ERRCODE = 'check_violation';
+            END IF;
+            PERFORM pg_catalog.set_config('moesa.api_gate_pass_' || replace(new_j ->> 'project_id', '-', '_'), pg_catalog.statement_timestamp()::TEXT, TRUE);
+        END IF;
+        IF cardinality(cols) = 0 THEN
+            -- Nothing to write, but RLS still decides: FOR UPDATE applies the UPDATE policies (a
+            -- caller without update is refused as by a real UPDATE). Not a no-op UPDATE, which would
+            -- bump updated_at and log an audit row.
+            EXECUTE pg_catalog.format(
+                'SELECT to_jsonb(b) FROM %s b WHERE %s FOR UPDATE', base,
+                (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($1).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+            ) INTO key_j USING OLD;
+            GET DIAGNOSTICS n = ROW_COUNT;
+            IF n = 0 THEN
+                RETURN NULL;
+            END IF;
+        ELSE
+            EXECUTE pg_catalog.format(
+                'UPDATE %s b SET (%s) = ROW (%s) WHERE %s RETURNING to_jsonb(b)', base,
+                (SELECT pg_catalog.string_agg(pg_catalog.format('%I', c), ', ') FROM unnest(cols) AS c),
+                (SELECT pg_catalog.string_agg(pg_catalog.format('($1).%I', c), ', ') FROM unnest(cols) AS c),
+                (SELECT pg_catalog.string_agg(pg_catalog.format('b.%1$I = ($2).%1$I', k), ' AND ') FROM unnest(pk) AS k)
+            ) INTO key_j USING NEW, OLD;
+            GET DIAGNOSTICS n = ROW_COUNT;
+            IF n = 0 THEN
+                RETURN NULL;
+            END IF;
+        END IF;
+    ELSIF cardinality(cols) = 0 THEN
+        EXECUTE pg_catalog.format('INSERT INTO %s AS b DEFAULT VALUES RETURNING to_jsonb(b)', base) INTO key_j;
+    ELSE
+        EXECUTE pg_catalog.format(
+            'INSERT INTO %s AS b (%s) VALUES (%s) RETURNING to_jsonb(b)', base,
+            (SELECT pg_catalog.string_agg(pg_catalog.format('%I', c), ', ') FROM unnest(cols) AS c),
+            (SELECT pg_catalog.string_agg(pg_catalog.format('($1).%I', c), ', ') FROM unnest(cols) AS c)
+        ) INTO key_j USING NEW;
+    END IF;
+
+    -- The row as the caller may see it.
+    EXECUTE pg_catalog.format(
+        'SELECT v.* FROM api.%I v WHERE %s', TG_TABLE_NAME,
+        (SELECT pg_catalog.string_agg(pg_catalog.format('v.%1$I = (jsonb_populate_record(NULL::%2$s, $1)).%1$I', k, base), ' AND ') FROM unnest(pk) AS k)
+    ) INTO reread USING key_j;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    IF n > 0 THEN
+        NEW := reread;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_forward () FROM PUBLIC, anon, authenticated;
+
+GRANT CREATE ON SCHEMA private TO api_owner;
+
+ALTER FUNCTION private.api_forward () OWNER TO api_owner;
+
+REVOKE CREATE ON SCHEMA private FROM api_owner;
+
+INSERT INTO
+   public.field_class (resource_name, field, class)
+VALUES
+   ('public.incident_log', 'guard_tenant_id', 'open');
+
+UPDATE public.field_class
+SET
+   rights_column = 'guard_tenant_id'
+WHERE
+   resource_name = 'public.incident_log'
+   AND field IN ('cost_amount', 'cost_currency', 'cost_payer');
+
+SELECT private.enable_field_security ('incident_log');
+
+-- 059's revert_audit_transaction; 068: a sensitive key is checked in its rights tenant.
+CREATE OR REPLACE FUNCTION public.revert_audit_transaction (transaction_id UUID) RETURNS TEXT[] LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    target public.audit_transaction;
+    change public.audit_log;
+    pending BIGINT[];
+    waiting BIGINT[];
+    change_id BIGINT;
+    relation REGCLASS;
+    columns TEXT;
+    row_columns TEXT;
+    affected INT;
+    blocked TEXT;
+    forbidden TEXT;
+    chk RECORD;
+    api_view REGCLASS;
+    -- 068
+    rights_column TEXT;
+    rights_tenant UUID;
+BEGIN
+    SELECT * INTO target FROM public.audit_transaction t WHERE t.id = revert_audit_transaction.transaction_id;
+
+    IF NOT FOUND THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0002', 'message', 'audit transaction not found')::TEXT,
+            DETAIL = json_build_object('status', 404, 'headers', json_build_object())::TEXT;
+    END IF;
+
+    IF target.reverted_at IS NOT NULL THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0001', 'message', 'audit_already_reverted')::TEXT,
+            DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
+    END IF;
+
+    -- Before anything is written, every change the revert makes must be one the caller could make
+    -- through the api: an UPDATE writes back the keys of old_data (UPDATE rows hold only the changed
+    -- ones), an INSERT is undone by a delete, a DELETE by inserting its non-NULL values again.
+    --   Grants: the column UPDATE/INSERT or table DELETE authenticated holds on api.<table> (they
+    --   mirror its base grants and stay after the cutover); no api view, nothing is granted.
+    --   C3: a sensitive key must be writable by the caller in the row's tenant (system paths pass, S2).
+    FOR chk IN
+        SELECT l.table_schema, l.table_name, l.operation, l.tenant_id, k.key, l.record_id, l.old_data, l.new_data,
+               coalesce(a.attgenerated = '', FALSE) AS stored
+        FROM public.audit_log l
+        LEFT JOIN LATERAL (
+            SELECT e.key FROM jsonb_each(CASE WHEN l.operation = 'INSERT' THEN l.new_data ELSE l.old_data END) AS e (key, value)
+            WHERE l.operation = 'UPDATE' OR e.value <> 'null'::JSONB
+        ) AS k ON TRUE
+        LEFT JOIN pg_catalog.pg_attribute a
+          ON a.attrelid = to_regclass(format('%I.%I', l.table_schema, l.table_name)) AND a.attname = k.key
+         AND a.attnum > 0 AND NOT a.attisdropped
+        WHERE l.transaction_id = target.id AND l.created_at = target.created_at
+        ORDER BY l.id, k.key
+    LOOP
+        api_view := CASE WHEN chk.table_schema = 'public' THEN to_regclass(format('api.%I', chk.table_name)) END;
+        IF api_view IS NULL
+           OR (chk.operation = 'INSERT' AND NOT has_table_privilege('authenticated', api_view, 'DELETE')) THEN
+            forbidden := chk.table_name;
+        ELSIF chk.key IS NULL THEN
+            CONTINUE;
+        ELSIF chk.stored AND chk.operation = 'UPDATE' AND NOT has_column_privilege('authenticated', api_view, chk.key, 'UPDATE') THEN
+            forbidden := chk.table_name || '.' || chk.key;
+        ELSIF chk.stored AND chk.operation = 'DELETE' AND NOT has_column_privilege('authenticated', api_view, chk.key, 'INSERT') THEN
+            forbidden := chk.table_name || '.' || chk.key;
+        ELSIF NOT private.field_guard_bypassed()
+              AND private.api_is_sensitive(chk.table_schema || '.' || chk.table_name, chk.key) THEN
+            -- 068: in the field's rights tenant: its rights column in the stored row (the snapshots when
+            -- the row is gone or out of reach), the row's tenant when the catalog names no other.
+            rights_column := private.field_rights_column(chk.table_schema || '.' || chk.table_name, chk.key);
+            rights_tenant := NULL;
+            IF rights_column <> 'tenant_id' THEN
+                EXECUTE format('SELECT (to_jsonb(t) ->> %L)::UUID FROM %I.%I t WHERE t.id = $1', rights_column, chk.table_schema, chk.table_name)
+                INTO rights_tenant USING chk.record_id;
+                rights_tenant := coalesce(rights_tenant, (chk.new_data ->> rights_column)::UUID, (chk.old_data ->> rights_column)::UUID);
+            END IF;
+            IF NOT coalesce(coalesce(rights_tenant, chk.tenant_id) = ANY (private.field_write_tenants(chk.table_schema || '.' || chk.table_name, chk.key)), FALSE) THEN
+                forbidden := chk.table_name || '.' || chk.key;
+            END IF;
+        END IF;
+        IF forbidden IS NOT NULL THEN
+            RAISE EXCEPTION 'audit_revert_field_forbidden' USING ERRCODE = '42501', DETAIL = forbidden;
+        END IF;
+    END LOOP;
+
+    -- Read by private.audit_begin when this transaction's first write is logged.
+    PERFORM set_config('audit.reverts', target.id::TEXT, true);
+
+    pending := ARRAY(
+        SELECT l.id FROM public.audit_log l
+        WHERE l.transaction_id = target.id AND l.created_at = target.created_at
+        ORDER BY l.id DESC
+    );
+
+    WHILE cardinality(pending) > 0 LOOP
+        waiting := '{}';
+
+        FOREACH change_id IN ARRAY pending LOOP
+            SELECT * INTO change FROM public.audit_log l WHERE l.id = change_id AND l.created_at = target.created_at;
+            relation := format('%I.%I', change.table_schema, change.table_name)::REGCLASS;
+
+            -- The columns to write back, without generated ones.
+            SELECT string_agg(format('%I', a.attname), ', '), string_agg(format('r.%I', a.attname), ', ')
+            INTO columns, row_columns
+            FROM jsonb_object_keys(coalesce(change.old_data, '{}')) AS k (name)
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = relation AND a.attname = k.name
+            WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '';
+
+            BEGIN
+                CASE change.operation
+                    WHEN 'INSERT' THEN
+                        EXECUTE format('DELETE FROM %s t WHERE t.id = $1 AND to_jsonb(t) = $2', relation)
+                        USING change.record_id, change.new_data;
+                        GET DIAGNOSTICS affected = ROW_COUNT;
+
+                        -- Already gone (a cascade of this revert, or deleted since) is what undoing
+                        -- an insert asks for; only a row that was changed since is a conflict.
+                        IF affected = 0 THEN
+                            EXECUTE format('SELECT count(*) FROM %s t WHERE t.id = $1', relation)
+                            INTO affected USING change.record_id;
+                            affected := 1 - affected;
+                        END IF;
+                    WHEN 'UPDATE' THEN
+                        EXECUTE format(
+                            'UPDATE %s t SET (%s) = (SELECT %s FROM jsonb_populate_record(NULL::%s, $1) r) '
+                            'WHERE t.id = $2 AND NOT EXISTS ('
+                            '  SELECT 1 FROM jsonb_object_keys($1) k WHERE to_jsonb(t) -> k IS DISTINCT FROM $3 -> k)',
+                            relation, columns, row_columns, relation
+                        )
+                        USING change.old_data, change.record_id, change.new_data;
+                        GET DIAGNOSTICS affected = ROW_COUNT;
+                    WHEN 'DELETE' THEN
+                        EXECUTE format(
+                            'INSERT INTO %s (%s) SELECT %s FROM jsonb_populate_record(NULL::%s, $1) r',
+                            relation, columns, row_columns, relation
+                        )
+                        USING change.old_data;
+                        GET DIAGNOSTICS affected = ROW_COUNT;
+                END CASE;
+            EXCEPTION
+                WHEN foreign_key_violation THEN
+                    waiting := waiting || change_id;
+                    blocked := SQLERRM;
+                    CONTINUE;
+                -- A deleted row that was created again.
+                WHEN unique_violation THEN
+                    affected := 0;
+                -- A row the table refuses: a conflict, without the DETAIL (it would show the row's values,
+                -- read with api_owner's rights).
+                WHEN check_violation OR not_null_violation OR exclusion_violation THEN
+                    RAISE SQLSTATE 'PGRST' USING
+                        MESSAGE = json_build_object('code', 'P0001', 'message', 'audit_conflict')::TEXT,
+                        DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
+            END;
+
+            IF affected = 0 THEN
+                RAISE SQLSTATE 'PGRST' USING
+                    MESSAGE = json_build_object(
+                        'code', 'P0001',
+                        'message', 'audit_conflict',
+                        'details', format('%s %s was changed after this change', change.table_name, change.record_id)
+                    )::TEXT,
+                    DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
+            END IF;
+        END LOOP;
+
+        -- Nothing moved: the rows they refer to are gone for good.
+        IF cardinality(waiting) = cardinality(pending) THEN
+            RAISE SQLSTATE 'PGRST' USING
+                MESSAGE = json_build_object('code', 'P0001', 'message', 'audit_conflict', 'details', blocked)::TEXT,
+                DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
+        END IF;
+        pending := waiting;
+    END LOOP;
+
+    RETURN ARRAY(
+        SELECT DISTINCT l.table_name FROM public.audit_log l
+        WHERE l.transaction_id = target.id AND l.created_at = target.created_at
+    );
+END;
+$$;
+
+GRANT CREATE ON SCHEMA public TO api_owner;
+
+ALTER FUNCTION public.revert_audit_transaction (UUID) OWNER TO api_owner;
+
+REVOKE CREATE ON SCHEMA public FROM api_owner;
+
+REVOKE ALL ON FUNCTION public.revert_audit_transaction (UUID) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.revert_audit_transaction (UUID) TO authenticated, service_role;

@@ -1016,6 +1016,7 @@ export type Database = {
           created_at: string | null
           customer_approved: boolean | null
           decision: string | null
+          guard_tenant_id: string | null
           id: string | null
           incident_id: string | null
           logged_at: string | null
@@ -5136,6 +5137,7 @@ export type Database = {
           created_at: string
           customer_approved: boolean
           decision: string | null
+          guard_tenant_id: string | null
           id: string
           incident_id: string
           logged_at: string
@@ -5152,6 +5154,7 @@ export type Database = {
           created_at?: string
           customer_approved?: boolean
           decision?: string | null
+          guard_tenant_id?: string | null
           id?: string
           incident_id: string
           logged_at?: string
@@ -5168,6 +5171,7 @@ export type Database = {
           created_at?: string
           customer_approved?: boolean
           decision?: string | null
+          guard_tenant_id?: string | null
           id?: string
           incident_id?: string
           logged_at?: string

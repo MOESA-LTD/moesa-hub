@@ -6,14 +6,16 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- cite the rows shared with it (Q4); the provider may still delete its order (F7).
 -- A change request on a provider order keeps its cost (cost_impact, cost_payer) under the provider's
 -- rights: the client reads NULL, cannot write it, cannot unlink or relink out of it, and its audit
--- history shows it masked; the provider's staff read and write it (Task 6).
+-- history shows it masked; the provider's staff read and write it (Task 6). The same for the cost of a
+-- log of an incident on a provider order (cost_amount, cost_currency, cost_payer), and a revert of the
+-- provider's change is refused before anything is written (Task 6 fix round 1).
 --
 -- Sections: links (Task 5), guarded (Task 6).
 --
 -- Signing in (F4): `RESET ROLE; SELECT private.impersonate_scope(user, active, scope);`.
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(66);
 
 -- Fixture, built here as postgres (ids 0000000068xx):
 --   P  ...6801  provider (code LPV); C ...6802 client (rel_c ...6821); D ...6803 another client (rel_d ...6822)
@@ -23,6 +25,7 @@ SELECT plan(44);
 --   pm ...6814  provider management: in P every change request and audit right with every field
 --               (role ...6833), in C change requests and the audit log without the cost (role ...6834)
 --   cr_c ...6892 C's change request on po_c (cost written by pm in the guarded section)
+--   inc_c ...6895 C's incident on po_c; its logs ...68a1 (pm's cost), ...68a2 (on C's 'Own order' incident)
 --   orders: po_c ...6851 (P for C), po_d ...6852 (P for D), po_own ...6853 (P, no client),
 --           po_del ...6854 (P for C, draft, cited by the client's change request cr_del ...6891),
 --           po_cown ...6855 (C's own order, its supplier ...6882)
@@ -65,7 +68,7 @@ WHERE p.resource_name IN ('public.incident', 'public.change_request');
 INSERT INTO public.role_permission (role_id, permission_id)
 SELECT r.id, p.id FROM public.permission p
 CROSS JOIN (VALUES ('00000000-0000-4000-8000-000000006833'::UUID), ('00000000-0000-4000-8000-000000006834'::UUID)) AS r (id)
-WHERE p.resource_name IN ('public.change_request', 'public.audit_log', 'public.audit_transaction');
+WHERE p.resource_name IN ('public.change_request', 'public.incident', 'public.incident_log', 'public.audit_log', 'public.audit_transaction');
 
 INSERT INTO public.user_role (user_id, role_id) VALUES
    ('00000000-0000-4000-8000-000000006811', '00000000-0000-4000-8000-000000006831'),
@@ -75,6 +78,9 @@ INSERT INTO public.user_role (user_id, role_id) VALUES
 
 SELECT private.grant_all_fields('00000000-0000-4000-8000-000000006831');
 SELECT private.grant_all_fields('00000000-0000-4000-8000-000000006833');
+-- pm writes incident log notes in C (internal_note), never the cost there.
+INSERT INTO public.role_field_permission (role_id, resource_name, field, can_read, can_write) VALUES
+   ('00000000-0000-4000-8000-000000006834', 'public.incident_log', 'note', TRUE, TRUE);
 
 INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
    ('00000000-0000-4000-8000-000000006821', '00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802',
@@ -117,6 +123,10 @@ INSERT INTO public.change_request (id, tenant_id, title, source, change_kinds, c
     'May', 'June', 'x', '00000000-0000-4000-8000-000000006854', '00000000-0000-4000-8000-000000006801'),
    ('00000000-0000-4000-8000-000000006892', '00000000-0000-4000-8000-000000006802', 'Guarded', 'customer', '{design}',
     'Red', 'Blue', 'x', '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801');
+
+INSERT INTO public.incident (id, tenant_id, family, severity, title, what_happened, entity_type, entity_id, entity_tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000006895', '00000000-0000-4000-8000-000000006802', 'ol', 's3', 'Guarded incident', 'x',
+    'purchase_order', '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801');
 
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 
@@ -248,7 +258,7 @@ SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHER
 -- The client owner.
 RESET ROLE;
 SELECT set_config('test.cx_permissions', ARRAY(SELECT p.id FROM public.permission p
-                  WHERE p.resource_name IN ('public.incident', 'public.change_request', 'public.audit_log'))::TEXT, TRUE);
+                  WHERE p.resource_name IN ('public.incident', 'public.incident_log', 'public.change_request', 'public.audit_log'))::TEXT, TRUE);
 SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
 SELECT results_eq($$ SELECT cost_impact, cost_payer FROM api.change_request WHERE id = '00000000-0000-4000-8000-000000006892' $$,
                   $$ VALUES (NULL::TEXT, NULL::public.cost_payer) $$, 'client owner: cost of a provider-order change request is NULL');
@@ -281,7 +291,10 @@ SELECT lives_ok($$ SELECT public.save_role(
                        jsonb_build_object('id', '00000000-0000-4000-8000-000000006832', 'display_name', 'Incidents only'),
                        current_setting('test.cx_permissions')::UUID[],
                        '[{"resource_name": "public.change_request", "field": "cost_impact", "can_read": true, "can_write": true},
-                         {"resource_name": "public.change_request", "field": "cost_payer", "can_read": true, "can_write": true}]'::JSONB) $$,
+                         {"resource_name": "public.change_request", "field": "cost_payer", "can_read": true, "can_write": true},
+                         {"resource_name": "public.incident_log", "field": "cost_amount", "can_read": true, "can_write": true},
+                         {"resource_name": "public.incident_log", "field": "cost_currency", "can_read": true, "can_write": true},
+                         {"resource_name": "public.incident_log", "field": "cost_payer", "can_read": true, "can_write": true}]'::JSONB) $$,
                 'client owner grants a role the cost (save_role)');
 SELECT lives_ok($$ UPDATE api.change_request SET cost_impact = '42' WHERE title = 'Own order change' $$,
                 'client owner writes the cost of a change request on its own order');
@@ -328,13 +341,100 @@ SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006813', '000000
 SELECT results_eq($$ SELECT with_cost > 1, unmasked FROM cr_c_cost_history $$, $$ VALUES (TRUE, 0) $$,
                   'client role granted the cost: the audit history masks it');
 
--- Nor does undoing the provider's change write it.
+-- Incident cost (fix round 1): the log of inc_c (C's incident on po_c) carries P's cost.
+RESET ROLE;
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006801', ARRAY['00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT lives_ok($$ INSERT INTO api.incident_log (id, tenant_id, incident_id, note, cost_amount, cost_currency, cost_payer)
+                   VALUES ('00000000-0000-4000-8000-0000000068a1', '00000000-0000-4000-8000-000000006802', '00000000-0000-4000-8000-000000006895', 'Rework', 250, 'EUR', 'company') $$,
+                'provider management logs a cost on the client''s provider-order incident');
+SELECT results_eq($$ SELECT cost_amount, cost_currency::TEXT, cost_payer FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                  $$ VALUES (250::NUMERIC, 'EUR'::TEXT, 'company'::public.cost_payer) $$, 'provider management reads the log cost');
+
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT cost_amount, cost_currency::TEXT, cost_payer FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                  $$ VALUES (NULL::NUMERIC, NULL::TEXT, NULL::public.cost_payer) $$,
+                  'client owner: cost of a provider-order incident log is NULL');
+SELECT throws_ok($$ UPDATE api.incident_log SET cost_amount = 1 WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                 '42501', 'field_write_forbidden', 'client owner cannot write the log cost');
+SELECT throws_ok($$ INSERT INTO api.incident_log (tenant_id, incident_id, note, cost_amount, cost_currency, cost_payer)
+                    VALUES ('00000000-0000-4000-8000-000000006802', '00000000-0000-4000-8000-000000006895', 'X', 1, 'EUR', 'customer') $$,
+                 '42501', 'field_write_forbidden', 'client owner cannot log a cost on a provider-order incident');
+SELECT throws_ok($$ INSERT INTO api.incident_log (tenant_id, incident_id, note, cost_amount, cost_currency, cost_payer, guard_tenant_id)
+                    VALUES ('00000000-0000-4000-8000-000000006802', '00000000-0000-4000-8000-000000006895', 'X', 1, 'EUR', 'customer', '00000000-0000-4000-8000-000000006802') $$,
+                 '42501', 'field_write_forbidden', 'nor by sending its own tenant as the log''s rights column');
+SELECT throws_ok($$ UPDATE api.incident SET entity_type = NULL, entity_id = NULL, entity_tenant_id = NULL WHERE id = '00000000-0000-4000-8000-000000006895' $$,
+                 '23514', 'incident_entity_tenant_immutable', 'client cannot unlink the incident to unmask');
+SELECT throws_ok($$ UPDATE api.incident SET entity_id = '00000000-0000-4000-8000-000000006855', entity_tenant_id = NULL WHERE id = '00000000-0000-4000-8000-000000006895' $$,
+                 '23514', 'incident_entity_tenant_immutable', 'client cannot relink the incident to its own order');
+SELECT throws_ok($$ UPDATE api.incident_log SET incident_id = (SELECT id FROM api.incident WHERE title = 'Own order') WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                 '42501', 'cost_link_forbidden', 'client cannot move the log to its own incident');
+SELECT lives_ok($$ INSERT INTO api.incident_log (id, tenant_id, incident_id, note, cost_amount, cost_currency, cost_payer)
+                   SELECT '00000000-0000-4000-8000-0000000068a2', '00000000-0000-4000-8000-000000006802', i.id, 'Own rework', 10, 'EUR', 'company' FROM api.incident i WHERE i.title = 'Own order' $$,
+                'client owner logs a cost on its own-order incident');
+SELECT results_eq($$ SELECT cost_amount, cost_currency::TEXT, cost_payer FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a2' $$,
+                  $$ VALUES (10::NUMERIC, 'EUR'::TEXT, 'company'::public.cost_payer) $$, 'client owner reads it');
+
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT cost_amount, cost_currency::TEXT, cost_payer FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                  $$ VALUES (NULL::NUMERIC, NULL::TEXT, NULL::public.cost_payer) $$,
+                  'client role granted the cost: log cost still NULL on a provider order');
+SELECT throws_ok($$ UPDATE api.incident_log SET cost_amount = 1 WHERE id = '00000000-0000-4000-8000-0000000068a1' $$,
+                 '42501', 'field_write_forbidden', 'client role granted the cost cannot write the log cost');
+SELECT lives_ok($$ UPDATE api.incident_log SET cost_amount = 11 WHERE id = '00000000-0000-4000-8000-0000000068a2' $$,
+                'client role writes the log cost on its own-order incident');
+SELECT results_eq($$ SELECT cost_amount, cost_currency::TEXT, cost_payer FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a2' $$,
+                  $$ VALUES (11::NUMERIC, 'EUR'::TEXT, 'company'::public.cost_payer) $$, 'client role reads it');
+
+RESET ROLE;
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006814', '00000000-0000-4000-8000-000000006801', ARRAY['00000000-0000-4000-8000-000000006801', '00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT lives_ok($$ UPDATE api.incident_log SET cost_amount = 300 WHERE id = '00000000-0000-4000-8000-0000000068a1' $$, 'provider management changes the log cost');
+SELECT is((SELECT count(*)::INT FROM api.audit_log WHERE record_id = '00000000-0000-4000-8000-0000000068a1' AND (old_data ->> 'cost_amount')::NUMERIC = 250), 1,
+          'provider management reads the old log cost in the history');
+
+RESET ROLE;
+CREATE TEMP VIEW lg_c_cost_history AS
+SELECT count(*)::INT AS with_cost,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM unnest(ARRAY[a.old_data, a.new_data]) AS d (data),
+                         unnest(ARRAY['cost_amount', 'cost_currency', 'cost_payer']) AS k (key)
+           WHERE d.data ? k.key AND d.data -> k.key <> '{"masked": true}'::JSONB))::INT AS unmasked
+FROM api.audit_log a
+WHERE a.record_id = '00000000-0000-4000-8000-0000000068a1'
+  AND (a.old_data ? 'cost_amount' OR a.new_data ? 'cost_amount');
+GRANT SELECT ON lg_c_cost_history TO authenticated;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT with_cost > 1, unmasked FROM lg_c_cost_history $$, $$ VALUES (TRUE, 0) $$,
+                  'client owner: the audit history masks the log cost');
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006813', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT results_eq($$ SELECT with_cost > 1, unmasked FROM lg_c_cost_history $$, $$ VALUES (TRUE, 0) $$,
+                  'client role granted the cost: the audit history masks the log cost');
+
+-- Citing a provider's order later moves the logs' cost to the provider (narrows only).
+RESET ROLE;
+SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
+SELECT lives_ok($$ UPDATE api.incident SET entity_id = '00000000-0000-4000-8000-000000006851', entity_tenant_id = '00000000-0000-4000-8000-000000006801'
+                   WHERE title = 'Own order' $$,
+                'client owner links its own-order incident to the provider''s order');
+SELECT is((SELECT cost_amount FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000068a2'), NULL::NUMERIC,
+          'the incident''s logs follow: their cost is now the provider''s');
+
+-- Nor does undoing the provider's change write it: refused before anything is written, in the
+-- field's rights tenant.
 RESET ROLE;
 SELECT set_config('test.cost_tx', (SELECT transaction_id::TEXT FROM public.audit_log
                                    WHERE record_id = '00000000-0000-4000-8000-000000006892' AND new_data ->> 'cost_impact' = '600'), TRUE);
+SELECT set_config('test.log_tx', (SELECT transaction_id::TEXT FROM public.audit_log
+                                  WHERE record_id = '00000000-0000-4000-8000-0000000068a1' AND (new_data ->> 'cost_amount')::NUMERIC = 300), TRUE);
 SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006812', '00000000-0000-4000-8000-000000006802', ARRAY['00000000-0000-4000-8000-000000006802']::UUID[]);
 SELECT throws_ok($$ SELECT public.revert_audit_transaction(current_setting('test.cost_tx')::UUID) $$,
-                 '42501', NULL, 'client owner cannot revert the provider''s cost change');
+                 '42501', 'audit_revert_field_forbidden', 'client owner cannot revert the provider''s cost change');
+SELECT throws_ok($$ SELECT public.revert_audit_transaction(current_setting('test.log_tx')::UUID) $$,
+                 '42501', 'audit_revert_field_forbidden', 'client owner cannot revert the provider''s log cost change');
 
 SELECT * FROM finish();
 ROLLBACK;
