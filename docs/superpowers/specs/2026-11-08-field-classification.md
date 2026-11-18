@@ -4,6 +4,9 @@ Source: the local DB `information_schema.columns` (public base tables, 645 colum
 
 **Result: 81 sensitive columns in 9 field groups.** Per group: cost 17, internal_note 20, supplier_terms 13, personal_data 8, contract 6, supplier_identity 5, finance 5, supplier_contact 4, sell_price 3.
 
+**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 86 columns are sensitive (`049_field_catalog.sql` is the authority): contract 5, cost 18, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts above and the "Portal" column are the original draft's.
+
+
 ## Classes
 
 - `system`: ids, tenant_id, timestamps, FK ids, created_by. Readable whenever the row is. FK columns that reveal a sensitive relation are marked in the note; they are classified as sensitive where the FK itself is the leak (`product.supplier_id`, `purchase_order.supplier_id`, `purchase_order.pi_document_id`).
@@ -30,78 +33,78 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 
 ## 1. Per-table columns
 
-### customer (portal table access: R own row)
+### provider_relationship (customer = tenant, 018: the provider's row for one client tenant; the client reads none of it in Plan 1)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
-| tenant_id | uuid | system | | | | | |  |
-| code | char | public-to-tenant | | | | | |  |
-| display_name | text | public-to-tenant | | | | | |  |
-| country | text | public-to-tenant | | | | | |  |
-| website | text | public-to-tenant | | | | | |  |
-| commercial_model | enum | public-to-tenant | | | | | | portal R ok (their own contract model) |
-| packages | ARRAY | public-to-tenant | | | | | | service scope; portal R ok |
+| tenant_id | uuid | system | | | | | | the provider |
+| client_tenant_id | uuid | system | | | | | | FK, the client tenant |
+| client_code | text | public-to-tenant | | | | | | the provider's code for the client |
+| client_name | text | public-to-tenant | | | | | | snapshot |
+| provider_name | text | public-to-tenant | | | | | | snapshot of the provider's display name |
+| procurement_model | enum | public-to-tenant | | | | | |  |
 | status | enum | public-to-tenant | | | | | |  |
-| contract_accepted_on | date | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
-| contract_document_id | uuid | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
-| start_on | date | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
-| deposit_rate | numeric | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
-| extra_cost_rule | text | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
+| accepted_at | timestamptz | public-to-tenant | | | | | |  |
+| ended_at | timestamptz | public-to-tenant | | | | | |  |
+| commercial_model | enum | public-to-tenant | | | | | |  |
+| packages | ARRAY | public-to-tenant | | | | | | service scope |
+| contract_status | enum | public-to-tenant | | | | | |  |
+| contract_accepted_on | date | **sensitive** | `contract` | RW | RW | R | — | write also guarded by relationship_contract_guard |
+| contract_document_id | uuid | **sensitive** | `contract` | RW | RW | R | — | write also guarded by relationship_contract_guard |
+| start_on | date | **sensitive** | `contract` | RW | RW | R | — | write also guarded by relationship_contract_guard |
+| deposit_rate | numeric | **sensitive** | `contract` | RW | RW | R | — | write also guarded by relationship_contract_guard |
+| extra_cost_rule | text | **sensitive** | `contract` | RW | RW | R | — | write also guarded by relationship_contract_guard |
 | eu_responsible_person | text | public-to-tenant | | | | | | company/IOR name, not personal |
-| restricted_drive_url | text | **sensitive** | `contract` | RW | RW | R | — | write already guarded by customer_contract_guard; reads open today |
+| restricted_drive_url | text | **sensitive** | `internal_note` | RW | RW | RW | — | OD2: an internal note |
 | notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
 | created_at | timestamptz | system | | | | | |  |
 | updated_at | timestamptz | system | | | | | |  |
 
-### customer_brand (portal table access: R own)
+### brand (tenant-level: a tenant's own brands)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | name | text | public-to-tenant | | | | | |  |
 | registration_status | text | public-to-tenant | | | | | |  |
 | brand_program_status | text | public-to-tenant | | | | | |  |
 | gs1_prefix_owner | text | public-to-tenant | | | | | |  |
 
-### customer_contact (portal table access: R own)
+### contact (tenant-level: a tenant's own contact people)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
-| name | text | **sensitive** | `personal_data` | RW | RW | RW | R | portal R = own customer contacts only |
+| name | text | **sensitive** | `personal_data` | RW | RW | RW | R |  |
 | role | text | public-to-tenant | | | | | |  |
-| email | text | **sensitive** | `personal_data` | RW | RW | RW | R | portal R = own customer contacts only |
-| phone | text | **sensitive** | `personal_data` | RW | RW | RW | R | portal R = own customer contacts only |
+| email | text | **sensitive** | `personal_data` | RW | RW | RW | R |  |
+| phone | text | **sensitive** | `personal_data` | RW | RW | RW | R |  |
 | can_approve | boolean | public-to-tenant | | | | | |  |
 
-### customer_platform_account (portal table access: R own)
+### platform_account (tenant-level: one per tenant and platform, 046)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | platform_id | text | system | | | | | | FK |
 | countries | ARRAY | public-to-tenant | | | | | |  |
 | account_holder | text | **sensitive** | `personal_data` | RW | RW | RW | R | often a person name |
 | access | enum | public-to-tenant | | | | | |  |
 | notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
-| api_connection | enum | public-to-tenant | | | | | |  |
+| api_connection | enum | public-to-tenant | | | | | | server-only writes (046/052) |
 | authorized_at | timestamptz | public-to-tenant | | | | | |  |
-| seller_id | text | system | | | | | | FK |
+| seller_id | text | public-to-tenant | | | | | |  |
 
-### customer_warehouse (portal table access: R own)
+### warehouse (tenant-level: a tenant's own warehouses)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | display_name | text | public-to-tenant | | | | | |  |
 | type | enum | public-to-tenant | | | | | |  |
 | country | text | public-to-tenant | | | | | |  |
@@ -154,13 +157,12 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | phone | text | **sensitive** | `supplier_contact` | RW | RW | RW | — | also personal data (K8) |
 | is_primary | boolean | public-to-tenant | | | | | |  |
 
-### product (portal table access: R own)
+### product (the product's owner tenant; cost, supplier and sell price are on sourcing)
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | parent_id | uuid | system | | | | | | FK |
 | sku | text | public-to-tenant | | | | | |  |
 | display_name | text | public-to-tenant | | | | | |  |
@@ -168,10 +170,7 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | category | text | public-to-tenant | | | | | |  |
 | brand | text | public-to-tenant | | | | | |  |
 | gtin | text | public-to-tenant | | | | | |  |
-| gs1_prefix_owner | text | public-to-tenant | | | | | | customer or MOESA, not supplier |
-| supplier_id | uuid | **sensitive** | `supplier_identity` | RW | RW | RW | — | FK reveals supplier |
-| supplier_product_code | text | **sensitive** | `supplier_identity` | RW | RW | RW | — | searchable on supplier sites / B2B portals = supplier identity |
-| manufacturer_art_no | text | **sensitive** | `supplier_identity` | RW | RW | RW | — | searchable on supplier sites / B2B portals = supplier identity |
+| gs1_prefix_owner | text | public-to-tenant | | | | | | the brand owner or its provider, not supplier |
 | status | enum | public-to-tenant | | | | | |  |
 | golden_sample_on | date | public-to-tenant | | | | | |  |
 | golden_sample_locations | text | public-to-tenant | | | | | | may say "at supplier X" (§3) |
@@ -192,20 +191,38 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | pallet_carton_qty | integer | public-to-tenant | | | | | |  |
 | pallet_type | text | public-to-tenant | | | | | |  |
 | lot_rule | text | public-to-tenant | | | | | |  |
-| purchase_price | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
-| purchase_currency | char | **sensitive** | `cost` | RW | RW | RW | — |  |
-| purchase_incoterm | text | **sensitive** | `cost` | RW | RW | RW | — |  |
-| landed_cost_eur | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
-| landed_cost_on | date | **sensitive** | `cost` | RW | RW | RW | — |  |
-| target_price_eur | numeric | **sensitive** | `sell_price` | RW | RW | R | R | with cost gives the margin |
-| company_price_eur | numeric | **sensitive** | `sell_price` | RW | RW | R | R | with cost gives the margin |
-| price_list_version | text | **sensitive** | `sell_price` | RW | RW | R | R | with cost gives the margin |
-| notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
+| notes | text | **sensitive** | `internal_note` | RW | RW | RW | — | the product owner's note |
 | created_at | timestamptz | system | | | | | |  |
 | updated_at | timestamptz | system | | | | | |  |
 | amazon_product_type | text | public-to-tenant | | | | | |  |
 | amazon_schema_version | text | public-to-tenant | | | | | |  |
 | listing_attributes | jsonb | public-to-tenant | | | | | |  |
+
+### sourcing (019: how a tenant buys a product, its own or a client's; lives in the buying tenant)
+
+| column | type | class | group | owner | mgmt | coord | portal | note |
+|---|---|---|---|---|---|---|---|---|
+| id | uuid | system | | | | | |  |
+| tenant_id | uuid | system | | | | | | the buying (provider) tenant |
+| client_tenant_id | uuid | system | | | | | | FK, the client whose product it is; NULL for an own product |
+| product_tenant_id | uuid | system | | | | | | = coalesce(client_tenant_id, tenant_id) |
+| product_id | uuid | system | | | | | | FK |
+| product_sku | text | public-to-tenant | | | | | | snapshot, kept when the link goes |
+| product_name | text | public-to-tenant | | | | | | snapshot, kept when the link goes |
+| supplier_id | uuid | **sensitive** | `supplier_identity` | RW | RW | RW | — | FK reveals supplier |
+| supplier_product_code | text | **sensitive** | `supplier_identity` | RW | RW | RW | — | searchable on supplier sites / B2B portals = supplier identity |
+| manufacturer_art_no | text | **sensitive** | `supplier_identity` | RW | RW | RW | — | searchable on supplier sites / B2B portals = supplier identity |
+| purchase_price | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
+| purchase_currency | char | **sensitive** | `cost` | RW | RW | RW | — |  |
+| purchase_incoterm | text | **sensitive** | `cost` | RW | RW | RW | — |  |
+| landed_cost_eur | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
+| landed_cost_on | date | **sensitive** | `cost` | RW | RW | RW | — |  |
+| target_price_eur | numeric | **sensitive** | `cost` | RW | RW | RW | — | OD2: the target price is cost |
+| sell_price_eur | numeric | **sensitive** | `sell_price` | RW | RW | R | R | the provider's price to the client; with cost gives the margin |
+| price_list_version | text | **sensitive** | `sell_price` | RW | RW | R | R | with cost gives the margin |
+| notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
+| created_at | timestamptz | system | | | | | |  |
+| updated_at | timestamptz | system | | | | | |  |
 
 ### project (portal table access: R own)
 
@@ -213,7 +230,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | code | text | public-to-tenant | | | | | |  |
 | display_name | text | public-to-tenant | | | | | |  |
 | type | enum | public-to-tenant | | | | | |  |
@@ -281,9 +297,11 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
+| client_tenant_id | uuid | system | | | | | | FK, the client the order is for; NULL for an own order |
 | supplier_id | uuid | **sensitive** | `supplier_identity` | RW | RW | RW | — | FK reveals supplier |
 | project_id | uuid | system | | | | | | FK |
+| project_tenant_id | uuid | system | | | | | | = coalesce(client_tenant_id, tenant_id) |
+| project_code | text | public-to-tenant | | | | | | snapshot |
 | code | text | public-to-tenant | | | | | |  |
 | status | enum | public-to-tenant | | | | | |  |
 | currency | char | public-to-tenant | | | | | | currency alone reveals nothing |
@@ -316,13 +334,17 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
 | purchase_order_id | uuid | system | | | | | | FK |
-| customer_id | uuid | system | | | | | | FK |
+| client_tenant_id | uuid | system | | | | | | FK, inherited from the order |
 | position | integer | system | | | | | |  |
 | product_id | uuid | system | | | | | | FK |
+| product_tenant_id | uuid | system | | | | | | = coalesce(client_tenant_id, tenant_id) |
+| product_sku | text | public-to-tenant | | | | | | snapshot, kept when the link goes |
+| product_name | text | public-to-tenant | | | | | | snapshot, kept when the link goes |
 | quantity | integer | public-to-tenant | | | | | |  |
 | unit_price | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
 | line_total | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
 | pi_line_total | numeric | **sensitive** | `cost` | RW | RW | RW | — |  |
+| sell_price_eur | numeric | **sensitive** | `sell_price` | RW | RW | R | R | defaults from the sourcing row's sell price |
 | spec_document_id | uuid | system | | | | | | FK |
 | notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
 | created_at | timestamptz | system | | | | | |  |
@@ -364,7 +386,7 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
+| client_tenant_id | uuid | system | | | | | | FK, the client the shipment is for; NULL for an own shipment |
 | code | text | public-to-tenant | | | | | |  |
 | status | enum | public-to-tenant | | | | | |  |
 | mode | enum | public-to-tenant | | | | | |  |
@@ -438,7 +460,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | shipment_id | uuid | system | | | | | | FK |
 | purchase_order_id | uuid | system | | | | | | FK reveals PO (and via PO the supplier) |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | created_at | timestamptz | system | | | | | |  |
 
 ### market_cell (portal table access: R own)
@@ -447,7 +468,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | product_id | uuid | system | | | | | | FK |
 | project_id | uuid | system | | | | | | FK |
 | platform_id | text | system | | | | | | FK |
@@ -499,7 +519,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | code | text | public-to-tenant | | | | | |  |
 | family | enum | public-to-tenant | | | | | |  |
 | incident_type | text | public-to-tenant | | | | | |  |
@@ -569,7 +588,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | code | text | public-to-tenant | | | | | |  |
 | project_id | uuid | system | | | | | | FK |
 | title | text | public-to-tenant | | | | | |  |
@@ -606,7 +624,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | change_request_id | uuid | system | | | | | | FK |
 | product_id | uuid | system | | | | | | FK |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | created_at | timestamptz | system | | | | | |  |
 
 ### document (portal table access: R own, row-filtered by type/entity)
@@ -615,7 +632,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | entity_type | enum | public-to-tenant | | | | | | see entity_id |
 | entity_id | uuid | system | | | | | | polymorphic FK: a document on a supplier/PO entity is itself sensitive (row rule, §2) |
 | type | enum | public-to-tenant | | | | | | PI / supplier contract / price list types must be row-filtered (§2) |
@@ -639,7 +655,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 |---|---|---|---|---|---|---|---|---|
 | id | uuid | system | | | | | |  |
 | tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
 | storage_path | text | public-to-tenant | | | | | |  |
 | thumbnail_path | text | public-to-tenant | | | | | |  |
 | file_name | text | public-to-tenant | | | | | |  |
@@ -665,30 +680,6 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | entity_id | uuid | system | | | | | | polymorphic FK: media linked to supplier/PO (row rule, §2) |
 | role | enum | public-to-tenant | | | | | |  |
 | position | integer | system | | | | | |  |
-| created_at | timestamptz | system | | | | | |  |
-| updated_at | timestamptz | system | | | | | |  |
-
-### transfer (portal table access: none)
-
-| column | type | class | group | owner | mgmt | coord | portal | note |
-|---|---|---|---|---|---|---|---|---|
-| id | uuid | system | | | | | |  |
-| tenant_id | uuid | system | | | | | |  |
-| source_tenant_id | uuid | system | | | | | |  |
-| customer_id | uuid | system | | | | | | FK |
-| target_customer_id | uuid | system | | | | | | FK |
-| product_ids | ARRAY | system | | | | | | FK |
-| mode | text | public-to-tenant | | | | | |  |
-| path | text | public-to-tenant | | | | | |  |
-| started_by | uuid | public-to-tenant | | | | | |  |
-| report | jsonb | public-to-tenant | | | | | | copies of moved rows incl. cost; table-level owner/management only (§2) |
-| decisions | jsonb | public-to-tenant | | | | | | table-level gated (§2) |
-| id_map | jsonb | public-to-tenant | | | | | | table-level gated |
-| files | jsonb | public-to-tenant | | | | | | table-level gated |
-| files_status | text | public-to-tenant | | | | | |  |
-| missing_files | ARRAY | public-to-tenant | | | | | |  |
-| audit_transaction_ids | ARRAY | system | | | | | | FK |
-| xact_id | xid8 | system | | | | | |  |
 | created_at | timestamptz | system | | | | | |  |
 | updated_at | timestamptz | system | | | | | |  |
 
