@@ -60,6 +60,7 @@ App: `app/src/api/company/` (new, replaces `api/customer/`), `app/src/api/relati
     Constraints: `UNIQUE (id, tenant_id)`, `UNIQUE (tenant_id, client_tenant_id)` (the composite target later FKs use), `UNIQUE (tenant_id, client_code)`, `CHECK (tenant_id <> client_tenant_id)`, `CHECK ((status = 'ended') = (ended_at IS NOT NULL))`, FK `(contract_document_id, tenant_id) → document(id, tenant_id)`.
   - Trigger `private.provider_relationship_guard()` BEFORE UPDATE: `tenant_id`, `client_tenant_id`, `accepted_at` immutable (`relationship_immutable`); `status` only `active → ended` (`relationship_ended_final`), setting `ended_at := now()`; `client_code` immutable once any row uses it in `public.code_sequence` scope (`client_code_immutable`, replaces `private.customer_code_immutable`). `private.customer_contract_guard` keeps its rule on the new columns, renamed `private.relationship_contract_guard`.
   - `private.relationship_allows(p_provider UUID, p_client UUID, p_new BOOLEAN) RETURNS BOOLEAN` STABLE SECURITY DEFINER: `p_client IS NULL` → TRUE; else a row `(tenant_id = p_provider, client_tenant_id = p_client)` exists and, when `p_new`, `status = 'active' AND procurement_model = 'provider'`.
+  - `private.relationship_status(p_provider UUID, p_client UUID) RETURNS public.relationship_status` STABLE SECURITY DEFINER: the pair's status, NULL when there is none.
   - `public.end_provider_relationship(relationship_id UUID) RETURNS public.provider_relationship` SECURITY DEFINER: allowed for a caller holding `update` on `public.provider_relationship` in the provider tenant (`private.tenants_permitting(auth.uid(), ARRAY[tenant_id], 'public.provider_relationship', 'update')`) or owning the client company (`private.owns_company(auth.uid(), client_tenant_id)`); else 42501 `relationship_end_forbidden`. Sets `status = 'ended'`. Ending touches no membership and moves no row.
   - INSERT into `provider_relationship` is not granted to `authenticated` (no `insert` permission row): rows come from invitation acceptance (Plan 3) or the seed. DELETE is refused by the FKs of Task 5/6 while any row names the pair.
   - Tables `public.brand`, `public.contact`, `public.warehouse`: the columns of `customer_brand`, `customer_contact`, `customer_warehouse` without `customer_id`; each `UNIQUE (id, tenant_id)`; `warehouse` partial unique index `warehouse_one_default ON warehouse (tenant_id) WHERE is_default`.
@@ -119,7 +120,13 @@ Fixture: two provider-procures clients and one client-procures client of one pro
 ```text
 target_tenant := coalesce(NEW.client_tenant_id, NEW.tenant_id)
 if NEW.client_tenant_id IS NOT NULL and not private.rules_bypassed():
-    if not private.relationship_allows(NEW.tenant_id, NEW.client_tenant_id, TRUE):
+    if TG_OP = 'INSERT' and TG_TABLE_NAME in ('purchase_order', 'shipment', 'sourcing'):
+        -- a new root row naming the client: active and provider-procures
+        if not private.relationship_allows(NEW.tenant_id, NEW.client_tenant_id, TRUE):
+            raise check_violation 'relationship_inactive'
+    elif private.relationship_status(NEW.tenant_id, NEW.client_tenant_id) IS DISTINCT FROM 'active':
+        -- a child of an existing shared row, or a changed link: the relationship must still be active
+        -- (after a switch to client-procures the provider may finish its open orders; after the end, nothing changes)
         raise check_violation 'relationship_inactive'
     if NEW.client_tenant_id <> ALL (private.tenants_permitting(auth.uid(), ARRAY[NEW.client_tenant_id], <resource>, 'select')):
         raise check_violation 'client_link_forbidden'      -- same message whether or not the id exists
