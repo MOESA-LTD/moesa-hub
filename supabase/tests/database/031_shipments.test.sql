@@ -74,6 +74,10 @@ INSERT INTO public.user_role (user_id, role_id) VALUES
    ('00000000-0000-4000-8000-000000003111', '00000000-0000-4000-8000-000000003131'),
    ('00000000-0000-4000-8000-000000003112', '00000000-0000-4000-8000-000000003132');
 
+-- Every field right of the tables each role holds (049, R1), so a refusal below is the rule tested
+-- and not a missing field right.
+SELECT private.grant_all_fields(r) FROM unnest(ARRAY['00000000-0000-4000-8000-000000003131', '00000000-0000-4000-8000-000000003132']::UUID[]) AS r;
+
 INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
    ('00000000-0000-4000-8000-000000003121', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003102',
     'THO', 'Thor Trading', 'provider'),
@@ -129,16 +133,16 @@ VALUES ('00000000-0000-4000-8000-000000003158', '00000000-0000-4000-8000-0000000
         '00000000-0000-4000-8000-000000003161', 'FORGED', '00000000-0000-4000-8000-000000003101');
 
 -- Codes and the delivery snapshot.
-SELECT is((SELECT code FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003151'),
+SELECT is((SELECT code FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003151'),
           'SHP-THO-' || extract(year FROM now())::INT || '-001', 'a client shipment''s code comes from next_code under the client_code');
-SELECT is((SELECT code FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003157'),
+SELECT is((SELECT code FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003157'),
           'SHP-PRV-' || extract(year FROM now())::INT || '-001', 'an own shipment''s code comes from next_code under the tenant''s code');
-SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003151'),
+SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003151'),
           '00000000-0000-4000-8000-000000003102|Rosbach, Industriestr. 1, 61191, Rosbach, DE',
           'a client shipment to a client warehouse snapshots its delivery address');
-SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003157'),
+SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003157'),
           '00000000-0000-4000-8000-000000003101|Provider WH, Istanbul, TR', 'an own shipment goes to an own warehouse');
-SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003158'),
+SELECT is((SELECT warehouse_tenant_id || '|' || delivery_address FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003158'),
           '00000000-0000-4000-8000-000000003102|Rosbach, Industriestr. 1, 61191, Rosbach, DE',
           'the address and the warehouse tenant sent with a shipment are not stored');
 
@@ -183,12 +187,12 @@ SELECT throws_ok($$ INSERT INTO api.shipment_purchase_order (shipment_id, purcha
                  '23514', 'client_mismatch', 'not a client order on an own shipment');
 SELECT lives_ok($$ INSERT INTO api.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id, client_tenant_id) VALUES ('00000000-0000-4000-8000-000000003151', '00000000-0000-4000-8000-000000003191', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003103') $$,
                 'an approved order of the shipment''s client is linked');
-SELECT is((SELECT client_tenant_id FROM public.shipment_purchase_order WHERE shipment_id = '00000000-0000-4000-8000-000000003151'),
+SELECT is((SELECT client_tenant_id FROM api.shipment_purchase_order WHERE shipment_id = '00000000-0000-4000-8000-000000003151'),
           '00000000-0000-4000-8000-000000003102'::UUID, 'the link takes the shipment''s client whatever is sent');
 SELECT throws_ok($$ INSERT INTO api.shipment_line (id, tenant_id, shipment_id, purchase_order_id, purchase_order_line_id, quantity) VALUES ('00000000-0000-4000-8000-000000003170', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003151', '00000000-0000-4000-8000-000000003192', '00000000-0000-4000-8000-000000003145', 1) $$,
                  '23503', NULL, 'a line needs its order on the shipment');
 SELECT lives_ok($$ INSERT INTO api.shipment_line (id, tenant_id, shipment_id, purchase_order_id, purchase_order_line_id, quantity, client_tenant_id) VALUES ('00000000-0000-4000-8000-000000003171', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003151', '00000000-0000-4000-8000-000000003191', '00000000-0000-4000-8000-000000003144', 1000, NULL) $$, 'the ordered quantity');
-SELECT is((SELECT client_tenant_id FROM public.shipment_line WHERE id = '00000000-0000-4000-8000-000000003171'),
+SELECT is((SELECT client_tenant_id FROM api.shipment_line WHERE id = '00000000-0000-4000-8000-000000003171'),
           '00000000-0000-4000-8000-000000003102'::UUID, 'a line takes the shipment''s client whatever is sent');
 
 INSERT INTO api.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id) VALUES ('00000000-0000-4000-8000-000000003152', '00000000-0000-4000-8000-000000003191', '00000000-0000-4000-8000-000000003101');
@@ -229,7 +233,7 @@ SELECT throws_ok($$ UPDATE api.shipment SET status = 'delivered' WHERE id = '000
 
 UPDATE api.shipment SET status = 'delivered', delivered_at = '2027-01-10 10:00+00' WHERE id = '00000000-0000-4000-8000-000000003151';
 
-SELECT is((SELECT dispute_deadline_at FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), '2027-01-12 10:00+00'::TIMESTAMPTZ,
+SELECT is((SELECT dispute_deadline_at FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), '2027-01-12 10:00+00'::TIMESTAMPTZ,
           'the supplier''s 48 hours to report damage');
 SELECT throws_ok($$ UPDATE api.shipment SET status = 'accepted' WHERE id = '00000000-0000-4000-8000-000000003151' $$,
                  '23514', 'shipment_delivery_receipt_required', 'acceptance needs the delivery receipt (G5)');
@@ -245,19 +249,19 @@ UPDATE api.shipment SET status = 'disputed' WHERE id = '00000000-0000-4000-8000-
 
 SELECT lives_ok($$ UPDATE api.shipment SET status = 'accepted' WHERE id = '00000000-0000-4000-8000-000000003151' $$,
                 'a settled dispute is accepted with the damage it records');
-SELECT is((SELECT has_damage FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), TRUE,
+SELECT is((SELECT has_damage FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), TRUE,
           'the damage stays on record');
-SELECT is((SELECT accepted_on FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), current_date,
+SELECT is((SELECT accepted_on FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003151'), current_date,
           'acceptance is dated today by default');
 SELECT throws_ok($$ UPDATE api.shipment SET status = 'disputed' WHERE id = '00000000-0000-4000-8000-000000003151' $$,
                  '23514', 'shipment_status_order', 'accepted is final');
 SELECT is((SELECT purchase_order_codes FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000003151'),
-          ARRAY[(SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000003191')],
+          ARRAY[(SELECT code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000003191')],
           'the overview names the shipment''s orders');
 SELECT is((SELECT product_ids FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000003151'),
           ARRAY['00000000-0000-4000-8000-000000003141'::UUID], 'the overview lists the products of its lines');
 SELECT is((SELECT psi_missing_po_codes FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000003151'),
-          ARRAY[(SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000003191')],
+          ARRAY[(SELECT code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000003191')],
           'an order without an approved PSI is a warning');
 
 INSERT INTO api.document (tenant_id, entity_type, entity_id, type, status, url)
@@ -293,7 +297,7 @@ SELECT throws_ok($$ UPDATE api.shipment SET code = 'SHP-X' WHERE id = '00000000-
 INSERT INTO api.shipment (id, tenant_id, client_tenant_id, mode, delivery_warehouse_id, status)
 VALUES ('00000000-0000-4000-8000-000000003155', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003102', 'road', '00000000-0000-4000-8000-000000003161', 'accepted');
 
-SELECT is((SELECT status FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003155'), 'planned'::public.shipment_status,
+SELECT is((SELECT status FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003155'), 'planned'::public.shipment_status,
           'a new shipment is planned whatever the client sends');
 SELECT throws_ok($$ DELETE FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                  '42501', NULL, 'shipments are cancelled, not deleted');
@@ -304,7 +308,7 @@ SELECT throws_ok($$ INSERT INTO api.shipment_event (tenant_id, shipment_id, step
 INSERT INTO api.shipment_event (id, tenant_id, shipment_id, step, note, client_tenant_id) VALUES
    ('00000000-0000-4000-8000-000000003178', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003153', 3, 'booking requested', '00000000-0000-4000-8000-000000003103'),
    ('00000000-0000-4000-8000-000000003179', '00000000-0000-4000-8000-000000003101', '00000000-0000-4000-8000-000000003157', 3, 'booking requested', '00000000-0000-4000-8000-000000003102');
-SELECT is((SELECT array_agg(coalesce(client_tenant_id::TEXT, 'none') ORDER BY id) FROM public.shipment_event
+SELECT is((SELECT array_agg(coalesce(client_tenant_id::TEXT, 'none') ORDER BY id) FROM api.shipment_event
            WHERE id IN ('00000000-0000-4000-8000-000000003178', '00000000-0000-4000-8000-000000003179')),
           ARRAY['00000000-0000-4000-8000-000000003102', 'none'], 'an event takes its shipment''s client whatever is sent');
 SELECT throws_ok($$ UPDATE api.shipment_event SET shipment_id = '00000000-0000-4000-8000-000000003157' WHERE id = '00000000-0000-4000-8000-000000003178' $$,
@@ -316,18 +320,18 @@ SELECT throws_ok($$ UPDATE api.shipment_line SET client_tenant_id = NULL WHERE i
 SELECT set_config('request.headers', json_build_object(
     'x-tenant-id', '00000000-0000-4000-8000-000000003101',
     'x-tenant-ids', '00000000-0000-4000-8000-000000003101,00000000-0000-4000-8000-000000003106')::TEXT, TRUE);
-SELECT throws_ok($$ UPDATE api.shipment SET tenant_id = '00000000-0000-4000-8000-000000003106' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
-                 '23514', 'client_tenant_immutable', 'a shipment naming a client cannot move to another tenant');
+SELECT throws_matching($$ UPDATE api.shipment SET tenant_id = '00000000-0000-4000-8000-000000003106' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
+                 '^(client_tenant_immutable|tenant_move_forbidden)$', 'a shipment naming a client cannot move to another tenant');
 RESET ROLE;
 SELECT private.impersonate('00000000-0000-4000-8000-000000003111', '00000000-0000-4000-8000-000000003101');
 
 UPDATE api.shipment SET delivery_address = 'FORGED' WHERE id = '00000000-0000-4000-8000-000000003154';
-SELECT is((SELECT delivery_address FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003154'),
+SELECT is((SELECT delivery_address FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003154'),
           'Rosbach, Industriestr. 1, 61191, Rosbach, DE', 'the address is not forged while the warehouse is kept');
 SELECT throws_ok($$ UPDATE api.shipment SET delivery_warehouse_id = NULL WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                  '23514', 'shipment_warehouse_required', 'a shipment''s warehouse is not emptied while it exists');
 UPDATE api.shipment SET delivery_warehouse_id = '00000000-0000-4000-8000-000000003165' WHERE id = '00000000-0000-4000-8000-000000003154';
-SELECT is((SELECT delivery_address FROM public.shipment WHERE id = '00000000-0000-4000-8000-000000003154'),
+SELECT is((SELECT delivery_address FROM api.shipment WHERE id = '00000000-0000-4000-8000-000000003154'),
           'Hamburg, Hamburg, DE', 'another warehouse of the client brings its address');
 SELECT throws_ok($$ UPDATE api.shipment SET delivery_warehouse_id = '00000000-0000-4000-8000-000000003163' WHERE id = '00000000-0000-4000-8000-000000003154' $$,
                  '23514', 'client_link_forbidden', 'a client shipment does not go to the provider''s warehouse');

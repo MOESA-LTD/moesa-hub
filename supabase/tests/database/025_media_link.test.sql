@@ -40,6 +40,10 @@ WHERE (p.resource_name IN ('public.product', 'public.supplier') AND p.command IN
 INSERT INTO public.user_role (user_id, role_id)
 VALUES ('00000000-0000-4000-8000-000000000304', '00000000-0000-4000-8000-000000000305');
 
+-- The field rights a role gets for the tables it holds (049, R1): reading a supplier's file links
+-- needs supplier_identity (060).
+SELECT private.grant_all_fields('00000000-0000-4000-8000-000000000305');
+
 SELECT set_config('test.moesa', '00000000-0000-4000-8000-000000000301', TRUE);
 SELECT set_config('test.atlas', '00000000-0000-4000-8000-000000000302', TRUE);
 SELECT set_config('test.koordinator', '00000000-0000-4000-8000-000000000304', TRUE);

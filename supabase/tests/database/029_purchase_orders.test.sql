@@ -69,6 +69,10 @@ INSERT INTO public.user_role (user_id, role_id) VALUES
    ('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002931'),
    ('00000000-0000-4000-8000-000000002912', '00000000-0000-4000-8000-000000002932');
 
+-- Every field right of the tables each role holds (049, R1), so a refusal below is the rule tested
+-- and not a missing field right.
+SELECT private.grant_all_fields(r) FROM unnest(ARRAY['00000000-0000-4000-8000-000000002931', '00000000-0000-4000-8000-000000002932']::UUID[]) AS r;
+
 INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
    ('00000000-0000-4000-8000-000000002921', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002902',
     'THO', 'Thor Trading', 'provider'),
@@ -127,9 +131,9 @@ SELECT pg_temp.exec(format($$
     VALUES ('00000000-0000-4000-8000-000000002951', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002981', 'USD', 'X')
 $$, pg_temp.rel('purchase_order')));
 
-SELECT is((SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'),
+SELECT is((SELECT code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'),
           'PO-PRV-' || extract(year FROM now())::INT || '-001', 'the code of an own order comes from next_code under the tenant''s code');
-SELECT is((SELECT incoterm || ':' || deposit_rate FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'),
+SELECT is((SELECT incoterm || ':' || deposit_rate FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'),
           'EXW:30.00', 'incoterm and deposit come from the supplier');
 
 RESET ROLE;
@@ -141,7 +145,7 @@ SELECT pg_temp.exec(format($$
     VALUES ('00000000-0000-4000-8000-000000002952', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002982', 'USD', 'FOB')
 $$, pg_temp.rel('purchase_order')));
 
-SELECT is((SELECT deposit_rate FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002952'), 25.00::NUMERIC(5,2),
+SELECT is((SELECT deposit_rate FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002952'), 25.00::NUMERIC(5,2),
           'without a supplier deposit, the company setting');
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, supplier_id, currency)
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002982', 'USD') $$, pg_temp.rel('purchase_order')),
@@ -162,7 +166,7 @@ SELECT pg_temp.exec(format($$
             '00000000-0000-4000-8000-000000002945', 3, 1.9)
 $$, pg_temp.rel('purchase_order_line')));
 
-SELECT is((SELECT line_total::TEXT || ':' || (client_tenant_id IS NULL) || ':' || product_sku FROM public.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000002961'),
+SELECT is((SELECT line_total::TEXT || ':' || (client_tenant_id IS NULL) || ':' || product_sku FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000002961'),
           '5.7000:true:PRV-001', 'the line total is computed; a line of an own order names no client and snapshots its product');
 SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product_id, quantity, unit_price)
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002951', '00000000-0000-4000-8000-000000002944', 1, 1) $$,
@@ -194,7 +198,7 @@ SELECT pg_temp.exec(format($$
     INSERT INTO %s (id, tenant_id, supplier_id, currency, project_code)
     VALUES ('00000000-0000-4000-8000-000000002955', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002981', 'USD', 'FORGED')
 $$, pg_temp.rel('purchase_order')));
-SELECT is((SELECT project_code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002955'), NULL,
+SELECT is((SELECT project_code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002955'), NULL,
           'a project code sent without a project is not stored');
 
 -- The project is chosen while the order is a draft.
@@ -205,8 +209,8 @@ SELECT set_config('moesa.rules_bypass', '', TRUE);
 SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002901');
 SELECT throws_ok(format($$ UPDATE %s SET project_id = '00000000-0000-4000-8000-000000002972' WHERE id = '00000000-0000-4000-8000-000000002955' $$, pg_temp.rel('purchase_order')),
                  '23514', 'po_project_locked', 'an order past draft cannot be pointed at a project');
-SELECT is((SELECT last_po_code FROM public.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000002945'),
-          (SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'), 'the product shows its last order');
+SELECT is((SELECT last_po_code FROM api.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000002945'),
+          (SELECT code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002951'), 'the product shows its last order');
 
 -- A provider order for a client tenant.
 SELECT lives_ok(format($$ INSERT INTO %s (id, tenant_id, client_tenant_id, supplier_id, currency)
@@ -221,12 +225,12 @@ SELECT throws_ok(format($$ INSERT INTO %s (tenant_id, client_tenant_id, supplier
                     VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002904', '00000000-0000-4000-8000-000000002981', 'USD') $$,
                         pg_temp.rel('purchase_order')),
                  '23514', 'relationship_inactive', 'no order for a tenant without relationship');
-SELECT matches((SELECT code FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000002953'), '^PO-THO-', 'code scoped by client_code');
+SELECT matches((SELECT code FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000002953'), '^PO-THO-', 'code scoped by client_code');
 SELECT lives_ok(format($$ INSERT INTO %s (tenant_id, purchase_order_id, product_id, quantity, unit_price)
                    VALUES ('00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002953', '00000000-0000-4000-8000-000000002941', 100, 2.5) $$,
                        pg_temp.rel('purchase_order_line')),
                 'line on a client product');
-SELECT results_eq($$ SELECT client_tenant_id, product_sku, sell_price_eur FROM public.purchase_order_line WHERE purchase_order_id = '00000000-0000-4000-8000-000000002953' $$,
+SELECT results_eq($$ SELECT client_tenant_id, product_sku, sell_price_eur FROM api.purchase_order_line WHERE purchase_order_id = '00000000-0000-4000-8000-000000002953' $$,
                   $$ VALUES ('00000000-0000-4000-8000-000000002902'::UUID, 'THO-MOP', 9.90::NUMERIC(12,2)) $$,
                   'line inherits client, snapshots sku, defaults sell price from sourcing');
 SELECT throws_ok(format($$ UPDATE %s SET client_tenant_id = '00000000-0000-4000-8000-000000002903' WHERE id = '00000000-0000-4000-8000-000000002953' $$, pg_temp.rel('purchase_order')),
@@ -256,7 +260,7 @@ SELECT lives_ok(format($$ INSERT INTO %s (id, tenant_id, client_tenant_id, purch
                    VALUES ('00000000-0000-4000-8000-000000002962', '00000000-0000-4000-8000-000000002901', '00000000-0000-4000-8000-000000002903',
                            '00000000-0000-4000-8000-000000002953', '00000000-0000-4000-8000-000000002942', 5, 1) $$, pg_temp.rel('purchase_order_line')),
                 'a line naming another client is accepted');
-SELECT is((SELECT client_tenant_id FROM public.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000002962'),
+SELECT is((SELECT client_tenant_id FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000002962'),
           '00000000-0000-4000-8000-000000002902'::UUID, 'and takes the order''s client instead');
 SELECT throws_ok(format($$ UPDATE %s SET client_tenant_id = NULL WHERE id = '00000000-0000-4000-8000-000000002962' $$, pg_temp.rel('purchase_order_line')),
                  '23514', 'client_tenant_immutable', 'a line''s client cannot change');
@@ -265,10 +269,10 @@ SELECT throws_ok(format($$ UPDATE %s SET client_tenant_id = NULL WHERE id = '000
 SELECT set_config('request.headers', json_build_object(
     'x-tenant-id', '00000000-0000-4000-8000-000000002901',
     'x-tenant-ids', '00000000-0000-4000-8000-000000002901,00000000-0000-4000-8000-000000002906')::TEXT, TRUE);
-SELECT throws_ok(format($$ UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000002906' WHERE id = '00000000-0000-4000-8000-000000002953' $$, pg_temp.rel('purchase_order')),
-                 '23514', 'client_tenant_immutable', 'an order naming a client cannot move to another tenant');
-SELECT throws_ok(format($$ UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000002906' WHERE id = '00000000-0000-4000-8000-000000002962' $$, pg_temp.rel('purchase_order_line')),
-                 '23514', 'client_tenant_immutable', 'a line naming a client cannot move to another tenant');
+SELECT throws_matching(format($$ UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000002906' WHERE id = '00000000-0000-4000-8000-000000002953' $$, pg_temp.rel('purchase_order')),
+                 '^(client_tenant_immutable|tenant_move_forbidden)$', 'an order naming a client cannot move to another tenant');
+SELECT throws_matching(format($$ UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000002906' WHERE id = '00000000-0000-4000-8000-000000002962' $$, pg_temp.rel('purchase_order_line')),
+                 '^(client_tenant_immutable|tenant_move_forbidden)$', 'a line naming a client cannot move to another tenant');
 RESET ROLE;
 SELECT private.impersonate('00000000-0000-4000-8000-000000002911', '00000000-0000-4000-8000-000000002901');
 

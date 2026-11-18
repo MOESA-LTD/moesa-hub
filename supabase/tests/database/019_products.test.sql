@@ -355,13 +355,13 @@ SELECT set_config('request.headers', json_build_object(
     'x-tenant-id', '00000000-0000-4000-8000-000000001901',
     'x-tenant-ids', '00000000-0000-4000-8000-000000001901,00000000-0000-4000-8000-000000001903')::TEXT, TRUE);
 
-SELECT throws_ok(
+SELECT throws_matching(
     format($$
         UPDATE %s SET tenant_id = '00000000-0000-4000-8000-000000001903'
         WHERE product_id = '00000000-0000-4000-8000-000000001941'
     $$, pg_temp.rel('sourcing')),
-    '23514',
-    'client_tenant_immutable',
+    -- After 051 the generic tenant move guard (aa_field_write_guard) refuses first.
+    '^(client_tenant_immutable|tenant_move_forbidden)$',
     'a row naming a client cannot move to another tenant'
 );
 
