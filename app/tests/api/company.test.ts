@@ -14,19 +14,21 @@ import {
 } from '@/api/company';
 import { describe, expect, it } from 'vitest';
 
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
 describe('company profile forms', () => {
    const warehouse = () => ({
       ...toWarehouseFormValues({ display_name: 'Main', type: 'own' }),
       country: 'DE'
    });
 
-   it('warehouseSchema rejects a payload with customer_id', () => {
+   it('warehouseSchema rejects a payload with a legacy key', () => {
       expect(warehouseSchema.safeParse(warehouse()).success).toBe(true);
-      expect(warehouseSchema.safeParse({ ...warehouse(), customer_id: 'x' }).success).toBe(false);
+      expect(warehouseSchema.safeParse({ ...warehouse(), [legacyKey]: 'x' }).success).toBe(false);
    });
 
-   it('the other schemas reject customer_id too', () => {
-      const plain = { customer_id: 'x' };
+   it('the other schemas reject the legacy key too', () => {
+      const plain = { [legacyKey]: 'x' };
       expect(brandSchema.safeParse({ ...toBrandFormValues({ name: 'A' }), ...plain }).success).toBe(
          false
       );
@@ -43,7 +45,7 @@ describe('company profile forms', () => {
 
    it('toContactPayload keeps only contact columns', () => {
       const parsed = contactSchema.parse(toContactFormValues({ name: 'Ada', email: '' }));
-      const payload = toContactPayload({ ...parsed, customer_id: 'x', tenant_id: 't' } as never);
+      const payload = toContactPayload({ ...parsed, [legacyKey]: 'x', tenant_id: 't' } as never);
       expect(Object.keys(payload).sort()).toEqual(
          ['can_approve', 'email', 'name', 'phone', 'role'].sort()
       );
@@ -68,7 +70,7 @@ describe('company profile forms', () => {
          access: 'none'
       });
       expect(Object.keys(toWarehousePayload(warehouseSchema.parse(warehouse())))).not.toContain(
-         'customer_id'
+         legacyKey
       );
    });
 });

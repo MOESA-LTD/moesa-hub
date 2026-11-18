@@ -90,7 +90,7 @@ VALUES
    ('public.save_role(jsonb, uuid[], jsonb)', '009', '050',
     ARRAY['role not found', 'DELETE FROM public.role_permission', 'field_grant_exceeds_own', 'private.save_role_field_rights']),
    ('public.my_access(uuid)', '011', '050',
-    ARRAY['''permissions''', '''subscription''', '''is_super_admin''', '''fields''', 'private.field_rights(uid, tenant)']),
+    ARRAY['''permissions''', '''subscription''', '''is_super_admin''', '''fields''', '''code'', t.code', 'private.field_rights(uid, tenant)']),
    ('private.notify_access_changed()', '011', '050',
     ARRAY['public.tenant_owner o', 'TG_TABLE_NAME IN (''role_permission'', ''role_field_permission'')']);
 

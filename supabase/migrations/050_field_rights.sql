@@ -480,6 +480,7 @@ BEGIN
     SELECT coalesce(jsonb_agg(jsonb_build_object(
         'id', t.id,
         'display_name', t.display_name,
+        'code', t.code,
         -- Its own logo, else the nearest tenant's above it (branches show the company's), also
         -- when the user may not use that tenant.
         'logo_path', (

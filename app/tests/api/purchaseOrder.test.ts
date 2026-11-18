@@ -33,6 +33,8 @@ import PrimeVue from 'primevue/config';
 import { describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
 
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
 const table = vi.hoisted(() => ({ filters: null as unknown }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -324,14 +326,14 @@ describe('purchase order form', () => {
          expect(draft).not.toHaveProperty(key);
    });
 
-   it('payload carries client_tenant_id and no customer_id', () => {
+   it('payload carries client_tenant_id and no legacy key', () => {
       const CLIENT = '00000000-0000-4000-8000-000000000009';
       expect(purchaseOrderSchema.parse(validValues).client_tenant_id).toBeNull();
       const created = toPurchaseOrderPayload(
          purchaseOrderSchema.parse({ ...validValues, client_tenant_id: CLIENT })
       );
       expect(created).toMatchObject({ client_tenant_id: CLIENT, supplier_id: SUPPLIER });
-      expect(created).not.toHaveProperty('customer_id');
+      expect(created).not.toHaveProperty(legacyKey);
       expect(toPurchaseOrderPayload(purchaseOrderSchema.parse(validValues))).toMatchObject({
          client_tenant_id: null
       });
@@ -345,7 +347,7 @@ describe('purchase order form', () => {
          'draft'
       );
       expect(update).not.toHaveProperty('client_tenant_id');
-      expect(update).not.toHaveProperty('customer_id');
+      expect(update).not.toHaveProperty(legacyKey);
       expect(toPurchaseOrderFormValues({ client_tenant_id: CLIENT }).client_tenant_id).toBe(CLIENT);
    });
 

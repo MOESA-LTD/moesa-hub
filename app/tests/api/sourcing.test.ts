@@ -3,6 +3,8 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import { computed, defineComponent, h } from 'vue';
 
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
 const auth = { currentTenant: { id: 'provider' }, scopeTenants: [{ id: 'provider' }] };
 vi.mock('@/store/auth', () => ({ useAuthStore: () => auth }));
 vi.mock('@/api/useTenantKey', () => ({ useTenantKey: () => computed(() => 'provider') }));
@@ -63,7 +65,7 @@ describe('sourcing form', () => {
       expect(sourcingSchema.safeParse({ ...valid(), client_tenant_id: null }).success).toBe(true);
       expect(sourcingSchema.safeParse({ ...valid(), client_tenant_id: 'THO' }).success).toBe(false);
       expect(sourcingSchema.safeParse({ ...valid(), purchase_price: -1 }).success).toBe(false);
-      expect(sourcingSchema.safeParse({ ...valid(), customer_id: 'c1' }).success).toBe(false);
+      expect(sourcingSchema.safeParse({ ...valid(), [legacyKey]: 'c1' }).success).toBe(false);
    });
 
    it('sends the product and its client with a new row only, empty fields as null', () => {

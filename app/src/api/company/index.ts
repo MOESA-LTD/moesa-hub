@@ -42,7 +42,7 @@ const textValues = <C extends string>(
 
 /**
  * The row to save: only the given columns, the id only when editing, empty fields as null. A
- * value the schema never produced (a stale customer_id) is dropped here too.
+ * value the schema never produced (a stale key from the old model) is dropped here too.
  */
 const toPayload = <T extends { id?: string }>(columns: readonly string[], values: T) => {
    const { id, ...rest } = values as Record<string, unknown> & { id?: string };

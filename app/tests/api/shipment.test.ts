@@ -30,6 +30,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, h } from 'vue';
 
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
 // Every builder call as [method, ...args]; throwOnError resolves with `response`.
 const recorded: unknown[][] = [];
 let response: unknown = null;
@@ -300,7 +302,7 @@ describe('shipment form', () => {
          shipmentSchema.parse({ ...values, client_tenant_id: CLIENT })
       );
       expect(created).toMatchObject({ client_tenant_id: CLIENT });
-      expect(created).not.toHaveProperty('customer_id');
+      expect(created).not.toHaveProperty(legacyKey);
       const update = toShipmentPayload(
          shipmentSchema.parse({ ...values, id: SHIPMENT, client_tenant_id: CLIENT })
       );

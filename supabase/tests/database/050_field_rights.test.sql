@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- writer of role_field_permission (S7) and the grant ceiling (C1).
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(42);
 
 -- The fixtures also set test.<key> for each id.
 SELECT private.field_test_fixtures();
@@ -105,6 +105,8 @@ SELECT throws_ok($$ SELECT public.save_role(jsonb_build_object('id', current_set
    '42501', 'field_grant_exceeds_own', 'C1: a grant beyond the caller''s own answers field_grant_exceeds_own');
 SELECT ok(public.my_access(current_setting('test.moesa')::UUID) -> 'fields'
    @> '[{"resource_name":"public.supplier","field":"deposit_rate","can_read":true,"can_write":false}]'::JSONB, 'my_access lists field rights');
+SELECT ok(EXISTS (SELECT 1 FROM jsonb_array_elements(public.my_access(current_setting('test.moesa')::UUID) -> 'tenants') t
+   WHERE t ->> 'id' = current_setting('test.moesa') AND t ->> 'code' ~ '^[A-Z0-9]{2,6}$'), 'my_access lists the tenant code');
 
 -- S7 with a hand-set flag: a right written directly must still be the caller's own (C1).
 -- S7 is the table's own guard: these direct writes run as postgres with the caller's claims, the role
