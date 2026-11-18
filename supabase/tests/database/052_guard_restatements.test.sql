@@ -4,7 +4,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- owns (052 the guards' cascade exits (R7) and request identity (R6), 058 the RPCs as api_owner
 -- definers and the figures over api, 059 the audit revert, 060 the Storage read, 067 the tenant
 -- policies' shared-row call, the api view generator's shared-row masking, and the forwarder's and
--- the base write guard's rights tenant), or extends it (a chain such as 021 → 032 → 036). A restated body is
+-- the base write guard's rights tenant, 068 the incident guard's
+-- provider link), or extends it (a chain such as 021 → 032 → 036). A restated body is
 -- the owner's current body plus only the restating migration's own delta, so an edit of the owner
 -- that is not carried into the restatement would be undone silently, and so would a chain step a
 -- later restatement forgot. Each row below names, for the live function, every rule its owner raises
@@ -18,7 +19,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(42);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -142,7 +143,13 @@ VALUES
     ARRAY['tenant_move_forbidden', 'field_write_forbidden', 'field_security_unsupported', 'private.field_guard_bypassed()',
           'aa_field_write_guard', 'private.field_user_ids(%L, TRUE)', 'NEXTVALEXPR',
           'private.field_rights_column(resource, col.field)', 'private.field_rights_generated(resource, col.field)',
-          '(SELECT <row>.*) x', $n$replace(allowed, '<row>', 'OLD') || ' AND ' || replace(allowed, '<row>', 'NEW')$n$]);
+          '(SELECT <row>.*) x', $n$replace(allowed, '<row>', 'OLD') || ' AND ' || replace(allowed, '<row>', 'NEW')$n$]),
+   -- 068: the linked record is looked up in the provider's tenant the incident names.
+   ('private.incident_guard()', '035', '068',
+    ARRAY['incident_immutable_field', 'incident_type_family', 'incident_entity_invalid', 'incident_severity_downgrade_requires_management',
+          'incident_status_order', 'incident_management_notice_required', 'incident_closure_incomplete', 'incident_close_management',
+          'NEW.closed_by := auth.uid()', 'coalesce(NEW.entity_tenant_id, NEW.tenant_id)',
+          'NEW.entity_tenant_id IS DISTINCT FROM OLD.entity_tenant_id']);
 
 SELECT is_empty(format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n WHERE strpos(pg_get_functiondef(%L::REGPROCEDURE), n) = 0 $q$,
                        r.needle, r.fn),
