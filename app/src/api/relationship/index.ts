@@ -176,3 +176,30 @@ export function useProviderProcures() {
    });
    return computed(() => isProviderProcured(data.value ?? []));
 }
+
+/** What a client side reads of a provider's relationship with it: who the provider is. */
+export type ProviderName = Pick<
+   RelationshipRow,
+   'tenant_id' | 'client_tenant_id' | 'provider_name'
+>;
+
+/**
+ * The relationships readable in scope with their provider's name: the active tenant's as a provider
+ * and, shared with it as the client (provider_name is client-visible), its providers'. Read with
+ * the request's own scope, never a form's tenant, so a shared row's card names its provider too.
+ */
+export function useProviderNames() {
+   const tenantKey = useTenantKey();
+   return useQuery({
+      queryKey: computed(() => queryKeys.detail(tenantKey.value, 'provider_relationship', 'mine')),
+      queryFn: async ({ signal }) => {
+         const { data } = await supabase
+            .from('provider_relationship')
+            .select('tenant_id, client_tenant_id, provider_name')
+            .abortSignal(signal)
+            .throwOnError();
+         return (data ?? []) as ProviderName[];
+      },
+      enabled: computed(() => !!tenantKey.value)
+   });
+}

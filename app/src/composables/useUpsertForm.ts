@@ -1,6 +1,7 @@
 import { useFormDraft } from '@/composables/useFormDraft';
 import { provideFormTenant } from '@/api/formTenant';
 import { useFormReadonly } from '@/composables/useFormReadonly';
+import { isSharedRow, type SharedRowLike } from '@/composables/useSharedRow';
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard';
 import { useForm } from '@/lib/form/useForm';
 import i18n from '@plugins/i18n';
@@ -77,15 +78,23 @@ export function useUpsertForm<S extends z.ZodType, Row, Payload>(
 
    useUnsavedChangesGuard(form.isDirty, { onDiscard: draft.discard });
 
+   // A provider's row shared with a tenant in scope (see isSharedRow): read-only, and read through
+   // the client tenant, whose lookups (its warehouses, projects) name what the row points at.
+   const authStore = useAuthStore();
+   const shared = computed(() =>
+      isSharedRow(
+         row.value as SharedRowLike | null | undefined,
+         new Set((authStore.scopeTenants ?? []).map(({ id }) => id))
+      )
+   );
+
    // The row's own tenant, which may be another of the branches shown; a new row goes to the
    // active one. The form's lookups read that tenant only (see provideFormTenant).
-   const authStore = useAuthStore();
-   const tenantId = computed(
-      () =>
-         (row.value as { tenant_id?: string | null } | null | undefined)?.tenant_id ??
-         authStore.currentTenant?.id ??
-         null
-   );
+   const tenantId = computed(() => {
+      const saved = row.value as SharedRowLike | null | undefined;
+      if (shared.value) return saved?.client_tenant_id ?? null;
+      return saved?.tenant_id ?? authStore.currentTenant?.id ?? null;
+   });
    provideFormTenant(tenantId);
 
    const { canSubmit } = options;
@@ -97,7 +106,7 @@ export function useUpsertForm<S extends z.ZodType, Row, Payload>(
            tenantId
         );
    const readonly = computed(
-      () => cannotSubmit.value || (!!row.value && !!options.lockRow?.(row.value))
+      () => shared.value || cannotSubmit.value || (!!row.value && !!options.lockRow?.(row.value))
    );
 
    const toast = useToast();
@@ -130,6 +139,8 @@ export function useUpsertForm<S extends z.ZodType, Row, Payload>(
       row,
       /** The row's tenant, or the active one for a new row (see provideFormTenant). */
       tenantId,
+      /** Whether the row is a provider's, shared with a tenant in scope: read-only here. */
+      shared,
       readonly,
       save,
       ready,
