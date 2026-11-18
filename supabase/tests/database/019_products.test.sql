@@ -2,7 +2,79 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(25);
+
+-- Fixture, built here as postgres (the seed is not on the new model yet). A provider procuring for
+-- one client tenant:
+--   provider         00000000-0000-4000-8000-000000001901
+--   client           00000000-0000-4000-8000-000000001902  (provider procures; relationship 1921)
+--   staff            00000000-0000-4000-8000-000000001911  provider owner, invited into the client
+--                                                          with role 1931 (select on products)
+--   uninvited staff  00000000-0000-4000-8000-000000001912  provider member with role 1932 (every
+--                                                          sourcing right), not in the client
+--   client owner     00000000-0000-4000-8000-000000001913
+--   client_product   00000000-0000-4000-8000-000000001941  THO-MOP
+--   client_product2  00000000-0000-4000-8000-000000001942  THO-BKT
+-- A plan is made first, so each new company is subscribed (a company without one is read-only).
+INSERT INTO public.plan (display_name, is_active) VALUES ('Products test plan', TRUE);
+
+INSERT INTO public.tenant (id, display_name) VALUES
+   ('00000000-0000-4000-8000-000000001901', 'Provider Trading'),
+   ('00000000-0000-4000-8000-000000001902', 'Thor Trading');
+
+INSERT INTO public.user (id, email) VALUES
+   ('00000000-0000-4000-8000-000000001911', 'staff@products.test'),
+   ('00000000-0000-4000-8000-000000001912', 'uninvited@products.test'),
+   ('00000000-0000-4000-8000-000000001913', 'client-owner@products.test');
+
+INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901'),
+   ('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
+
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901'),
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001902'),
+   ('00000000-0000-4000-8000-000000001912', '00000000-0000-4000-8000-000000001901'),
+   ('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
+
+INSERT INTO public.role (id, tenant_id, display_name) VALUES
+   ('00000000-0000-4000-8000-000000001931', '00000000-0000-4000-8000-000000001902', 'Provider staff'),
+   ('00000000-0000-4000-8000-000000001932', '00000000-0000-4000-8000-000000001901', 'Sourcing editor');
+
+INSERT INTO public.role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000001931', p.id
+FROM public.permission p
+WHERE p.resource_name = 'public.product' AND p.command = 'select';
+
+INSERT INTO public.role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000001932', p.id
+FROM public.permission p
+WHERE p.resource_name = 'public.sourcing';
+
+INSERT INTO public.user_role (user_id, role_id) VALUES
+   ('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001931'),
+   ('00000000-0000-4000-8000-000000001912', '00000000-0000-4000-8000-000000001932');
+
+INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model) VALUES
+   ('00000000-0000-4000-8000-000000001921', '00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902',
+    'THO', 'Thor Trading', 'provider');
+
+INSERT INTO public.product (id, tenant_id, sku, display_name) VALUES
+   ('00000000-0000-4000-8000-000000001941', '00000000-0000-4000-8000-000000001902', 'THO-MOP', 'Mop 40 cm'),
+   ('00000000-0000-4000-8000-000000001942', '00000000-0000-4000-8000-000000001902', 'THO-BKT', 'Bucket 10 l');
+
+-- The relation users read and write: the api view once the api views exist (the base tables are
+-- closed to users then), the base table before.
+CREATE FUNCTION pg_temp.rel (p_name TEXT) RETURNS TEXT LANGUAGE sql STABLE AS $$
+    SELECT coalesce(to_regclass('api.' || p_name), to_regclass('public.' || p_name))::TEXT;
+$$;
+
+-- Runs a user-side statement built with pg_temp.rel.
+CREATE FUNCTION pg_temp.exec (p_sql TEXT) RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    EXECUTE p_sql;
+END;
+$$;
 
 -- GTIN check digits (GS1 mod-10), before signing in.
 SELECT is(private.gtin_valid('4260696025855'), TRUE, 'a GTIN-13 with the right check digit is valid');
@@ -17,131 +89,167 @@ SELECT is(private.gtin_valid('10614141000415'), TRUE, 'a GTIN-14 with the right 
 
 SELECT is(private.gtin_valid('10614141000416'), FALSE, 'a GTIN-14 with the wrong check digit is not');
 
--- Another company's customer, made before signing in (the signed-in user cannot write there).
-SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Danışmanlık')::TEXT, TRUE);
+-- The product tests run as the client company's owner, in its tenant.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001913', '00000000-0000-4000-8000-000000001902');
 
-SELECT set_config('test.other_tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Nova Yazılım')::TEXT, TRUE);
-
-INSERT INTO public.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000191', current_setting('test.other_tenant_id')::UUID, 'NOV', 'Nova Customer',
-        'trading_partner');
-
--- The rest runs as a signed-in owner of Atlas.
-SELECT private.impersonate(
-    (SELECT u.id FROM public.user u WHERE u.email = 'ayse@moesa-panel.test'),
-    current_setting('test.tenant_id')::UUID
-);
-
-INSERT INTO api.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000192', current_setting('test.tenant_id')::UUID, 'THO', 'Thor Trading',
-        'trading_partner');
-
-INSERT INTO api.product (id, tenant_id, customer_id, sku, display_name, gtin)
-VALUES ('00000000-0000-4000-8000-000000000193', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000192', 'THO-001', 'Garden Hose 15 m', '4260696025855');
+SELECT pg_temp.exec(format($$
+    INSERT INTO %s (id, tenant_id, sku, display_name, gtin)
+    VALUES ('00000000-0000-4000-8000-000000001943', '00000000-0000-4000-8000-000000001902', 'THO-001',
+            'Garden Hose 15 m', '4260696025855')
+$$, pg_temp.rel('product')));
 
 -- Positive control: the row the negative checks below compare against is there and visible.
-SELECT is(
-    (SELECT count(*)::INT FROM api.product p
-     WHERE p.sku = 'THO-001' AND p.tenant_id = current_setting('test.tenant_id')::UUID),
-    1,
-    'Atlas sees its own product'
+SELECT results_eq(
+    format($$ SELECT count(*)::INT FROM %s p WHERE p.sku = 'THO-001' AND p.tenant_id = '00000000-0000-4000-8000-000000001902' $$,
+           pg_temp.rel('product')),
+    $$ VALUES (1) $$,
+    'the owner sees its own product'
 );
 
 SELECT throws_ok(
-    $$
-        INSERT INTO api.product (tenant_id, customer_id, sku, gtin)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000192', 'THO-BAD',
-                '4260696025801')
-    $$,
+    format($$
+        INSERT INTO %s (tenant_id, sku, gtin)
+        VALUES ('00000000-0000-4000-8000-000000001902', 'THO-BAD', '4260696025801')
+    $$, pg_temp.rel('product')),
     '23514',
     NULL,
     'a GTIN with a wrong check digit is rejected'
 );
 
 SELECT throws_ok(
-    $$
-        INSERT INTO api.product (tenant_id, customer_id, sku, gtin)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000192', 'THO-002',
-                '4260696025855')
-    $$,
+    format($$
+        INSERT INTO %s (tenant_id, sku, gtin)
+        VALUES ('00000000-0000-4000-8000-000000001902', 'THO-002', '4260696025855')
+    $$, pg_temp.rel('product')),
     '23505',
     NULL,
     'two active products cannot share a GTIN'
 );
 
-UPDATE api.product SET status = 'archived' WHERE id = '00000000-0000-4000-8000-000000000193';
+SELECT pg_temp.exec(format($$ UPDATE %s SET status = 'archived' WHERE id = '00000000-0000-4000-8000-000000001943' $$,
+                          pg_temp.rel('product')));
 
 SELECT lives_ok(
-    $$
-        INSERT INTO api.product (tenant_id, customer_id, sku, gtin)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000192', 'THO-002',
-                '4260696025855')
-    $$,
+    format($$
+        INSERT INTO %s (tenant_id, sku, gtin)
+        VALUES ('00000000-0000-4000-8000-000000001902', 'THO-002', '4260696025855')
+    $$, pg_temp.rel('product')),
     'an archived product frees its GTIN'
 );
 
 SELECT throws_ok(
-    $$
-        INSERT INTO api.product (tenant_id, customer_id, sku)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000192', 'THO-001')
-    $$,
+    format($$
+        INSERT INTO %s (tenant_id, sku)
+        VALUES ('00000000-0000-4000-8000-000000001902', 'THO-001')
+    $$, pg_temp.rel('product')),
     '23505',
     NULL,
-    'a SKU is unique within its customer'
-);
-
-SELECT throws_ok(
-    $$
-        INSERT INTO api.product (tenant_id, customer_id, sku)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000191', 'NOV-001')
-    $$,
-    '23503',
-    NULL,
-    'a product cannot point at another tenant''s customer'
+    'a SKU is unique within its tenant'
 );
 
 SELECT lives_ok(
-    $$
-        UPDATE api.product SET display_name = 'Garden Hose 20 m', unit_net_g = 1250
-        WHERE id = '00000000-0000-4000-8000-000000000193'
-    $$,
+    format($$
+        UPDATE %s SET display_name = 'Garden Hose 20 m', unit_net_g = 1250
+        WHERE id = '00000000-0000-4000-8000-000000001943'
+    $$, pg_temp.rel('product')),
     'a product''s details can be changed'
 );
 
 -- Evidence: no signed spec sheet yet.
-SELECT is(
-    (SELECT has_signed_spec FROM api.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000000193'),
-    FALSE,
+SELECT results_eq(
+    format($$ SELECT has_signed_spec FROM %s WHERE product_id = '00000000-0000-4000-8000-000000001943' $$,
+           pg_temp.rel('product_evidence')),
+    $$ VALUES (FALSE) $$,
     'without a signed spec sheet the product has no spec evidence'
 );
 
-INSERT INTO api.document (tenant_id, customer_id, entity_type, entity_id, type, version, status, issued_on,
-                             is_signed, is_stamped, sent_from_official_email, url)
-VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000192', 'product',
-        '00000000-0000-4000-8000-000000000193', 'spec_sheet', 2, 'signed', '2026-11-01', TRUE, TRUE, TRUE,
-        'https://example.test/spec-v2.pdf');
+SELECT pg_temp.exec(format($$
+    INSERT INTO %s (tenant_id, entity_type, entity_id, type, version, status, issued_on, is_signed, is_stamped,
+                    sent_from_official_email, url)
+    VALUES ('00000000-0000-4000-8000-000000001902', 'product', '00000000-0000-4000-8000-000000001943',
+            'spec_sheet', 2, 'signed', '2026-11-01', TRUE, TRUE, TRUE, 'https://example.test/spec-v2.pdf')
+$$, pg_temp.rel('document')));
 
-SELECT is(
-    (SELECT has_signed_spec FROM api.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000000193'),
-    TRUE,
+SELECT results_eq(
+    format($$ SELECT has_signed_spec FROM %s WHERE product_id = '00000000-0000-4000-8000-000000001943' $$,
+           pg_temp.rel('product_evidence')),
+    $$ VALUES (TRUE) $$,
     'a signed spec sheet is spec evidence'
 );
 
-SELECT is(
-    (SELECT spec_version FROM api.product_evidence WHERE product_id = '00000000-0000-4000-8000-000000000193'),
-    2,
+SELECT results_eq(
+    format($$ SELECT spec_version FROM %s WHERE product_id = '00000000-0000-4000-8000-000000001943' $$,
+           pg_temp.rel('product_evidence')),
+    $$ VALUES (2) $$,
     'the evidence names the signed spec sheet''s version'
 );
 
 -- Products are archived (status), not deleted.
 SELECT throws_ok(
-    $$
-        DELETE FROM api.product WHERE id = '00000000-0000-4000-8000-000000000193'
-    $$,
+    format($$ DELETE FROM %s WHERE id = '00000000-0000-4000-8000-000000001943' $$, pg_temp.rel('product')),
     '42501',
     NULL,
     'products cannot be deleted'
+);
+
+RESET ROLE;
+
+-- Sourcing lives in the procuring tenant, not on the product.
+SELECT hasnt_column('public', 'product', 'purchase_price', 'cost left product');
+
+SELECT hasnt_column('public', 'product', 'company_price_eur', 'sell price left product');
+
+SELECT col_is_unique('public', 'sourcing', ARRAY['tenant_id', 'product_id'], 'one sourcing row per procuring tenant and product');
+
+-- Provider staff invited into the client: may link and gets the snapshot.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001911', '00000000-0000-4000-8000-000000001901');
+
+SELECT lives_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id, sell_price_eur)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902',
+                '00000000-0000-4000-8000-000000001941', 9.90)
+    $$, pg_temp.rel('sourcing')),
+    'invited provider staff link a client product'
+);
+
+RESET ROLE;
+
+SELECT is((SELECT product_sku FROM public.sourcing WHERE product_id = '00000000-0000-4000-8000-000000001941'), 'THO-MOP', 'sku snapshot');
+
+-- Provider staff not invited into the client.
+SELECT private.impersonate('00000000-0000-4000-8000-000000001912', '00000000-0000-4000-8000-000000001901');
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902',
+                '00000000-0000-4000-8000-000000001942')
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'client_link_forbidden',
+    'uninvited staff refused'
+);
+
+SELECT throws_ok(
+    format($$
+        INSERT INTO %s (tenant_id, client_tenant_id, product_id)
+        VALUES ('00000000-0000-4000-8000-000000001901', '00000000-0000-4000-8000-000000001902', gen_random_uuid())
+    $$, pg_temp.rel('sourcing')),
+    '23514',
+    'client_link_forbidden',
+    'unknown id refused with the same message'
+);
+
+-- The client deletes its product (product deletes are not a user action: run as postgres).
+RESET ROLE;
+
+SELECT lives_ok($$ DELETE FROM public.product WHERE id = '00000000-0000-4000-8000-000000001941' $$, 'client delete is not blocked');
+
+SELECT results_eq(
+    $$ SELECT product_id IS NULL, product_sku FROM public.sourcing WHERE product_sku = 'THO-MOP' $$,
+    $$ VALUES (TRUE, 'THO-MOP') $$,
+    'client product delete keeps the snapshot'
 );
 
 SELECT * FROM finish();

@@ -1,44 +1,54 @@
--- Product import (S10): the rows of a product spreadsheet, saved in one call. The client maps the
--- S10 CSV to the product's own column names; a row is
---   {customer_code, sku, supplier_code?, parent_sku?, …product columns…}.
+-- Product import (S10): the rows of a product spreadsheet, saved in one call, in the active tenant
+-- (the client sends its active tenant alone, see forTenant). The client maps the
+-- S10 CSV to the column names of the product and of its sourcing; a row is
+--   {sku, supplier_code?, parent_sku?, …product columns…, …sourcing columns…}.
 --
 -- Every row is checked first, and the rows are written only when none has an error: a file is
--- imported whole or not at all. A row whose (customer, sku) exists updates that product (the
--- columns the row names; the others stay), any other row inserts one. Variants are linked to their
--- parents last, so a variant may come before its parent in the file.
+-- imported whole or not at all. A row whose SKU exists in the tenant updates that product (the
+-- columns the row names; the others stay), any other row inserts one. The sourcing columns and the
+-- supplier go to the tenant's own sourcing row of the product (no client tenant), made when the row
+-- names one of them and the product has none yet. Variants are linked to their parents last, so a
+-- variant may come before its parent in the file.
 --
 -- SECURITY INVOKER: the caller's own permissions and tenant policies apply to every read and write,
--- and the table's constraints still hold (a write they reject fails the whole call). A customer code
--- is looked up among the customers the caller reads (the client sends its active tenant alone, see
--- forTenant), and a product goes to its customer's tenant.
+-- and the tables' constraints still hold (a write they reject fails the whole call). The active
+-- tenant is read as private.requested_tenant reads it (the x-tenant-id header, else the token's
+-- current tenant), since the caller cannot call into schema private; a tenant the caller may not
+-- use is outside its tenant scope, so the policies show none of its rows and refuse every write.
 CREATE OR REPLACE FUNCTION public.import_products (rows JSONB) RETURNS JSONB LANGUAGE plpgsql SECURITY INVOKER
 SET
    search_path = '' AS $$
 DECLARE
-    -- The product columns a row may set, in table order. The supplier comes as supplier_code, the
-    -- parent as parent_sku.
-    value_columns CONSTANT TEXT[] := ARRAY[
-        'display_name', 'variant_label', 'category', 'brand', 'gtin', 'gs1_prefix_owner',
-        'supplier_product_code', 'manufacturer_art_no', 'status', 'golden_sample_on',
-        'golden_sample_locations', 'is_hazmat', 'compliance_status', 'eu_responsible_person',
-        'hs_code', 'origin_country', 'unit_dims_mm', 'unit_net_g', 'pack_qty', 'pack_dims_mm',
-        'pack_gross_g', 'carton_pack_qty', 'carton_dims_mm', 'carton_net_kg', 'carton_gross_kg',
-        'pallet_carton_qty', 'pallet_type', 'lot_rule', 'purchase_price', 'purchase_currency',
-        'purchase_incoterm', 'landed_cost_eur', 'landed_cost_on', 'target_price_eur',
-        'moesa_price_eur', 'price_list_version', 'notes'
+    -- The product columns a row may set, in table order. The parent comes as parent_sku.
+    product_columns CONSTANT TEXT[] := ARRAY[
+        'display_name', 'variant_label', 'category', 'brand', 'gtin', 'gs1_prefix_owner', 'status',
+        'golden_sample_on', 'golden_sample_locations', 'is_hazmat', 'compliance_status',
+        'eu_responsible_person', 'hs_code', 'origin_country', 'unit_dims_mm', 'unit_net_g', 'pack_qty',
+        'pack_dims_mm', 'pack_gross_g', 'carton_pack_qty', 'carton_dims_mm', 'carton_net_kg',
+        'carton_gross_kg', 'pallet_carton_qty', 'pallet_type', 'lot_rule', 'notes'
+    ];
+    -- The sourcing columns a row may set, in table order. The supplier comes as supplier_code.
+    sourcing_columns CONSTANT TEXT[] := ARRAY[
+        'supplier_product_code', 'manufacturer_art_no', 'purchase_price', 'purchase_currency',
+        'purchase_incoterm', 'landed_cost_eur', 'landed_cost_on', 'target_price_eur', 'sell_price_eur',
+        'price_list_version'
     ];
     -- Columns that cannot be empty: an empty value keeps the product's own (or the default).
     not_null_columns CONSTANT TEXT[] := ARRAY['status', 'is_hazmat', 'compliance_status'];
-    written_columns CONSTANT TEXT[] := value_columns || ARRAY['supplier_id'];
+    sourcing_written CONSTANT TEXT[] := sourcing_columns || ARRAY['supplier_id'];
     defaults CONSTANT JSONB := '{"status": "concept", "is_hazmat": false, "compliance_status": "none"}';
+    tenant CONSTANT UUID := coalesce(
+        nullif(nullif(current_setting('request.headers', TRUE), '')::JSONB ->> 'x-tenant-id', '')::UUID,
+        (nullif(current_setting('request.jwt.claims', TRUE), '')::JSONB -> 'user_metadata' ->> 'current_tenant_id')::UUID
+    );
     errors JSONB := '[]';
     sku_duplicates BIGINT[];
     gtin_duplicates BIGINT[];
     item JSONB;
     n BIGINT;
     row_values JSONB;
-    customer UUID;
-    tenant UUID;
+    sourcing_values JSONB;
+    product UUID;
     holder TEXT;
     column_name TEXT;
     written INT;
@@ -51,10 +61,16 @@ BEGIN
             DETAIL = json_build_object('status', 400, 'headers', json_build_object())::TEXT;
     END IF;
 
-    -- The rows repeating an earlier row's (customer, sku), or an earlier active row's GTIN.
+    IF tenant IS NULL THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
+            DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
+    END IF;
+
+    -- The rows repeating an earlier row's SKU, or an earlier active row's GTIN.
     SELECT array_agg(d.n) INTO sku_duplicates
     FROM (
-        SELECT e.n, row_number() OVER (PARTITION BY e.v ->> 'customer_code', e.v ->> 'sku' ORDER BY e.n) AS seen
+        SELECT e.n, row_number() OVER (PARTITION BY e.v ->> 'sku' ORDER BY e.n) AS seen
         FROM jsonb_array_elements(import_products.rows) WITH ORDINALITY AS e (v, n)
         WHERE coalesce(e.v ->> 'sku', '') <> ''
     ) d
@@ -70,36 +86,26 @@ BEGIN
 
     -- 1. Check every row.
     FOR item, n IN SELECT e.v, e.n FROM jsonb_array_elements(import_products.rows) WITH ORDINALITY AS e (v, n) LOOP
-        -- One customer of that code: of several tenants read together, none is guessed.
-        SELECT c.id, c.tenant_id INTO customer, tenant
-        FROM public.customer c
-        WHERE c.code = item ->> 'customer_code'
-            AND (SELECT count(*) FROM public.customer o WHERE o.code = c.code) = 1;
-
-        IF customer IS NULL THEN
-            errors := errors || jsonb_build_object('row', n, 'field', 'customer_code', 'code', 'customer_unknown');
-        END IF;
-
         IF coalesce(item ->> 'sku', '') = '' THEN
             errors := errors || jsonb_build_object('row', n, 'field', 'sku', 'code', 'invalid_value');
         ELSIF n = ANY (sku_duplicates) THEN
             errors := errors || jsonb_build_object('row', n, 'field', 'sku', 'code', 'sku_duplicate');
         END IF;
 
-        IF item ->> 'supplier_code' IS NOT NULL AND customer IS NOT NULL AND NOT EXISTS (
+        IF item ->> 'supplier_code' IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
         ) THEN
             errors := errors || jsonb_build_object('row', n, 'field', 'supplier_code', 'code', 'supplier_unknown');
         END IF;
 
-        -- The parent is another product of the same customer, already saved or in the file.
+        -- The parent is another product of the tenant, already saved or in the file.
         IF item ->> 'parent_sku' IS NOT NULL AND (
             item ->> 'parent_sku' = item ->> 'sku'
             OR NOT (
-                EXISTS (SELECT 1 FROM public.product p WHERE p.customer_id = customer AND p.sku = item ->> 'parent_sku')
+                EXISTS (SELECT 1 FROM public.product p WHERE p.tenant_id = tenant AND p.sku = item ->> 'parent_sku')
                 OR EXISTS (
                     SELECT 1 FROM jsonb_array_elements(import_products.rows) AS e (v)
-                    WHERE e.v ->> 'customer_code' = item ->> 'customer_code' AND e.v ->> 'sku' = item ->> 'parent_sku'
+                    WHERE e.v ->> 'sku' = item ->> 'parent_sku'
                 )
             )
         ) THEN
@@ -121,7 +127,7 @@ BEGIN
                 SELECT p.sku INTO holder
                 FROM public.product p
                 WHERE p.gtin = item ->> 'gtin' AND p.status <> 'archived'
-                    AND NOT (p.customer_id IS NOT DISTINCT FROM customer AND p.sku = item ->> 'sku')
+                    AND NOT (p.tenant_id = tenant AND p.sku = item ->> 'sku')
                 LIMIT 1;
 
                 IF holder IS NOT NULL THEN
@@ -131,16 +137,33 @@ BEGIN
         END IF;
 
         -- Values the columns cannot hold (enums, numbers, dates, booleans, currency codes): read
-        -- as a whole first, then column by column to name the ones that fail.
-        row_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (value_columns)), '{}');
+        -- as a whole first, then column by column to name the ones that fail. Product columns
+        -- first, then sourcing columns.
+        row_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (product_columns)), '{}');
         BEGIN
             PERFORM jsonb_populate_record(NULL::public.product, row_values);
         EXCEPTION
             WHEN data_exception OR integrity_constraint_violation THEN
-                FOREACH column_name IN ARRAY value_columns LOOP
+                FOREACH column_name IN ARRAY product_columns LOOP
                     CONTINUE WHEN NOT row_values ? column_name;
                     BEGIN
                         PERFORM jsonb_populate_record(NULL::public.product, jsonb_build_object(column_name, row_values -> column_name));
+                    EXCEPTION
+                        WHEN data_exception OR integrity_constraint_violation THEN
+                            errors := errors || jsonb_build_object('row', n, 'field', column_name, 'code', 'invalid_value');
+                    END;
+                END LOOP;
+        END;
+
+        sourcing_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (sourcing_columns)), '{}');
+        BEGIN
+            PERFORM jsonb_populate_record(NULL::public.sourcing, sourcing_values);
+        EXCEPTION
+            WHEN data_exception OR integrity_constraint_violation THEN
+                FOREACH column_name IN ARRAY sourcing_columns LOOP
+                    CONTINUE WHEN NOT sourcing_values ? column_name;
+                    BEGIN
+                        PERFORM jsonb_populate_record(NULL::public.sourcing, jsonb_build_object(column_name, sourcing_values -> column_name));
                     EXCEPTION
                         WHEN data_exception OR integrity_constraint_violation THEN
                             errors := errors || jsonb_build_object('row', n, 'field', column_name, 'code', 'invalid_value');
@@ -153,43 +176,64 @@ BEGIN
         RETURN jsonb_build_object('ok', FALSE, 'errors', errors);
     END IF;
 
-    -- 2. Write every row: the product of the same (customer, sku) is updated, otherwise one is made.
+    -- 2. Write every row: the product of the same SKU is updated, otherwise one is made; then its
+    -- sourcing row, when the row names a sourcing column or the supplier.
     FOR item IN SELECT e.v FROM jsonb_array_elements(import_products.rows) AS e (v) LOOP
-        SELECT c.id, c.tenant_id INTO customer, tenant
-        FROM public.customer c
-        WHERE c.code = item ->> 'customer_code';
-
         row_values := coalesce((
             SELECT jsonb_object_agg(e.key, e.value)
             FROM jsonb_each(item) AS e
-            WHERE e.key = ANY (value_columns)
+            WHERE e.key = ANY (product_columns)
                 AND NOT (e.key = ANY (not_null_columns) AND jsonb_typeof(e.value) = 'null')
         ), '{}');
 
-        IF item ? 'supplier_code' THEN
-            row_values := row_values || jsonb_build_object('supplier_id', (
-                SELECT s.id FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
-            ));
-        END IF;
-
         EXECUTE format(
-            'UPDATE public.product p SET (%s) = (SELECT %s FROM jsonb_populate_record(p, $1) AS r) WHERE p.customer_id = $2 AND p.sku = $3',
-            array_to_string(written_columns, ', '),
-            'r.' || array_to_string(written_columns, ', r.')
+            'UPDATE public.product p SET (%s) = (SELECT %s FROM jsonb_populate_record(p, $1) AS r) WHERE p.tenant_id = $2 AND p.sku = $3 RETURNING p.id',
+            array_to_string(product_columns, ', '),
+            'r.' || array_to_string(product_columns, ', r.')
         )
-        USING row_values, customer, item ->> 'sku';
+        INTO product
+        USING row_values, tenant, item ->> 'sku';
         GET DIAGNOSTICS written = ROW_COUNT;
 
         IF written > 0 THEN
             updated := updated + 1;
         ELSE
             EXECUTE format(
-                'INSERT INTO public.product (tenant_id, customer_id, sku, %s) SELECT $2, $3, $4, %s FROM jsonb_populate_record(jsonb_populate_record(NULL::public.product, $5), $1) AS r',
-                array_to_string(written_columns, ', '),
-                'r.' || array_to_string(written_columns, ', r.')
+                'INSERT INTO public.product (tenant_id, sku, %s) SELECT $2, $3, %s FROM jsonb_populate_record(jsonb_populate_record(NULL::public.product, $4), $1) AS r RETURNING id',
+                array_to_string(product_columns, ', '),
+                'r.' || array_to_string(product_columns, ', r.')
             )
-            USING row_values, tenant, customer, item ->> 'sku', defaults;
+            INTO product
+            USING row_values, tenant, item ->> 'sku', defaults;
             inserted := inserted + 1;
+        END IF;
+
+        sourcing_values := coalesce((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(item) AS e WHERE e.key = ANY (sourcing_columns)), '{}');
+
+        IF item ? 'supplier_code' THEN
+            sourcing_values := sourcing_values || jsonb_build_object('supplier_id', (
+                SELECT s.id FROM public.supplier s WHERE s.tenant_id = tenant AND s.code = item ->> 'supplier_code'
+            ));
+        END IF;
+
+        CONTINUE WHEN sourcing_values = '{}';
+
+        EXECUTE format(
+            'UPDATE public.sourcing s SET (%s) = (SELECT %s FROM jsonb_populate_record(s, $1) AS r) WHERE s.tenant_id = $2 AND s.product_id = $3',
+            array_to_string(sourcing_written, ', '),
+            'r.' || array_to_string(sourcing_written, ', r.')
+        )
+        USING sourcing_values, tenant, product;
+        GET DIAGNOSTICS written = ROW_COUNT;
+
+        IF written = 0 THEN
+            -- product_sku and product_name are filled by the link guard (019), from the product.
+            EXECUTE format(
+                'INSERT INTO public.sourcing (tenant_id, product_id, %s) SELECT $2, $3, %s FROM jsonb_populate_record(NULL::public.sourcing, $1) AS r',
+                array_to_string(sourcing_written, ', '),
+                'r.' || array_to_string(sourcing_written, ', r.')
+            )
+            USING sourcing_values, tenant, product;
         END IF;
     END LOOP;
 
@@ -198,10 +242,9 @@ BEGIN
     UPDATE public.product c
     SET parent_id = parent.id
     FROM jsonb_array_elements(import_products.rows) AS e (v)
-    JOIN public.customer cu ON cu.code = e.v ->> 'customer_code'
-    LEFT JOIN public.product parent ON parent.customer_id = cu.id AND parent.sku = e.v ->> 'parent_sku'
+    LEFT JOIN public.product parent ON parent.tenant_id = tenant AND parent.sku = e.v ->> 'parent_sku'
     WHERE e.v ? 'parent_sku'
-        AND c.customer_id = cu.id
+        AND c.tenant_id = tenant
         AND c.sku = e.v ->> 'sku'
         AND c.parent_id IS DISTINCT FROM parent.id;
 
