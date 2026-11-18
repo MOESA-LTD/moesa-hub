@@ -5,8 +5,10 @@ import { appErrorHandler } from '@/lib/appErrorHandler';
 import type { TreeNode } from 'primevue/treenode';
 
 /**
- * Picks the branches the pages show (any of the user's tenants, each on its own) and the active
- * one, where new rows go (the star). Shown only to users with more than one tenant.
+ * Picks the companies and branches the pages show (any of the user's tenants, each on its own) and
+ * the active one, where new rows go (the star). Every company the user can use is a root of its own:
+ * the provider tree and each client company sit side by side. Shown only to users with more than
+ * one tenant.
  */
 const authStore = useAuthStore();
 const { branches, currentTenant, currentLogoPath, scopeTenants } = storeToRefs(authStore);
@@ -70,24 +72,24 @@ function makeActive(tenant: Tenant) {
       :options="nodes"
       selectionMode="multiple"
       :metaKeySelection="false"
-      :aria-label="t('component.branch_picker.label')"
-      class="branch_picker"
-      panelClass="branch_picker__panel"
+      :aria-label="t('component.tenant_picker.label')"
+      class="tenant_picker"
+      panelClass="tenant_picker__panel"
    >
       <template #value>
-         <span class="branch_picker__value">
-            <img v-if="logo" :src="logo" alt="" class="branch_picker__logo" />
-            <span v-else :class="PrimeIcons.SITEMAP" class="branch_picker__icon" />
-            <span v-text="t('component.branch_picker.label')" class="branch_picker__label" />
+         <span class="tenant_picker__value">
+            <img v-if="logo" :src="logo" alt="" class="tenant_picker__logo" />
+            <span v-else :class="PrimeIcons.SITEMAP" class="tenant_picker__icon" />
+            <span v-text="t('component.tenant_picker.label')" class="tenant_picker__label" />
             <!-- Small screens: the icon and how many branches are shown. -->
-            <span class="branch_picker__active">
-               <span :class="PrimeIcons.STAR_FILL" class="branch_picker__star" />
-               <span v-text="currentTenant?.display_name" class="branch_picker__name" />
+            <span class="tenant_picker__active">
+               <span :class="PrimeIcons.STAR_FILL" class="tenant_picker__star" />
+               <span v-text="currentTenant?.display_name" class="tenant_picker__name" />
             </span>
             <Tag
                v-if="scopeTenants.length > 1"
                severity="secondary"
-               class="branch_picker__more"
+               class="tenant_picker__more"
                :value="`+${scopeTenants.length - 1}`"
                v-tooltip.bottom="
                   scopeTenants
@@ -96,33 +98,39 @@ function makeActive(tenant: Tenant) {
                      .join(', ')
                "
             />
-            <Tag severity="secondary" class="branch_picker__count" :value="scopeTenants.length" />
+            <Tag severity="secondary" class="tenant_picker__count" :value="scopeTenants.length" />
          </span>
       </template>
       <template #header>
-         <p v-text="t('component.branch_picker.hint')" class="branch_picker__hint" />
+         <p v-text="t('component.tenant_picker.hint')" class="tenant_picker__hint" />
       </template>
       <template #option="{ node, selected }">
-         <span class="branch_picker__option">
+         <span class="tenant_picker__option">
             <Checkbox :modelValue="selected" binary readonly :tabindex="-1" />
             <img
                v-if="node.data.logo_path"
                :src="logoUrl(node.data.logo_path) ?? undefined"
                alt=""
-               class="branch_picker__logo"
+               class="tenant_picker__logo"
             />
-            <span v-text="node.label" class="branch_picker__name" />
+            <span v-text="node.label" class="tenant_picker__name" />
+            <Tag
+               v-if="node.data.code && !node.data.parent_id"
+               severity="secondary"
+               class="tenant_picker__code"
+               :value="node.data.code"
+            />
             <Button
                :icon="isActive(node.key) ? PrimeIcons.STAR_FILL : PrimeIcons.STAR"
                :severity="isActive(node.key) ? 'primary' : 'secondary'"
                text
                rounded
                size="small"
-               :aria-label="t('component.branch_picker.make_active')"
+               :aria-label="t('component.tenant_picker.make_active')"
                v-tooltip.left="
                   isActive(node.key)
-                     ? t('component.branch_picker.active')
-                     : t('component.branch_picker.make_active')
+                     ? t('component.tenant_picker.active')
+                     : t('component.tenant_picker.make_active')
                "
                :disabled="isActive(node.key)"
                @click.stop="makeActive(node.data)"
@@ -133,11 +141,11 @@ function makeActive(tenant: Tenant) {
 </template>
 
 <style lang="scss">
-.branch_picker__logo {
+.tenant_picker__logo {
    @apply size-5 shrink-0 rounded-sm object-contain;
 }
 
-.branch_picker {
+.tenant_picker {
    @apply max-w-80 max-sm:max-w-none;
 
    &__value {
@@ -177,6 +185,10 @@ function makeActive(tenant: Tenant) {
       @apply truncate;
    }
 
+   &__code {
+      @apply shrink-0;
+   }
+
    &__hint {
       @apply m-0 px-4 pt-3 pb-1 text-sm text-muted-color max-w-80;
    }
@@ -184,7 +196,7 @@ function makeActive(tenant: Tenant) {
    &__option {
       @apply flex items-center gap-2 w-full;
 
-      .branch_picker__name {
+      .tenant_picker__name {
          @apply flex-1;
       }
    }

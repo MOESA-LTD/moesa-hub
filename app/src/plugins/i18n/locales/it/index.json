@@ -294,7 +294,7 @@
       "select_currency": "Seleziona valuta"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "Filiale",
          "hint": "Vengono mostrati i dati delle filiali selezionate. I nuovi record vanno nella filiale con la stella.",
          "label": "Filiali",

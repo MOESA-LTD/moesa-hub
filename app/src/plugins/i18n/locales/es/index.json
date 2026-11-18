@@ -325,7 +325,7 @@
       "select_currency": "Seleccionar moneda"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "Sucursal",
          "hint": "Se muestran los datos de las sucursales marcadas. Los nuevos registros van a la sucursal con la estrella.",
          "label": "Sucursales",

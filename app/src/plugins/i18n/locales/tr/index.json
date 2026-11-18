@@ -50,10 +50,10 @@
       "select_currency": "Para Birimi Seçin"
    },
    "component": {
-      "branch_picker": {
-         "column": "Şube",
-         "hint": "İşaretli şubelerin verileri gösterilir. Yeni kayıtlar yıldızlı şubeye eklenir.",
-         "label": "Şubeler",
+      "tenant_picker": {
+         "column": "Şirket veya şube",
+         "hint": "İşaretli şirket ve şubelerin verileri gösterilir. Yeni kayıtlar yıldızlı olana eklenir.",
+         "label": "Şirketler ve şubeler",
          "active": "Aktif şube: yeni kayıtlar buraya eklenir",
          "make_active": "Aktif yap"
       },

@@ -22,7 +22,7 @@ vi.mock('@/store/auth', () => ({
 }));
 vi.mock('@/router/menu', () => ({ useNavigationMenu: () => ({ menu: ref([]) }) }));
 
-const BranchPicker = defineComponent({ template: '<div data-test="branch" />' });
+const TenantPicker = defineComponent({ template: '<div data-test="tenant" />' });
 const ScopeStub = defineComponent({
    props: { layout: { type: String, default: 'row' } },
    template: '<div data-test="scope" :data-layout="layout" />'
@@ -36,7 +36,7 @@ const global = () => ({
       [abilitiesPlugin, ability, { useGlobalProperties: true }]
    ] as never,
    stubs: {
-      BranchPicker,
+      TenantPicker,
       teleport: true,
       PanelMenu: true,
       Button: true,
@@ -60,7 +60,7 @@ describe('ScopeControls', () => {
 
    it('renders the tenant picker and no customer filter', () => {
       const wrapper = mountControls();
-      expect(wrapper.find('[data-test="branch"]').exists()).toBe(true);
+      expect(wrapper.find('[data-test="tenant"]').exists()).toBe(true);
       // The tenant picker is the only control: the customer filter is gone.
       expect(wrapper.element.children).toHaveLength(1);
       expect(wrapper.findAll('select, [role="combobox"]')).toHaveLength(0);
@@ -69,7 +69,7 @@ describe('ScopeControls', () => {
    it('shows nothing when signed out', () => {
       signedIn.value = false;
       const wrapper = mountControls();
-      expect(wrapper.find('[data-test="branch"]').exists()).toBe(false);
+      expect(wrapper.find('[data-test="tenant"]').exists()).toBe(false);
    });
 
    it('stacks full width in the column layout', () => {

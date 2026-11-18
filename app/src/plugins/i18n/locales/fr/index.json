@@ -196,7 +196,7 @@
       "select_currency": "Sélectionnez la devise"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "Agence",
          "hint": "Les pages affichent les données des agences cochées. Les nouveaux enregistrements vont dans l’agence étoilée.",
          "label": "Agences",

@@ -196,7 +196,7 @@
       "select_currency": "Währung auswählen"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "Filiale",
          "hint": "Angezeigt werden die Daten der markierten Filialen. Neue Einträge kommen in die Filiale mit dem Stern.",
          "label": "Filialen",

@@ -196,7 +196,7 @@
       "select_currency": "통화 선택"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "지점",
          "hint": "선택한 지점의 데이터가 표시됩니다. 새 레코드는 별표가 있는 지점에 추가됩니다.",
          "label": "지점",

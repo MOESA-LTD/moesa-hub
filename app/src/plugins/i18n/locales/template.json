@@ -168,7 +168,7 @@
       "select_currency": ""
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "",
          "hint": "",
          "label": "",

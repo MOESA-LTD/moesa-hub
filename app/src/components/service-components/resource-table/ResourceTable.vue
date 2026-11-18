@@ -161,7 +161,7 @@ const columns = computed(() => {
    return showBranch.value
       ? [
            ...readable,
-           { field: 'tenant_id', header: t('component.branch_picker.column'), sortable: true }
+           { field: 'tenant_id', header: t('component.tenant_picker.column'), sortable: true }
         ]
       : readable;
 });
@@ -224,7 +224,7 @@ const tableProps = computed(() => ({
             :options="authStore.scopeTenants"
             optionLabel="display_name"
             optionValue="id"
-            :placeholder="t('component.branch_picker.column')"
+            :placeholder="t('component.tenant_picker.column')"
             display="chip"
             class="w-full min-w-56"
          />

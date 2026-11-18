@@ -196,7 +196,7 @@
       "select_currency": "通貨を選択"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "支店",
          "hint": "チェックした支店のデータが表示されます。新しいレコードは星の付いた支店に追加されます。",
          "label": "支店",

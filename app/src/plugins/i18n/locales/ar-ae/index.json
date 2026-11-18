@@ -294,7 +294,7 @@
       "select_currency": "اختر العملة"
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "الفرع",
          "hint": "تُعرض بيانات الفروع المحددة. تُضاف السجلات الجديدة إلى الفرع المميز بنجمة.",
          "label": "الفروع",

@@ -6,6 +6,8 @@ import { publicSchema } from '@/lib/supabase';
 export type Tenant = {
    id: string;
    display_name: string;
+   /** Its short company code, shown next to a company's name. */
+   code?: string | null;
    /** Its logo, else the nearest one above it, in the tenant-logo bucket (see logoUrl). */
    logo_path?: string | null;
    /** The tenant above it, if the user may use that one too (else it is a root for them). */

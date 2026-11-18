@@ -196,10 +196,10 @@
       "select_currency": "Select Currency"
    },
    "component": {
-      "branch_picker": {
-         "column": "Branch",
-         "hint": "Pages show the data of the checked branches. New records go to the branch with the star.",
-         "label": "Branches",
+      "tenant_picker": {
+         "column": "Company or branch",
+         "hint": "Pages show the data of the checked companies and branches. New records go to the one with the star.",
+         "label": "Companies and branches",
          "active": "Active branch: new records go here",
          "make_active": "Make active"
       },
