@@ -140,6 +140,76 @@ SELECT private.unimpersonate();
 \set ON_ERROR_STOP 1
 \o
 
+-- Sharing (Plan 2, Task 10): THO, the client of MOESA LTD, over the shared orders and shipments of the
+-- load. The baseline is the same query on the base tables as postgres (no RLS) with the scope filter
+-- written out (tenant_id or client_tenant_id in the scope); the api side runs as the actor, so it pays
+-- the sharing policies, the masking and client_status. The list embeds the lines as PostgREST does
+-- (purchase_order?select=*,purchase_order_line(*)). thomas, owner of THO, is restricted (a client
+-- reads only the client-visible fields); akif, management in MOESA LTD and THO, is internal.
+CREATE FUNCTION t.perf_pair_as (base TEXT, api TEXT, actor UUID, active UUID, scope UUID[], n INT DEFAULT 5)
+RETURNS TABLE (base_ms NUMERIC, api_ms NUMERIC) LANGUAGE plpgsql AS $$
+DECLARE
+    j JSON;
+    b NUMERIC[] := '{}';
+    a NUMERIC[] := '{}';
+BEGIN
+    FOR i IN 0..n LOOP
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || base INTO j;
+        IF i > 0 THEN
+            b := b || ((j -> 0 ->> 'Planning Time')::NUMERIC + (j -> 0 ->> 'Execution Time')::NUMERIC);
+        END IF;
+        PERFORM private.impersonate_scope(actor, active, scope);
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || api INTO j;
+        RESET ROLE;
+        PERFORM private.unimpersonate();
+        IF i > 0 THEN
+            a := a || ((j -> 0 ->> 'Planning Time')::NUMERIC + (j -> 0 ->> 'Execution Time')::NUMERIC);
+        END IF;
+    END LOOP;
+    base_ms := (SELECT x FROM unnest(b) x ORDER BY x OFFSET n / 2 LIMIT 1);
+    api_ms := (SELECT x FROM unnest(a) x ORDER BY x OFFSET n / 2 LIMIT 1);
+    RETURN NEXT;
+END;
+$$;
+
+CREATE TEMP TABLE s AS
+SELECT (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD') AS moesa,
+       (SELECT id FROM public.tenant WHERE code = 'THO') AS tho,
+       'SELECT v.*, l.lines FROM %1$s.purchase_order v LEFT JOIN LATERAL (SELECT json_agg(x) AS lines '
+           || 'FROM %1$s.purchase_order_line x WHERE x.purchase_order_id = v.id %3$s) l ON TRUE %2$s '
+           || 'ORDER BY v.created_at DESC LIMIT 50' AS po;
+
+CREATE TEMP TABLE perf_shared (pos INT, name TEXT, actor TEXT, email TEXT, active UUID, scope UUID[], sql TEXT);
+INSERT INTO perf_shared
+SELECT 101, 'shared_client_owner_po_list', 'restricted', 'thomas@moesa-panel.test', s.tho, ARRAY[s.tho], s.po
+FROM s
+UNION ALL
+SELECT 102, 'shared_client_owner_shipment_list', 'restricted', 'thomas@moesa-panel.test', s.tho, ARRAY[s.tho],
+       'SELECT * FROM %1$s.shipment v %2$s ORDER BY v.created_at DESC LIMIT 50'
+FROM s
+UNION ALL
+SELECT 103, 'provider_two_tenants_po_list', 'internal', 'akif@moesa-panel.test', s.moesa, ARRAY[s.moesa, s.tho], s.po
+FROM s;
+
+CREATE TEMP VIEW perf_shared_statements AS
+SELECT q.pos, format('INSERT INTO perf_result SELECT %L, %s, %L, r.base_ms, r.api_ms FROM t.perf_pair_as(%L, %L, %L, %L, %L) r',
+                     q.actor, q.pos, q.name,
+                     format(q.sql, 'public', 'WHERE ' || f.v, 'AND ' || f.x),
+                     format(q.sql, 'api', '', ''),
+                     (SELECT u.id FROM public.user u WHERE u.email = q.email), q.active, q.scope) AS sql
+FROM perf_shared q
+CROSS JOIN LATERAL (SELECT format('(v.tenant_id = ANY (%1$L) OR v.client_tenant_id = ANY (%1$L))', q.scope) AS v,
+                           format('(x.tenant_id = ANY (%1$L) OR x.client_tenant_id = ANY (%1$L))', q.scope) AS x) f;
+
+\o /dev/null
+SET LOCAL statement_timeout = '60s';
+\o
+\set ON_ERROR_STOP 0
+SELECT sql FROM perf_shared_statements ORDER BY pos \gexec
+\o /dev/null
+SET LOCAL statement_timeout = 0;
+\o
+
 \set ON_ERROR_STOP 1
 
 -- A pair without a result (timed out or failed) is reported as over budget.
@@ -147,6 +217,10 @@ INSERT INTO perf_result
 SELECT a.actor, q.pos, q.name, NULL, NULL
 FROM (VALUES ('internal'), ('restricted'), ('mixed')) a (actor) CROSS JOIN perf_queries q
 WHERE NOT EXISTS (SELECT 1 FROM perf_result r WHERE r.actor = a.actor AND r.pos = q.pos);
+INSERT INTO perf_result
+SELECT q.actor, q.pos, q.name, NULL, NULL
+FROM perf_shared q
+WHERE NOT EXISTS (SELECT 1 FROM perf_result r WHERE r.pos = q.pos);
 
 \unset QUIET
 SELECT actor, name AS query, round(base_ms, 2) AS public_ms, round(api_ms, 2) AS api_ms,

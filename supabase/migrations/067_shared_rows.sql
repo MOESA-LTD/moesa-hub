@@ -10,11 +10,16 @@
 --
 -- private.enable_shared_rows(t), for each shared table (private.is_shared_table, 066):
 --   restrict_selects_to_current_tenant  RESTRICTIVE: tenant_id or client_tenant_id in the scope
---   shared_select                       PERMISSIVE: client_tenant_id in the tenants of the scope where
+--   client_select                       PERMISSIVE: client_tenant_id in the tenants of the scope where
 --                                       the user may select the table (private.permitted_tenants).
 --                                       The permission generator (private.manage_policies) names its
 --                                       own policies <command>_public_<table>, so a permission change
---                                       rebuilds those and keeps this one.
+--                                       rebuilds those and keeps this one. The name sorts before
+--                                       select_public_<table> on purpose (Task 10, R10): PostgreSQL
+--                                       ORs the permissive policies in reverse name order, so the
+--                                       tenant's own policy is tried first and a provider reading its
+--                                       own rows never runs this policy's permitted_tenants InitPlan
+--                                       (~0.5 ms a table). The result is the same either way.
 --   the write policies                  untouched: their RESTRICTIVE tenant_id = ANY (scope) never
 --                                       reaches a row of another tenant, so shared rows are read-only
 --                                       (Task 4 tests the forwarders).
@@ -48,9 +53,9 @@ BEGIN
         p_table
     );
 
-    EXECUTE format('DROP POLICY IF EXISTS shared_select ON public.%I', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS client_select ON public.%I', p_table);
     EXECUTE format(
-        $f$CREATE POLICY shared_select ON public.%I FOR SELECT TO authenticated
+        $f$CREATE POLICY client_select ON public.%I FOR SELECT TO authenticated
            USING (client_tenant_id = ANY ((SELECT private.permitted_tenants(%L, 'select'))::UUID[]))$f$,
         p_table, resource
     );
@@ -172,9 +177,17 @@ ORDER BY c.relname;
 --   pending         status draft or sent (the order is not yet confirmed by the supplier)
 --   confirmed       otherwise: pi_received, pi_approved, deposit_paid
 -- A planned or booked shipment changes neither pending nor confirmed.
--- private.purchase_order_client_status is SECURITY DEFINER (the shipments may lie outside what the
--- reader selects; only the stage of an order the reader already reads comes out) and executable by
--- authenticated (the view calls it as the caller), which has no USAGE on private.
+-- The order's live shipments are read through private.purchase_order_live_shipment, a view owned by
+-- postgres (the shipments may lie outside what the reader selects; only the stage of an order the
+-- reader already reads comes out) and selectable by api_owner alone: api.purchase_order (owned by
+-- api_owner) counts them in a LEFT JOIN LATERAL (private.api_view_derived_from), an index lookup per
+-- row read, and maps the counts with private.purchase_order_client_stage, a pure function of its
+-- arguments that the planner inlines (Task 10, R10: a SECURITY DEFINER call per row cost ~22 µs,
+-- +1 ms on a list of 50; a scalar subquery would put a SubLink in the view's whole row, and
+-- api.supplier(api.purchase_order) would no longer be inlined).
+-- private.purchase_order_client_status(id, tenant, status) is the same mapping for one order
+-- (SECURITY DEFINER, executable by authenticated, which has no USAGE on private); 067's test pins the
+-- view column to it.
 --
 -- The derived views (058) read the api twins, so they mask alike. purchase_order_overview gains
 -- client_status, and its spec_missing_line_ids is NULL outside the order's own tenant: it would
@@ -187,6 +200,39 @@ ORDER BY c.relname;
 
 CREATE TYPE public.purchase_order_client_status AS ENUM ('pending', 'confirmed', 'in_production', 'shipped', 'delivered', 'cancelled');
 
+-- The live (not cancelled) shipments of each order, as postgres.
+CREATE VIEW private.purchase_order_live_shipment AS
+SELECT sp.purchase_order_id, sp.tenant_id, sh.status
+FROM public.shipment_purchase_order sp
+JOIN public.shipment sh ON sh.id = sp.shipment_id AND sh.tenant_id = sp.tenant_id
+WHERE sh.status <> 'cancelled';
+
+ALTER VIEW private.purchase_order_live_shipment OWNER TO postgres;
+REVOKE ALL ON private.purchase_order_live_shipment FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON private.purchase_order_live_shipment TO api_owner;
+
+-- The stage from the raw status and the counts of live, arrived and underway shipments. No SET
+-- clause and not SECURITY DEFINER, so the planner inlines it; every name is qualified.
+CREATE OR REPLACE FUNCTION private.purchase_order_client_stage (
+   p_status public.purchase_order_status,
+   p_live BIGINT,
+   p_arrived BIGINT,
+   p_underway BIGINT
+) RETURNS public.purchase_order_client_status LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE
+        WHEN p_status = 'cancelled'::public.purchase_order_status THEN 'cancelled'
+        WHEN p_status = 'closed'::public.purchase_order_status OR (p_live > 0 AND p_arrived = p_live) THEN 'delivered'
+        WHEN p_underway > 0 THEN 'shipped'
+        WHEN p_status = ANY ('{in_production,ready,balance_paid}'::public.purchase_order_status[]) THEN 'in_production'
+        WHEN p_status = ANY ('{draft,sent}'::public.purchase_order_status[]) THEN 'pending'
+        ELSE 'confirmed'
+    END::public.purchase_order_client_status
+$$;
+
+REVOKE ALL ON FUNCTION private.purchase_order_client_stage (public.purchase_order_status, BIGINT, BIGINT, BIGINT) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION private.purchase_order_client_stage (public.purchase_order_status, BIGINT, BIGINT, BIGINT) TO authenticated;
+
 CREATE OR REPLACE FUNCTION private.purchase_order_client_status (
    p_purchase_order_id UUID,
    p_tenant_id UUID,
@@ -194,23 +240,12 @@ CREATE OR REPLACE FUNCTION private.purchase_order_client_status (
 ) RETURNS public.purchase_order_client_status LANGUAGE sql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
-    SELECT CASE
-        WHEN p_status = 'cancelled' THEN 'cancelled'
-        WHEN p_status = 'closed' OR (s.live > 0 AND s.arrived = s.live) THEN 'delivered'
-        WHEN s.underway > 0 THEN 'shipped'
-        WHEN p_status IN ('in_production', 'ready', 'balance_paid') THEN 'in_production'
-        WHEN p_status IN ('draft', 'sent') THEN 'pending'
-        ELSE 'confirmed'
-    END::public.purchase_order_client_status
-    FROM (
-        SELECT count(*) AS live,
-               count(*) FILTER (WHERE sh.status IN ('delivered', 'accepted', 'disputed')) AS arrived,
-               count(*) FILTER (WHERE sh.status IN ('loaded', 'in_transit', 'at_customs', 'delivered', 'accepted', 'disputed')) AS underway
-        FROM public.shipment_purchase_order sp
-        JOIN public.shipment sh ON sh.id = sp.shipment_id AND sh.tenant_id = sp.tenant_id
-        WHERE sp.purchase_order_id = p_purchase_order_id AND sp.tenant_id = p_tenant_id
-          AND sh.status <> 'cancelled'
-    ) s;
+    SELECT private.purchase_order_client_stage(
+               p_status, count(*),
+               count(*) FILTER (WHERE s.status IN ('delivered', 'accepted', 'disputed')),
+               count(*) FILTER (WHERE s.status IN ('loaded', 'in_transit', 'at_customs', 'delivered', 'accepted', 'disputed')))
+    FROM private.purchase_order_live_shipment s
+    WHERE s.purchase_order_id = p_purchase_order_id AND s.tenant_id = p_tenant_id;
 $$;
 
 REVOKE ALL ON FUNCTION private.purchase_order_client_status (UUID, UUID, public.purchase_order_status) FROM PUBLIC, anon, authenticated;
@@ -221,11 +256,30 @@ GRANT EXECUTE ON FUNCTION private.purchase_order_client_status (UUID, UUID, publ
 CREATE OR REPLACE FUNCTION private.api_view_derived_columns (p_table TEXT) RETURNS TABLE (name TEXT, expr TEXT) LANGUAGE sql STABLE
 SET
    search_path = '' AS $$
-    SELECT 'client_status', 'private.purchase_order_client_status(t.id, t.tenant_id, t.status) AS client_status'
+    SELECT 'client_status', 'private.purchase_order_client_stage(t.status, cs.live, cs.arrived, cs.underway) AS client_status'
     WHERE p_table = 'purchase_order';
 $$;
 
 REVOKE ALL ON FUNCTION private.api_view_derived_columns (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- The joins the derived columns read, after the view's FROM. A LEFT JOIN LATERAL of one aggregate
+-- row: the planner drops it when no derived column is read (a count, an embed's key), and the whole
+-- row of the view stays free of subqueries, so the R4 functions over it (api.supplier(api.purchase_order))
+-- are still inlined.
+CREATE OR REPLACE FUNCTION private.api_view_derived_from (p_table TEXT) RETURNS TEXT LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT CASE p_table
+        WHEN 'purchase_order' THEN
+            ' LEFT JOIN LATERAL (SELECT count(*) AS live, '
+            || 'count(*) FILTER (WHERE s.status = ANY (''{delivered,accepted,disputed}''::public.shipment_status[])) AS arrived, '
+            || 'count(*) FILTER (WHERE s.status = ANY (''{loaded,in_transit,at_customs,delivered,accepted,disputed}''::public.shipment_status[])) AS underway '
+            || 'FROM private.purchase_order_live_shipment s WHERE s.purchase_order_id = t.id AND s.tenant_id = t.tenant_id) cs ON TRUE'
+        ELSE ''
+    END;
+$$;
+
+REVOKE ALL ON FUNCTION private.api_view_derived_from (TEXT) FROM PUBLIC, anon, authenticated;
 
 -- client_status is no column of public.purchase_order, but the classification lists it as an open,
 -- client-visible field so the generated client-visible constants (scripts/masked-fields.mjs) name
@@ -370,14 +424,14 @@ $$;
 
 REVOKE ALL ON FUNCTION private.api_view_from (TEXT) FROM PUBLIC, anon, authenticated;
 
--- 053's api_view_query plus the derived columns after the base columns.
+-- 053's api_view_query plus the derived columns after the base columns, and their joins after the FROM.
 CREATE OR REPLACE FUNCTION private.api_view_query (p_table TEXT) RETURNS TEXT LANGUAGE sql STABLE
 SET
    search_path = '' AS $$
-    SELECT format('SELECT %s%s FROM %s',
+    SELECT format('SELECT %s%s FROM %s%s',
                   string_agg(private.api_column_expr(p_table, a.attname), ', ' ORDER BY a.attnum),
                   (SELECT coalesce(string_agg(', ' || d.expr, '' ORDER BY d.name), '') FROM private.api_view_derived_columns(p_table) d),
-                  private.api_view_from(p_table))
+                  private.api_view_from(p_table), private.api_view_derived_from(p_table))
     FROM pg_catalog.pg_attribute a
     WHERE a.attrelid = format('public.%I', p_table)::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped;
 $$;

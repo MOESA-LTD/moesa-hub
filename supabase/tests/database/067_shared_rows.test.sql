@@ -298,7 +298,8 @@ SELECT ok(CASE WHEN to_regprocedure('private.enable_shared_rows(text)') IS NULL 
          END,
           'enable_shared_rows is executable by its owner only');
 SELECT is((SELECT count(*)::INT FROM unnest(pg_temp.shared_tables()) AS t
-           WHERE EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t AND p.policyname = 'shared_select'
+           WHERE EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t AND p.policyname = 'client_select'
+                           AND p.policyname::NAME < ('select_public_' || t)::NAME
                            AND p.permissive = 'PERMISSIVE' AND p.cmd = 'SELECT' AND p.qual LIKE '%client_tenant_id%permitted_tenants%')
              AND EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t
                            AND p.policyname = 'restrict_selects_to_current_tenant' AND p.qual LIKE '%client_tenant_id%tenant_scope%')),
@@ -503,8 +504,18 @@ SELECT results_eq(
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
 CREATE FUNCTION pg_temp.status_with_shipment (p_shipment public.shipment_status, p_order public.purchase_order_status) RETURNS TEXT
 LANGUAGE plpgsql AS $$
+DECLARE
+    mismatched BIGINT;
 BEGIN
     UPDATE public.shipment SET status = p_shipment WHERE id = '00000000-0000-4000-8000-000000006771';
+    -- The api view's own expression and join (Task 10) agrees with the function on every order.
+    EXECUTE format('SELECT count(*) FROM public.purchase_order t%s WHERE %s IS DISTINCT FROM private.purchase_order_client_status(t.id, t.tenant_id, t.status)',
+                   private.api_view_derived_from('purchase_order'),
+                   (SELECT regexp_replace(d.expr, ' AS client_status$', '') FROM private.api_view_derived_columns('purchase_order') d))
+    INTO mismatched;
+    IF mismatched > 0 THEN
+        RETURN 'view expression differs on ' || mismatched || ' orders';
+    END IF;
     RETURN private.purchase_order_client_status('00000000-0000-4000-8000-000000006751', '00000000-0000-4000-8000-000000006701', p_order)::TEXT;
 END;
 $$;
