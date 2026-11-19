@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4).
 BEGIN;
 
-SELECT plan(146);
+SELECT plan(150);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -730,13 +730,30 @@ SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id F
    '42501', 'invitation_forbidden', 'a creator without the insert right cannot discard it');
 RESET ROLE;
 UPDATE public.provider_invitation SET created_by = current_setting('test.baris')::UUID WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent');
+-- Only a just-issued token is "unsent" (M3): an invitation whose token went out over 10 minutes
+-- ago, or one created over 10 minutes ago (a resend refreshes only the token), is left alone.
+UPDATE private.provider_invitation_token SET issued_at = now() - interval '11 minutes' WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent');
+SET LOCAL ROLE service_role;
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
+   '42501', 'invitation_forbidden', 'a token issued over 10 minutes ago is not discarded');
+SELECT lives_ok($$ SELECT public.rotate_provider_invitation_token((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
+   'a resend issues a new token');
+RESET ROLE;
+SELECT is((SELECT issued_at FROM private.provider_invitation_token WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent')), now(),
+          'and records when it was issued');
+UPDATE public.provider_invitation SET created_at = now() - interval '11 minutes' WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent');
+SET LOCAL ROLE service_role;
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
+   '42501', 'invitation_forbidden', 'an invitation created over 10 minutes ago is not discarded, even with a fresh token');
+RESET ROLE;
+UPDATE public.provider_invitation SET created_at = now() WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent');
 SET LOCAL ROLE service_role;
 SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation(gen_random_uuid(), current_setting('test.baris')::UUID) $$,
    '42501', 'invitation_forbidden', 'an unknown invitation is refused like a forbidden one');
 SELECT lives_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
    'its creator discards it');
 SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
-   'P0001', 'invitation_invalid', 'a revoked invitation cannot be discarded again');
+   '42501', 'invitation_forbidden', 'a revoked invitation (its token is gone) cannot be discarded again');
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '', TRUE);
 
@@ -744,8 +761,8 @@ SELECT results_eq($$ SELECT status::TEXT, revoked_at IS NOT NULL FROM public.pro
    $$ VALUES ('revoked', TRUE) $$, 'the unsent invitation is revoked');
 SELECT is_empty($$ SELECT 1 FROM private.provider_invitation_token WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent') $$,
    'and its hash is gone');
-SELECT is((SELECT count(*)::INT FROM private.provider_invitation_issue WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent')), 1,
-          'the failed mail still counts toward the cap');
+SELECT is((SELECT count(*)::INT FROM private.provider_invitation_issue WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent')), 2,
+          'every token issued still counts toward the cap, the discarded one included');
 
 SELECT * FROM finish();
 ROLLBACK;

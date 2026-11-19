@@ -88,6 +88,9 @@ CREATE TABLE private.provider_invitation_token (
    invitation_id UUID PRIMARY KEY,
    tenant_id UUID NOT NULL,
    token_hash BYTEA NOT NULL UNIQUE CHECK (length(token_hash) = 32),
+   -- When this token was issued (creation or the latest resend): revoke_unsent_provider_invitation
+   -- acts only on a token that has just been issued.
+   issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
    CONSTRAINT provider_invitation_token_invitation_fkey FOREIGN KEY (invitation_id, tenant_id) REFERENCES public.provider_invitation (id, tenant_id) ON DELETE CASCADE
 );
 
@@ -449,7 +452,7 @@ BEGIN
     v_token := private.invitation_new_token();
     INSERT INTO private.provider_invitation_token AS t (invitation_id, tenant_id, token_hash)
     VALUES (inv.id, inv.tenant_id, extensions.digest(v_token, 'sha256'))
-    ON CONFLICT (invitation_id) DO UPDATE SET token_hash = EXCLUDED.token_hash;
+    ON CONFLICT (invitation_id) DO UPDATE SET token_hash = EXCLUDED.token_hash, issued_at = now();
 
     UPDATE public.provider_invitation i
     SET expires_at = now() + INTERVAL '14 days', failed_attempts = 0
@@ -509,8 +512,10 @@ GRANT EXECUTE ON FUNCTION public.revoke_provider_invitation (UUID) TO authentica
 -- The provider-invitation Edge Function's undo when the invitation e-mail could not be sent (Task 5):
 -- nobody holds the token, so the invitation is revoked and its e-mail and code are free again. The
 -- service role has no auth.uid(), so revoke_provider_invitation cannot serve it. Only the creator,
--- still holding the insert right, discards a pending invitation; anything else is invitation_forbidden
--- (an unknown id included). The issue stays logged, so failed mails still count toward the cap.
+-- still holding the insert right, discards a pending invitation, and only while it is "unsent": created
+-- and its current token issued within the last 10 minutes (a mailed, older invitation is never taken by
+-- a wrong id). Anything else is invitation_forbidden (an unknown id included). The issue stays logged,
+-- so failed mails still count toward the cap.
 CREATE OR REPLACE FUNCTION public.revoke_unsent_provider_invitation (p_invitation UUID, p_actor UUID) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -522,6 +527,9 @@ BEGIN
     SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = p_invitation;
 
     IF inv.id IS NULL OR p_actor IS NULL OR inv.created_by IS DISTINCT FROM p_actor
+       OR inv.created_at < now() - INTERVAL '10 minutes'
+       OR NOT EXISTS (SELECT 1 FROM private.provider_invitation_token t
+                      WHERE t.invitation_id = inv.id AND t.issued_at >= now() - INTERVAL '10 minutes')
        OR coalesce(cardinality(private.tenants_permitting(p_actor, ARRAY[inv.tenant_id], 'public.provider_invitation', 'insert')), 0) = 0 THEN
         RAISE EXCEPTION 'invitation_forbidden' USING ERRCODE = 'insufficient_privilege';
     END IF;

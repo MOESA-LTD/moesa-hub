@@ -5,8 +5,12 @@ import { authorizedRequest, CALLER, jsonResponse, stubFetch, TENANT } from './he
 
 Deno.env.set('SITE_URL', 'http://localhost:6161');
 
-/** The stubbed token, distinctive enough to be searched for in every body and log line. */
-const SECRET = 'tok_SECRET-4f9a_zz';
+/**
+ * The stubbed token, distinctive enough to be searched for in every body and log line. Not
+ * URL-safe on purpose, so its encoded form (as in the link) differs from the raw one and both are
+ * searched for.
+ */
+const SECRET = 'tok+SECRET/4f9a=zz';
 const INVITATION = '00000000-0000-4000-8000-0000000000c1';
 const EXISTING = '00000000-0000-4000-8000-0000000000bb';
 
@@ -31,6 +35,14 @@ type Opts = {
    rpcError?: { status: number; code: string; message: string };
    /** What accept_provider_invitation returns. */
    accept?: unknown;
+   /** Invite answers email_exists (a confirmed Auth account public.user does not list). */
+   inviteEmailExists?: boolean;
+   /** The public.user lookup fails. */
+   lookupFails?: boolean;
+   /** The undo (revoke_unsent_provider_invitation) fails. */
+   undoFails?: boolean;
+   /** The invitation is not in the caller's active tenant (the scoped read finds nothing). */
+   invitationMissing?: boolean;
 };
 
 /** Answers what the provider-invitation function reads and writes. */
@@ -55,17 +67,26 @@ const backend = (opts: Opts = {}) => {
             if (fail) return jsonResponse({ code: fail.code, message: fail.message }, fail.status);
             return jsonResponse(token);
          case '/rest/v1/rpc/revoke_unsent_provider_invitation':
+            if (opts.undoFails)
+               return jsonResponse({ code: '42501', message: 'invitation_forbidden' }, 403);
             return new Response(null, { status: 204 });
          case '/rest/v1/rpc/accept_provider_invitation':
-            return jsonResponse(opts.accept ?? { tenant_id: 'NEW-TENANT', skipped_staff: [] });
+            return jsonResponse('accept' in opts ? opts.accept : { tenant_id: 'NEW-TENANT', skipped_staff: [] });
          case '/rest/v1/provider_invitation':
-            return jsonResponse([{ email: 'new@client.test' }]);
+            return jsonResponse(opts.invitationMissing ? [] : [{ email: 'new@client.test' }]);
          case '/rest/v1/user':
+            if (opts.lookupFails) return jsonResponse({ code: '57014', message: 'canceling statement' }, 500);
             return jsonResponse(opts.existingUser ? [{ id: EXISTING }] : []);
          case '/auth/v1/otp':
          case '/auth/v1/invite':
             if (opts.mailFails)
-               return jsonResponse({ code: 'unexpected_failure', msg: `smtp down ${url.search}` }, 500);
+               // Auth's own error text may quote the link (and so the token): it must go nowhere.
+               return jsonResponse(
+                  { code: 'unexpected_failure', msg: `smtp down ${url.searchParams.get('redirect_to')}` },
+                  500
+               );
+            if (opts.inviteEmailExists && url.pathname === '/auth/v1/invite')
+               return jsonResponse({ code: 422, error_code: 'email_exists', msg: 'already registered' }, 422);
             return jsonResponse(
                url.pathname === '/auth/v1/otp' ? {} : { id: EXISTING, email: 'new@client.test' }
             );
@@ -315,7 +336,7 @@ Deno.test('resend rotates as the caller, mails the new link and returns only the
    const otp = seen.find((s) => s.path === '/auth/v1/otp')!;
    assertEquals(
       new URLSearchParams(otp.search).get('redirect_to'),
-      `http://localhost:6161/invitation/${SECRET}`
+      `http://localhost:6161/invitation/${encodeURIComponent(SECRET)}`
    );
 });
 
@@ -541,7 +562,10 @@ Deno.test('the token never appears in any response body or log output', async ()
       ['accept', {}, () => request('/provider-invitation/accept', acceptBody)],
       ['accept refused', { accept: { error: 'invitation_invalid' } }, () => request('/provider-invitation/accept', acceptBody)],
       ['accept bad body', {}, () => request('/provider-invitation/accept', { ...acceptBody, user_id: 'x' })],
-      ['accept no jwt', {}, () => request('/provider-invitation/accept', acceptBody, [], { auth: false })]
+      ['accept no jwt', {}, () => request('/provider-invitation/accept', acceptBody, [], { auth: false })],
+      ['create, lookup fails', { lookupFails: true }, () => request('/provider-invitation', createBody, [INSERT])],
+      ['create, mail and undo fail', { mailFails: true, undoFails: true }, () => request('/provider-invitation', createBody, [INSERT])],
+      ['create, email_exists fallback', { inviteEmailExists: true }, () => request('/provider-invitation', createBody, [INSERT])]
    ];
    for (const [name, opts, make] of scenarios) {
       const { restore } = backend(opts);
@@ -576,6 +600,98 @@ Deno.test('the answer does not reveal whether the address has an account', async
    const strip = (a: string) => a.replace(/^(true|false):/, '');
    assertEquals(strip(answers[0]), strip(answers[2]));
    assertEquals(strip(answers[1]), strip(answers[3]));
+});
+
+// ------------------------------------------------------------------------------------------
+// Fix round 1: the fallback, the failure paths, a foreign invitation, a broken accept result.
+
+Deno.test('an Auth account public.user does not list gets the magic link after email_exists', async () => {
+   const { seen, restore } = backend({ inviteEmailExists: true });
+   let res!: Response;
+   try {
+      res = await handler(request('/provider-invitation', createBody, [INSERT]));
+   } finally {
+      restore();
+   }
+   assertEquals(res.status, 201);
+   assertEquals(
+      mailCalls(seen).map((s) => s.path),
+      ['/auth/v1/invite', '/auth/v1/otp']
+   );
+   const otp = seen.find((s) => s.path === '/auth/v1/otp')!;
+   assertEquals(JSON.parse(otp.body).create_user, false);
+   assert(!seen.some((s) => s.path.includes('revoke')), 'a sent mail is not undone');
+});
+
+Deno.test('a failed account lookup is a mail failure: 502 and the invitation revoked', async () => {
+   const { seen, restore } = backend({ lookupFails: true });
+   let res!: Response;
+   try {
+      res = await respond(handler(request('/provider-invitation', createBody, [INSERT])));
+   } finally {
+      restore();
+   }
+   assertEquals(res.status, 502);
+   const text = await res.text();
+   assertEquals(JSON.parse(text), { message: 'invitation_mail_failed' });
+   assert(!text.includes(SECRET) && !text.includes(encodeURIComponent(SECRET)));
+   assertEquals(mailCalls(seen), [], 'nothing was mailed');
+   const revoke = seen.find((s) => s.path === '/rest/v1/rpc/revoke_unsent_provider_invitation');
+   assertEquals(JSON.parse(revoke!.body), { p_invitation: 'I', p_actor: CALLER });
+});
+
+Deno.test('a failing undo still answers 502 with no token, and is logged by id and code', async () => {
+   const { seen, restore } = backend({ mailFails: true, undoFails: true });
+   let res!: Response;
+   const logs = await captureLogs(async () => {
+      try {
+         res = await respond(handler(request('/provider-invitation', createBody, [INSERT])));
+      } finally {
+         restore();
+      }
+   });
+   assertEquals(res.status, 502);
+   const text = await res.text();
+   assertEquals(JSON.parse(text), { message: 'invitation_mail_failed' });
+   assert(seen.some((s) => s.path === '/rest/v1/rpc/revoke_unsent_provider_invitation'));
+   assertStringIncludes(logs, 'revoking the unsent invitation failed');
+   assertStringIncludes(logs, '42501');
+   for (const out of [text, logs]) {
+      assert(!out.includes(SECRET));
+      assert(!out.includes(encodeURIComponent(SECRET)));
+   }
+});
+
+Deno.test("resending another tenant's invitation is 404 and rotates nothing", async () => {
+   const { seen, restore } = backend({ invitationMissing: true });
+   let res!: Response;
+   try {
+      res = await respond(handler(request(`/provider-invitation/${INVITATION}/resend`, {}, [UPDATE])));
+   } finally {
+      restore();
+   }
+   assertEquals(res.status, 404);
+   assertEquals((await res.json()).message, 'invitation_invalid');
+   assertEquals(rpcCalls(seen), [], 'no rotation');
+   assertEquals(mailCalls(seen), []);
+   const read = seen.find((s) => s.path === '/rest/v1/provider_invitation')!;
+   assertEquals(new URLSearchParams(read.search).get('tenant_id'), `eq.${TENANT}`);
+});
+
+Deno.test('an accept result with neither tenant nor error is a 500 with a generic body', async () => {
+   for (const result of [{}, null, { tenant_id: null }]) {
+      const { restore } = backend({ accept: result });
+      let res!: Response;
+      await captureLogs(async () => {
+         try {
+            res = await respond(handler(request('/provider-invitation/accept', acceptBody)));
+         } finally {
+            restore();
+         }
+      });
+      assertEquals(res.status, 500, JSON.stringify(result));
+      assertEquals(await res.json(), { message: 'internal_error' });
+   }
 });
 
 // ------------------------------------------------------------------------------------------

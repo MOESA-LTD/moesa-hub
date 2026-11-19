@@ -202,7 +202,10 @@ export const acceptInvitation = async (req: Request) => {
    if (error) throw error;
 
    const result = (data ?? {}) as { error?: string; tenant_id?: string };
-   if (result.error !== undefined || !result.tenant_id) throw namedRefusal(result.error);
+   if (result.error !== undefined) throw namedRefusal(result.error);
+   // Neither a refusal nor a tenant: the function broke its contract. A plain 500 (errorResponse
+   // logs this message, which names no input).
+   if (!result.tenant_id) throw new Error('accept_provider_invitation returned no tenant');
 
    return json({ tenant_id: result.tenant_id });
 };

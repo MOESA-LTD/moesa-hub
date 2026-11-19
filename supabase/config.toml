@@ -97,6 +97,13 @@ enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
 site_url = "http://localhost:6161"
+# Provider invitations (provider-invitation Edge Function, Plan 3 Task 5). Hosted must match:
+# - `[auth] enable_signup = false` stays off. The function re-invites an unconfirmed account;
+#   with open sign-up anyone could create that account first with a password of their own.
+# - The panel's `/invitation/**` URL is in the redirect allow-list. Without it GoTrue silently
+#   falls back to site_url: the mail goes out (201) but its link carries no token.
+# - The invitation token travels as the path of `redirect_to`, so it lands in GoTrue's request
+#   logs (/verify) as well as in the mail. Restrict who reads the Auth logs accordingly.
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = ["http://localhost:6161", "http://localhost:6161/invitation/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
