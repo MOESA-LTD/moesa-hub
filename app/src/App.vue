@@ -1,9 +1,18 @@
 <script setup>
 import { useRouteDialogRestore } from '@/components/layout/route-dialog/useRouteDialogRestore';
 import { useAuthUi } from '@/composables/useAuthUi';
+import { bootHandoff } from '@/lib/boot';
 
 useAuthUi();
 useRouteDialogRestore();
+
+// The boot skeleton (index.html) stays until the first page is really on screen.
+const router = useRouter();
+const route = useRoute();
+bootHandoff(
+   router.isReady(),
+   () => route.matched.length > 0 && !!document.querySelector('#app > *')
+);
 </script>
 
 <template>

@@ -48,7 +48,7 @@
          }
       </script>
 
-      <!-- Boot skeleton: the MOESA Hub shell shown until Vue mounts and replaces #app's content.
+      <!-- Boot skeleton: the MOESA Hub shell over #app until the first page is on screen (src/lib/boot.ts).
            Colours are the default theme's (viva surfaces, moesa blue). -->
       <style>
          /* Tailwind's preflight is not loaded yet: padding must not widen the blocks. */
@@ -65,12 +65,19 @@
             --ink: #19324a;
             --sub: #536b7d;
 
+            /* Over #app until the first page has rendered (src/lib/boot.ts hideBoot). */
             position: fixed;
             inset: 0;
+            z-index: 2000;
             display: flex;
             flex-direction: column;
             background: var(--ground);
             font-family: 'Manrope', Arial, 'Segoe UI', sans-serif;
+            transition: opacity 200ms ease-out;
+         }
+         .boot--done {
+            opacity: 0;
+            pointer-events: none;
          }
          .dark .boot {
             --ground: #0e1315;
@@ -261,7 +268,8 @@
    </head>
 
    <body>
-      <div id="app">
+      <!-- Outside #app, so mounting does not clear it before the first page is ready. -->
+      <div id="boot">
          <div class="boot" aria-busy="true" aria-label="MOESA Hub">
             <header class="boot__bar">
                <div class="boot__brand">
@@ -307,6 +315,7 @@
             </div>
          </div>
       </div>
+      <div id="app"></div>
       <script type="module" src="/src/main.ts"></script>
    </body>
 </html>
