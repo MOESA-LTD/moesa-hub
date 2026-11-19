@@ -31,8 +31,18 @@
                scheme === 'dark' ||
                (scheme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
+
+            // UI scale too, from the profile in use (store/theme: the dark one only while dark
+            // and unlinked; lib/theme/settings: 0.5–1.5), as lib/theme/setup.ts sets it later.
+            // Without it the page draws at scale 1 and shrinks or grows once the app starts.
+            const settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
+            const profile = settings.linked === false && dark ? settings.dark : settings.light;
+            const scale = Number(profile?.uiScale);
+            if (scale >= 0.5 && scale <= 1.5) {
+               document.documentElement.style.setProperty('--ui-scale', String(scale));
+            }
          } catch {
-            /* Storage blocked: the app decides once it loads. */
+            /* Storage blocked or unreadable: the app decides once it loads. */
          }
 
          // Which skeleton: the sign-in pages (routes/auth.ts, under an optional locale) or anyone
@@ -51,6 +61,15 @@
       <!-- Boot skeleton: the MOESA Hub shell over #app until the first page is on screen (src/lib/boot.ts).
            Colours are the default theme's (viva surfaces, moesa blue). -->
       <style>
+         /* The root size before the app's CSS arrives: the same rule as assets/style/base/_core.scss,
+            so the skeleton and the first page share one scale (keep the two in step). */
+         :root {
+            font-size: clamp(
+               calc(0.625rem * var(--ui-scale, 1)),
+               2vw,
+               calc(1rem * var(--ui-scale, 1))
+            );
+         }
          /* Tailwind's preflight is not loaded yet: padding must not widen the blocks. */
          .boot,
          .boot * {
