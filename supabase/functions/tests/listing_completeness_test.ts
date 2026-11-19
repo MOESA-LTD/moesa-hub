@@ -334,3 +334,19 @@ Deno.test('sourcingArtNo: the own row, then an active provider, then the newest'
    }
    assertEquals(sourcingArtNo([], 'me', 'p'), null);
 });
+
+// Cleanup item 3: two rows of the same tenant with the same updated_at (two suppliers) are told
+// apart by id, so the order they are read in decides nothing.
+Deno.test('sourcingArtNo: a tie of one tenant falls to the lowest id', () => {
+   const a: SourcingArtNoRow = {
+      id: '00000000-0000-4000-8000-00000000000a',
+      product_id: 'p',
+      tenant_id: 'me',
+      client_tenant_id: null,
+      manufacturer_art_no: 'A',
+      updated_at: '2026-05-01'
+   };
+   const b: SourcingArtNoRow = { ...a, id: '00000000-0000-4000-8000-00000000000b', manufacturer_art_no: 'B' };
+   assertEquals(sourcingArtNo([a, b], 'me', 'p'), 'A');
+   assertEquals(sourcingArtNo([b, a], 'me', 'p'), 'A');
+});

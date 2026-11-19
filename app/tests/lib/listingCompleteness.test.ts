@@ -8,6 +8,8 @@ import {
    missingAttributes,
    providedAttributes,
    serverProvided,
+   SOURCING_LISTING_COLUMNS,
+   sourcingArtNo,
    toDefinitionRow,
    toPropertyGroups
 } from '@edge-shared/listingCompleteness';
@@ -68,5 +70,22 @@ describe('listingCompleteness from the app (@edge-shared)', () => {
    it('shares the language default and the definition row with the server', () => {
       expect(languageTag('BE', null)).toBe('fr_BE');
       expect(toDefinitionRow(fixture).version).toBe('UHqSqmb4FNUk=');
+   });
+});
+
+describe('sourcingArtNo (the app reads the same rows)', () => {
+   it('tells two rows of one tenant with the same updated_at apart by id, whatever the order', () => {
+      const a = {
+         id: '00000000-0000-4000-8000-00000000000a',
+         product_id: 'p',
+         tenant_id: 'me',
+         client_tenant_id: null,
+         manufacturer_art_no: 'A',
+         updated_at: '2026-05-01'
+      };
+      const b = { ...a, id: '00000000-0000-4000-8000-00000000000b', manufacturer_art_no: 'B' };
+      expect(sourcingArtNo([a, b], 'me', 'p')).toBe('A');
+      expect(sourcingArtNo([b, a], 'me', 'p')).toBe('A');
+      expect(SOURCING_LISTING_COLUMNS.split(',').map((c) => c.trim())).toContain('id');
    });
 });

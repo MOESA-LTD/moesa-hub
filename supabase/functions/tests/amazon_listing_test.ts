@@ -2253,6 +2253,7 @@ Deno.test('amazon-listing selects no sensitive product or cell column', () => {
    assert(!product.includes('manufacturer_art_no'));
    const sourcing = SOURCING_LISTING_COLUMNS.split(',').map((s) => s.trim());
    assertEquals(sourcing, [
+      'id',
       'product_id',
       'tenant_id',
       'client_tenant_id',

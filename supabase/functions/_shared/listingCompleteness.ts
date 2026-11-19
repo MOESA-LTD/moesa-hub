@@ -302,9 +302,11 @@ export type ProductCard = {
  * may not read is NULL and derives nothing.
  */
 export const SOURCING_LISTING_COLUMNS =
-   'product_id, tenant_id, client_tenant_id, manufacturer_art_no, updated_at';
+   'id, product_id, tenant_id, client_tenant_id, manufacturer_art_no, updated_at';
 
 export type SourcingArtNoRow = {
+   /** The last tie-break: two rows of one tenant with the same updated_at. */
+   id?: string | null;
    product_id: string | null;
    tenant_id: string;
    client_tenant_id?: string | null;
@@ -340,7 +342,7 @@ export const markActiveProviders = <R extends SourcingArtNoRow>(
  * The manufacturer article number of a product of `tenantId`, from the sourcing rows the caller
  * reads (the listing loader and the app's Amazon previews). The row is chosen whatever their order
  * (final review M5): the tenant's own row (the client procures), else a row of a provider with an
- * active relationship (markActiveProviders), else the newest; ties by tenant. The model and part
+ * active relationship (markActiveProviders), else the newest; ties by tenant, then by id. The model and part
  * number are derived from it (Q3); NULL derives nothing.
  */
 export function sourcingArtNo(
@@ -356,7 +358,8 @@ export function sourcingArtNo(
          (a, b) =>
             rank(a) - rank(b) ||
             (b.updated_at ?? '').localeCompare(a.updated_at ?? '') ||
-            a.tenant_id.localeCompare(b.tenant_id)
+            a.tenant_id.localeCompare(b.tenant_id) ||
+            (a.id ?? '').localeCompare(b.id ?? '')
       );
    return row?.manufacturer_art_no ?? null;
 }
