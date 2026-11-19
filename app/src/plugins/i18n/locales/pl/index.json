@@ -49,12 +49,12 @@
          "title": "Witamy",
          "text": "Witamy w panelu zarządzania",
          "headline": "Od producenta na półkę, w jednym panelu",
-         "lead": "Dostawcy, bramki jakości, wysyłki i oferty Amazon spotykają się w tych samych rekordach.",
+         "lead": "Dostawcy, bramki jakości, wysyłki i oferty na marketplace’ach spotykają się w tych samych rekordach.",
          "route": {
             "label": "Droga produktu od producenta do marketplace",
             "gate": "Bramka jakości",
             "shipment": "Wysyłka",
-            "marketplace": "Amazon EU"
+            "marketplace": "Marketplace’y"
          },
          "no_account": "Nie masz jeszcze konta?",
          "have_account": "Masz już konto?"

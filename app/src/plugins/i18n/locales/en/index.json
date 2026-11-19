@@ -49,12 +49,12 @@
          "title": "Welcome",
          "text": "Welcome to the management panel",
          "headline": "From the maker to the shelf, in one panel",
-         "lead": "Suppliers, quality gates, shipments and Amazon listings meet in the same records.",
+         "lead": "Suppliers, quality gates, shipments and marketplace listings meet in the same records.",
          "route": {
             "label": "Product route from makers to the marketplace",
             "gate": "Quality gate",
             "shipment": "Shipment",
-            "marketplace": "Amazon EU"
+            "marketplace": "Marketplaces"
          },
          "no_account": "No account yet?",
          "have_account": "Already have an account?"

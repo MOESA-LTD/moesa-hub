@@ -49,12 +49,12 @@
          "title": "欢迎",
          "text": "欢迎使用管理面板",
          "headline": "从工厂到货架，尽在一个面板",
-         "lead": "供应商、质量关卡、发货和亚马逊商品信息汇集在同一份记录中。",
+         "lead": "供应商、质量关卡、发货和电商平台商品信息汇集在同一份记录中。",
          "route": {
             "label": "产品从制造商到电商平台的路线",
             "gate": "质量关卡",
             "shipment": "发货",
-            "marketplace": "Amazon EU"
+            "marketplace": "电商平台"
          },
          "no_account": "还没有账户？",
          "have_account": "已有账户？"

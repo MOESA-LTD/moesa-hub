@@ -91,6 +91,16 @@ describe('register page', () => {
       expect(wrapper.find('input').exists()).toBe(false);
    });
 
+   it('opens the company step without errors', async () => {
+      const wrapper = await mountPage();
+      await wrapper.get('[data-step="email"] input').setValue('owner@leafline.test');
+      await wrapper.get('[data-next]').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-step="company"]').exists()).toBe(true);
+      // Copying the owner's e-mail into the company is not an edit of the company.
+      expect(wrapper.find('[data-step="company"] .form_field__error').exists()).toBe(false);
+   });
+
    it('asks for no password', async () => {
       const wrapper = await mountPage();
       expect(wrapper.find('input[type="password"]').exists()).toBe(false);

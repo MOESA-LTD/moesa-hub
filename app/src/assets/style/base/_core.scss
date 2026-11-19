@@ -1,5 +1,6 @@
 :root {
    height: 100%;
+   // Also set inline in index.html for the boot skeleton; keep the two in step.
    font-size: clamp(calc(0.625rem * var(--ui-scale)), 2vw, calc(1rem * var(--ui-scale)));
 }
 

@@ -1,7 +1,7 @@
 <script setup></script>
 
 <template>
-   Moesa Panel by
+   MOESA Hub by
    <a
       href="https://akifaycicek.com.tr"
       target="_blank"

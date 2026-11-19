@@ -1,6 +1,7 @@
 <script setup>
 import { logoUrl } from '@/api/branch';
 import ScopeControls from './ScopeControls.vue';
+import TopbarBrand from './TopbarBrand.vue';
 import { useSidebar } from '@/composables/useSidebar';
 
 const { isSignedIn, currentLogoPath, currentTenant } = storeToRefs(useAuthStore());
@@ -30,15 +31,8 @@ const version = import.meta.env.PACKAGE_VERSION;
             v-if="isSignedIn"
          />
          <router-link to="/" class="layout-topbar-logo">
-            <!-- The company's own logo, when it has one (see the branch profile). -->
-            <img
-               v-if="logo"
-               :src="logo"
-               :alt="currentTenant?.display_name"
-               class="h-10 max-w-32 object-contain"
-            />
-            <span class="flex flex-col">
-               <span class="font-mono text-primary text-3xl" v-text="'Moesa Panel'" />
+            <span class="flex flex-col gap-1">
+               <TopbarBrand :logo :alt="currentTenant?.display_name" />
                <small v-if="version" class="text-xs text-muted-color" v-text="`v${version}`" />
             </span>
          </router-link>
