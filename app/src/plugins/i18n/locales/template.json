@@ -241,6 +241,7 @@
    "errors": {
       "audit_already_reverted": "",
       "transfer_report_stale": "",
+      "transfer_move_would_lose_data": "",
       "audit_conflict": "",
       "access_denied": "",
       "confirmation_required": "",
@@ -763,7 +764,8 @@
             "withheld_intro": "",
             "withheld": "",
             "blanked": ""
-         }
+         },
+         "move_loses_data": ""
       }
    }
 }

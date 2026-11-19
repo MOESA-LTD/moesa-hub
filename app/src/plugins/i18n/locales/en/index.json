@@ -304,6 +304,7 @@
       "audit_transfer_not_revertable": "This change came with a transfer between companies. Undo it by transferring back.",
       "transfer_package_invalid": "The transfer could not be prepared. Please contact support.",
       "transfer_report_stale": "The products changed since the preview. Review the transfer again.",
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
       "avatar_type": "The photo must be a PNG, JPEG or WebP image.",
       "avatar_size": "The photo must be at most 1 MB.",
       "access_denied": "Access denied",
@@ -2584,6 +2585,7 @@
          },
          "unresolved": "{count} conflicts need a decision.",
          "move_blocked": "A move cannot leave records in the source that use these products. Copy instead, or move those records too.",
+         "move_loses_data": "This move would drop data your client may not see. Copy instead: the source keeps everything, and the client gets everything it may read.",
          "apply": {
             "heading": "Ready to apply",
             "copy": "Copy {count} records to {target}.",

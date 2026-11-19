@@ -17,6 +17,7 @@ const {
    report,
    stale,
    moveBlocked,
+   moveLosesData,
    duplicateCodes,
    error,
    canRehearse,
@@ -101,6 +102,10 @@ const gapText = (gap: { rule: string; source_id: string; table: string }) => {
             {{ $t('ops.transfer.report.blanked', { list: blankedList }) }}
          </span>
       </Message>
+
+      <Message v-if="moveLosesData" severity="error" data-move-loses-data>{{
+         $t('ops.transfer.move_loses_data')
+      }}</Message>
 
       <section class="flex flex-col gap-2">
          <h4 class="font-semibold">{{ $t('ops.transfer.report.counts') }}</h4>

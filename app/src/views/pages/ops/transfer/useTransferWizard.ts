@@ -97,6 +97,14 @@ export function useTransferWizard({ sourceTenant, productIds }: TransferWizardOp
 
    const stale = computed(() => rehearsedWith.value !== null && rehearsedWith.value !== snapshot());
 
+   /**
+    * A move into a client that would drop provider data (withheld rows, emptied columns): the
+    * database refuses it (transfer_move_would_lose_data); a copy keeps the source whole.
+    */
+   const moveLosesData = computed(
+      () => mode.value === 'move' && !!report.value && report.value.move_loses_data
+   );
+
    /** A move that would leave records in the source that use the products: the database refuses it (transfer_product_in_use). */
    const moveBlocked = computed(
       () =>
@@ -135,6 +143,7 @@ export function useTransferWizard({ sourceTenant, productIds }: TransferWizardOp
          report.value.unresolved === 0 &&
          !stale.value &&
          !moveBlocked.value &&
+         !moveLosesData.value &&
          duplicateCodes.value.size === 0 &&
          !busy.value
    );
@@ -222,6 +231,7 @@ export function useTransferWizard({ sourceTenant, productIds }: TransferWizardOp
       stale,
       runStale,
       moveBlocked,
+      moveLosesData,
       duplicateCodes,
       error,
       canRehearse,

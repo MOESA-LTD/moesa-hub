@@ -862,6 +862,11 @@ BEGIN
 
     PERFORM private.transfer_check_decisions(report, transfer_products.decisions, target_tenant, transfer_products.mode);
 
+    -- A move never loses data: into a client, what a copy would withhold or blank stays (072).
+    IF transfer_products.mode = 'move' AND coalesce((report ->> 'move_loses_data')::BOOLEAN, FALSE) THEN
+        PERFORM private.transfer_raise('transfer_move_would_lose_data', 409);
+    END IF;
+
     IF transfer_products.mode = 'move'
        AND EXISTS (SELECT 1 FROM jsonb_array_elements(report -> 'left_behind') e WHERE (e ->> 'blocks')::BOOLEAN) THEN
         PERFORM private.transfer_raise('transfer_product_in_use', 409);

@@ -75,6 +75,8 @@ export const transferReportSchema = z.object({
    blanked: z
       .array(z.object({ table: z.string(), column: z.string(), rows: z.number() }))
       .default([]),
+   /** A move into a client that would drop provider data: the run refuses it (copy instead). */
+   move_loses_data: z.boolean().default(false),
    conflicts: z.array(conflictSchema),
    /** The source's rows outside the package that refer to a package row. */
    left_behind: z.array(

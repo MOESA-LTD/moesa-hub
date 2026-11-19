@@ -131,6 +131,7 @@ const report = (overrides: Partial<TransferReport> = {}): TransferReport => ({
    excluded: [],
    excluded_rows: {},
    blanked: [],
+   move_loses_data: false,
    conflicts: [],
    left_behind: [],
    left_behind_links: {},
@@ -407,6 +408,23 @@ describe('report step', () => {
       expect(note.find('[data-withheld-rows]').text()).not.toContain('Media link');
       expect(note.find('[data-blanked]').text()).toContain('Product: notes (1)');
       expect((await rehearse(report())).find('[data-withheld]').exists()).toBe(false);
+   });
+
+   it('refuses a move into a client that would drop provider data, and suggests a copy', async () => {
+      const wrapper = await rehearse(
+         report({
+            mode: 'move',
+            blanked: [{ table: 'product', column: 'notes', rows: 1 }],
+            move_loses_data: true
+         }),
+         'move'
+      );
+
+      expect(wizard.moveLosesData.value).toBe(true);
+      expect(wizard.canRun.value).toBe(false);
+      const note = wrapper.get('[data-move-loses-data]');
+      expect(note.text()).toBe(en.ops.transfer.move_loses_data);
+      expect(note.text()).toContain('Copy');
    });
 
    it('blocks a move whose products are used by records left in the source', async () => {

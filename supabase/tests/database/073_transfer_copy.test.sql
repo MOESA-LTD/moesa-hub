@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(94);
+SELECT plan(99);
 
 SELECT private.create_test_helpers();
 
@@ -71,7 +71,8 @@ FROM (VALUES
     ('shared_file', '00000000-0000-4000-8000-000000073049'),
     ('zp_pi', '00000000-0000-4000-8000-000000073053'),
     ('zp_img', '00000000-0000-4000-8000-000000073055'),
-    ('zp_dual', '00000000-0000-4000-8000-000000073056')
+    ('zp_dual', '00000000-0000-4000-8000-000000073056'),
+    ('zn', '00000000-0000-4000-8000-000000073059')
 ) AS x (k, v);
 
 -- A member of a tenant with one role: every permission of every module, every field.
@@ -192,6 +193,10 @@ INSERT INTO public.sourcing (id, tenant_id, client_tenant_id, product_tenant_id,
 VALUES (current_setting('test.provider_sourcing')::UUID, current_setting('test.p')::UUID, current_setting('test.c')::UUID,
         current_setting('test.c')::UUID, current_setting('test.zm')::UUID, 'THO-MOP40-2P', 'Pamuk mop bezi 40 cm, 2''li',
         current_setting('test.tr1')::UUID, 1.10, 'USD');
+
+-- P: zn ...07359 'ZZ-P-4', a product with nothing but an internal note (the move ruling).
+INSERT INTO public.product (id, tenant_id, sku, display_name, status, notes)
+VALUES (current_setting('test.zn')::UUID, current_setting('test.p')::UUID, 'ZZ-P-4', 'Noted product 073', 'development', 'Provider note 4');
 
 -- P: zp's notes, documents and files (C1, I1).
 UPDATE public.product SET notes = 'Provider note 073' WHERE id = current_setting('test.zp')::UUID;
@@ -555,9 +560,31 @@ SELECT throws_like(
     format($q$ SELECT public.transfer_products(%L, %L, ARRAY[%L]::UUID[], 'move', %L::JSONB, FALSE) $q$,
            current_setting('test.p'), current_setting('test.c'), current_setting('test.zp'),
            jsonb_build_object('sku:' || current_setting('test.zp'), '{"action": "rename", "suffix": "-M"}'::JSONB)),
-    '%transfer_product_in_use%',
-    'and the move is refused'
+    '%transfer_move_would_lose_data%',
+    'and the move is refused: it would drop provider data'
 );
+SELECT is((current_setting('test.rbm')::JSONB ->> 'move_loses_data')::BOOLEAN, TRUE, 'the rehearsal says so');
+
+-- A move never loses data: a product with nothing but an internal note cannot move into the
+-- client either (the note would be blanked, then the source deleted); a copy can.
+SELECT set_config('test.rzn', public.transfer_products(current_setting('test.p')::UUID, current_setting('test.c')::UUID,
+                                                       ARRAY[current_setting('test.zn')::UUID], 'move')::TEXT, TRUE);
+SELECT ok(
+    (current_setting('test.rzn')::JSONB ->> 'move_loses_data')::BOOLEAN
+    AND current_setting('test.rzn')::JSONB -> 'excluded_rows' = '{}'::JSONB
+    AND current_setting('test.rzn')::JSONB -> 'blanked' = '[{"table": "product", "column": "notes", "rows": 1}]'::JSONB,
+    'a move of a product with an internal note into the client would lose the note'
+);
+SELECT throws_like(
+    format($q$ SELECT public.transfer_products(%L, %L, ARRAY[%L]::UUID[], 'move', %L::JSONB, FALSE) $q$,
+           current_setting('test.p'), current_setting('test.c'), current_setting('test.zn'),
+           jsonb_build_object('report_hash', current_setting('test.rzn')::JSONB ->> 'report_hash')),
+    '%transfer_move_would_lose_data%',
+    'so the move is refused, the source untouched'
+);
+SELECT is((public.transfer_products(current_setting('test.p')::UUID, current_setting('test.c')::UUID,
+                                    ARRAY[current_setting('test.zn')::UUID], 'copy') ->> 'move_loses_data')::BOOLEAN,
+          FALSE, 'a copy of it is allowed');
 RESET ROLE;
 SELECT private.unimpersonate();
 
@@ -948,6 +975,9 @@ SELECT set_config('test.rg', public.transfer_products(current_setting('test.p'):
                                                           current_setting('test.p')::UUID, current_setting('test.e')::UUID,
                                                           ARRAY[current_setting('test.zp')::UUID], 'copy') ->> 'report_hash'),
                                                       FALSE)::TEXT, TRUE);
+SELECT is((public.transfer_products(current_setting('test.e')::UUID, current_setting('test.p')::UUID,
+                                    ARRAY[current_setting('test.zf')::UUID], 'move') ->> 'move_loses_data')::BOOLEAN,
+          FALSE, 'a move inside the company loses nothing');
 RESET ROLE;
 SELECT private.unimpersonate();
 

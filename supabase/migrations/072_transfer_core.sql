@@ -561,6 +561,11 @@ $$;
 --                            - excluded: the tables left out whole (F5); excluded_rows {table: n}: the
 --                              rows transfer_withhold left out; blanked [{table, column, rows}]: the
 --                              columns it reset, with the number of rows that had a value.
+--                            - move_loses_data: a move into a client that would drop provider data
+--                              (a withheld row, a blanked column, or a source row of an excluded
+--                              table naming a package row); the run refuses it with
+--                              transfer_move_would_lose_data (409, 073): a move never loses data, a
+--                              copy keeps the source whole.
 --                            - counts {table: n}: the rows the run writes, after the decisions.
 --                            - conflicts [{key, kind, table, source_id, existing_id, actions,
 --                              skip_drops?, taken?}]: supplier_code (key supplier:<id>; map, new_code),
@@ -1315,6 +1320,7 @@ DECLARE
     counts JSONB;
     unresolved BIGINT;
     report JSONB;
+    move_loses BOOLEAN;
 BEGIN
     -- The suppliers' codes.
     conflicts := conflicts || coalesce((
@@ -1586,6 +1592,13 @@ BEGIN
         GROUP BY r.table_name
     ) t;
 
+    -- A move into a client that would leave provider data out (see the header).
+    move_loses := p_mode = 'move' AND (
+        EXISTS (SELECT 1 FROM pg_temp.transfer_withheld)
+        OR EXISTS (SELECT 1 FROM pg_temp.transfer_blanked)
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(left_behind) e WHERE e ->> 'table' = ANY (coalesce(p_excluded, '{}')))
+    );
+
     report := jsonb_build_object(
         'mode', p_mode,
         'source_tenant', p_source,
@@ -1613,7 +1626,8 @@ BEGIN
         'cleared', cleared,
         'settings_gaps', gaps,
         'files', files,
-        'unresolved', unresolved
+        'unresolved', unresolved,
+        'move_loses_data', move_loses
     );
 
     RETURN report || jsonb_build_object('report_hash', encode(sha256(convert_to(report::TEXT, 'UTF8')), 'hex'));

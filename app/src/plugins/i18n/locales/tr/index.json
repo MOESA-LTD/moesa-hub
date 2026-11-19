@@ -156,6 +156,7 @@
       "audit_transfer_not_revertable": "Bu değişiklik firmalar arası bir aktarımla geldi. Geri almak için geri aktarın.",
       "transfer_package_invalid": "Aktarım hazırlanamadı. Lütfen destekle iletişime geçin.",
       "transfer_report_stale": "Ürünler önizlemeden sonra değişti. Aktarımı yeniden gözden geçirin.",
+      "transfer_move_would_lose_data": "Müşterinize taşıma, tedarikçi belgelerini, kısıtlı dosyaları veya iç notları dışarıda bırakırdı. Bunun yerine kopyalayın: kaynak her şeyi korur.",
       "avatar_type": "Fotoğraf PNG, JPEG ya da WebP olmalı.",
       "avatar_size": "Fotoğraf en fazla 1 MB olmalı.",
       "access_denied": "Erişim reddedildi",
@@ -2584,6 +2585,7 @@
          },
          "unresolved": "{count} çakışma karar bekliyor.",
          "move_blocked": "Taşıma, bu ürünleri kullanan kayıtları kaynakta bırakamaz. Kopyalayın ya da o kayıtları da taşıyın.",
+         "move_loses_data": "Bu taşıma, müşterinizin göremeyeceği verileri kaybettirirdi. Bunun yerine kopyalayın: kaynak her şeyi korur, müşteri görebileceği her şeyi alır.",
          "apply": {
             "heading": "Uygulamaya hazır",
             "copy": "{count} kayıt {target} hedefine kopyalanacak.",
