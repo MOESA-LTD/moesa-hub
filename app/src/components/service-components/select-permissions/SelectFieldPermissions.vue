@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useLookup } from '@/api/useLookup';
 import { useFieldAccess } from '@/composables/useFieldAccess';
+import { fieldLabel as labelOf } from '@/lib/fieldLabel';
 import { computed, useAttrs } from 'vue';
 import { useI18n } from 'vue-i18n';
 import PermissionCheckbox from './PermissionCheckbox.vue';
@@ -153,10 +154,9 @@ const sharedTablesHave = (resource: string) =>
    resources.value.some((r) => r.shared && r.resource_name === resource);
 const groupLabel = (id: string) =>
    te(`fields.field_group.${id}`) ? t(`fields.field_group.${id}`) : id;
-const fieldLabel = ({ resource_name, field }: FieldRef) => {
-   const key = `ops.${tableOf(resource_name)}.fields.${field}`;
-   return te(key) ? t(key) : field;
-};
+// Where the table is edited (its own form or the one it lives in), else readable words (fieldLabel.ts).
+const fieldLabel = ({ resource_name, field }: FieldRef) =>
+   labelOf(tableOf(resource_name), field, t, te);
 const kindLabel = (kind: Kind) => t(`component.select_field_permission.${kind}`);
 
 const kinds: Kind[] = ['read', 'write'];

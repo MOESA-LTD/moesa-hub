@@ -288,6 +288,25 @@ describe('invitation page', () => {
       expect(api.logout).toHaveBeenCalled();
    });
 
+   // Cleanup item 11: the customer's throttle is about their own attempts, not the provider's
+   // daily invitation cap (errors.invitation_throttled).
+   it('words a throttled preview for the customer, not as the provider cap', async () => {
+      api.rpc.mockResolvedValue({ data: { error: 'invitation_throttled' }, error: null });
+      const wrapper = await mountPage();
+      const text = wrapper.get('[data-fatal]').text();
+      expect(text).toContain('Too many attempts');
+      expect(text).not.toContain('invitations were sent');
+   });
+
+   it('words a throttled acceptance for the customer, not as the provider cap', async () => {
+      api.invoke.mockResolvedValue(refusal(429, { message: 'invitation_throttled' }));
+      const wrapper = await mountPage();
+      await accept(wrapper);
+      const text = wrapper.get('[data-notice]').text();
+      expect(text).toContain('Too many attempts');
+      expect(text).not.toContain('invitations were sent');
+   });
+
    it('shows plan_limit_users from a 403 body and stays on the plan step', async () => {
       api.invoke.mockResolvedValue(refusal(403, { message: 'plan_limit_users', code: 'P0001' }));
       const wrapper = await mountPage();

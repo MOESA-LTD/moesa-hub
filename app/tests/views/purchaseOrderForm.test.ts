@@ -305,6 +305,16 @@ describe('general tab', () => {
       expect(sent.getComponent({ name: 'ProjectSelect' }).attributes('disabled')).toBe('true');
    });
 
+   // Cleanup item 9: a shared order is read-only, and its ready date looks it (no enabled picker
+   // behind the read-only mask); an own order's ready date stays editable.
+   it('shows the ready date of a shared order disabled', () => {
+      const form = { ...standInForm(order('sent')), shared: ref(true), readonly: ref(true) };
+      const wrapper = mountTab(General, form);
+      expect(wrapper.get('[data-field="ready_on"] input').attributes()).toHaveProperty('disabled');
+      const own = mountTab(General, standInForm(order('sent')));
+      expect(own.get('[data-field="ready_on"] input').attributes()).not.toHaveProperty('disabled');
+   });
+
    it('keeps the terms of a sent order editable', () => {
       const wrapper = mountTab(General, standInForm(order('sent')));
       expect(wrapper.get('[data-field="currency"]').classes()).not.toContain('p-disabled');

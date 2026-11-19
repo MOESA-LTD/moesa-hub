@@ -206,6 +206,7 @@ const applySupplier = (
             @update:model-value="values.ready_on = $event as Date | null"
             date-format="yy-mm-dd"
             show-icon
+            :disabled="slotProps.disabled || shared"
          />
       </FormField>
       <FormField
