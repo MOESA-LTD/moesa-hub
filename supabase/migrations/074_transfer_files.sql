@@ -35,6 +35,40 @@
 --                              cleared first), whose id is appended to audit_transaction_ids in the same
 --                              transaction: the revert guard (072) refuses it. The caller's audit
 --                              settings come back afterwards.
+-- private.transfer_may_check   Who may check a transfer (above): the target's transfer insert right, or
+--                              the starter still in the target.
+--
+-- Storage (024's media policies; review of Task 13, R1 and R2). A transfer's files are the only
+-- copies in flight, and the check above can only tell a file by its type and size, so:
+-- private.transfer_file_locked  An object a transfer still needs cannot be removed: a target copy
+--                              (files[].to) or a source object the service is to remove (files[].from
+--                              with keep_source FALSE) of a transfer whose files are not done; once it
+--                              is done, such a source object only by a caller who may check that
+--                              transfer (and the service role, past the policies).
+-- private.transfer_upload_allowed  A copy may be uploaded into a folder whose media row the run already
+--                              wrote: a files[].to path of a transfer whose files are not done, by a
+--                              caller holding public.transfer insert in both its tenants (the gate's
+--                              rule 5, no super-admin pass).
+-- private.can_write_media_file  Restated: 024's body plus one delta (pinned in 052): a folder whose media
+--                              row exists takes no upload (an upload always comes before its row,
+--                              media_check_file reads it), but for transfer_upload_allowed. Nobody can
+--                              plant an object at a copied path first.
+-- private.can_delete_media_file  Restated: 024's body plus one delta (pinned in 052): not an object
+--                              transfer_file_locked holds.
+
+-- Who may check a transfer (see the header).
+CREATE OR REPLACE FUNCTION private.transfer_may_check (p_user UUID, p_target UUID, p_started_by UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT p_user IS NOT NULL AND (
+        p_target = ANY (private.tenants_granting(p_user, ARRAY[p_target], 'public.transfer', 'insert'))
+        OR (p_started_by = p_user
+            AND (EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.user_id = p_user AND tu.tenant_id = p_target)
+                 OR p_target = ANY (private.owned_tenants(p_user))))
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.transfer_may_check (UUID, UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.transfer_check_files (transfer_id UUID) RETURNS api.transfer LANGUAGE plpgsql SECURITY DEFINER
 SET
@@ -51,14 +85,7 @@ DECLARE
 BEGIN
     SELECT * INTO run FROM public.transfer t WHERE t.id = transfer_check_files.transfer_id FOR UPDATE;
 
-    IF NOT FOUND
-       OR caller IS NULL
-       OR NOT (
-           run.tenant_id = ANY (private.tenants_granting(caller, ARRAY[run.tenant_id], 'public.transfer', 'insert'))
-           OR (run.started_by = caller
-               AND (EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.user_id = caller AND tu.tenant_id = run.tenant_id)
-                    OR run.tenant_id = ANY (private.owned_tenants(caller))))
-       ) THEN
+    IF NOT FOUND OR NOT private.transfer_may_check(caller, run.tenant_id, run.started_by) THEN
         PERFORM private.transfer_raise('transfer_not_found', 404);
     END IF;
 
@@ -131,3 +158,75 @@ $$;
 REVOKE ALL ON FUNCTION public.transfer_check_files (UUID) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.transfer_check_files (UUID) TO authenticated;
+
+-- An object a transfer still needs (see the header). SECURITY DEFINER: every transfer row; called by
+-- the Storage policies' definers (can_delete_media_file), with the user's claims.
+CREATE OR REPLACE FUNCTION private.transfer_file_locked (object_name TEXT) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.transfer t
+        CROSS JOIN LATERAL jsonb_array_elements(t.files) f
+        WHERE (t.tenant_id = private.storage_tenant(object_name) OR t.source_tenant_id = private.storage_tenant(object_name))
+          AND (
+              (t.files_status <> 'done'
+               AND (f ->> 'to' = object_name OR (f ->> 'from' = object_name AND f -> 'keep_source' = 'false'::JSONB)))
+              OR (t.files_status = 'done'
+                  AND f ->> 'from' = object_name AND f -> 'keep_source' = 'false'::JSONB
+                  AND NOT private.transfer_may_check(auth.uid(), t.tenant_id, t.started_by))
+          )
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.transfer_file_locked (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- A copy into a folder the run already wrote (see the header).
+CREATE OR REPLACE FUNCTION private.transfer_upload_allowed (object_name TEXT) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT auth.uid() IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.transfer t
+        CROSS JOIN LATERAL jsonb_array_elements(t.files) f
+        WHERE t.tenant_id = private.storage_tenant(object_name)
+          AND t.files_status <> 'done'
+          AND f ->> 'to' = object_name
+          AND ARRAY[t.tenant_id, t.source_tenant_id]
+              <@ private.tenants_granting(auth.uid(), ARRAY[t.tenant_id, t.source_tenant_id], 'public.transfer', 'insert')
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.transfer_upload_allowed (TEXT) FROM PUBLIC, anon, authenticated;
+
+-- 024's can_write_media_file (pinned in 052); 074: not into a folder whose row exists, but a transfer's copy.
+CREATE OR REPLACE FUNCTION private.can_write_media_file (object_name TEXT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    tenant UUID := private.storage_tenant(object_name);
+BEGIN
+    RETURN tenant IS NOT NULL
+       AND private.storage_folder_id(object_name) IS NOT NULL
+       AND tenant = ANY (private.tenants_permitting(auth.uid(), ARRAY[tenant], 'public.media', 'insert'))
+       -- 074
+       AND (NOT EXISTS (SELECT 1 FROM public.media m WHERE m.id = private.storage_folder_id(object_name))
+            OR private.transfer_upload_allowed(object_name));
+END;
+$$;
+
+-- 024's can_delete_media_file (pinned in 052); 074: not an object a transfer still needs.
+CREATE OR REPLACE FUNCTION private.can_delete_media_file (object_name TEXT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+   search_path = '' AS $$
+BEGIN
+    RETURN private.can_write_media_file(object_name)
+       AND NOT EXISTS (
+           SELECT 1 FROM public.media m
+           WHERE m.id = private.storage_folder_id(object_name)
+             AND m.tenant_id = private.storage_tenant(object_name)
+       )
+       -- 074
+       AND NOT private.transfer_file_locked(object_name);
+END;
+$$;

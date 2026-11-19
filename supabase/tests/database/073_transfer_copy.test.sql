@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(70);
+SELECT plan(79);
 
 SELECT private.create_test_helpers();
 
@@ -26,7 +26,7 @@ SELECT private.create_test_helpers();
 --   tonly ...07311: one full role in P alone (reads P's transfers, nothing of E). nonmem ...07312: a
 --   user of no tenant (an author in E). gate ...07313: full roles in E and P. noterms ...07314: a full
 --   role in C without the supplier_terms field group. noupd ...07315: full roles in E and P, but no
---   product update in P.
+--   product update in P. nomdel ...07316: full roles in C and P, but no media delete in C.
 --   E: product ze ...07301 'ZZ-E-1' (GTIN, notes) with its variant ...07309, supplier ZS7 ...07302 and
 --   its contact ...07303, E's sourcing ...07304, a market cell ...07305 (listing checked), a file
 --   ...07306 with a thumbnail (uploaded by nonmem) linked as the primary image ...07307, a signed spec
@@ -61,6 +61,7 @@ FROM (VALUES
     ('provider_sourcing', '00000000-0000-4000-8000-000000073047'),
     ('noterms', '00000000-0000-4000-8000-000000073014'),
     ('noupd', '00000000-0000-4000-8000-000000073015'),
+    ('nomdel', '00000000-0000-4000-8000-000000073016'),
     ('pi_file', '00000000-0000-4000-8000-000000073048'),
     ('shared_file', '00000000-0000-4000-8000-000000073049')
 ) AS x (k, v);
@@ -79,7 +80,7 @@ $$;
 
 INSERT INTO public.user (id, email)
 SELECT ('00000000-0000-4000-8000-0000000730' || n)::UUID, 'u' || n || '@transfer073.test'
-FROM unnest(ARRAY['11', '12', '13', '14', '15']) AS n;
+FROM unnest(ARRAY['11', '12', '13', '14', '15', '16']) AS n;
 
 SELECT pg_temp.member(current_setting('test.tonly')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073111');
 SELECT pg_temp.member(current_setting('test.gate')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073131');
@@ -88,6 +89,11 @@ SELECT pg_temp.member(current_setting('test.noterms')::UUID, current_setting('te
 UPDATE public.role_field_permission SET can_read = FALSE, can_write = FALSE
 WHERE role_id = '00000000-0000-4000-8000-000000073141'
   AND (resource_name, field) IN (SELECT resource_name, field FROM public.field_class WHERE group_name = 'supplier_terms');
+SELECT pg_temp.member(current_setting('test.nomdel')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000073161');
+SELECT pg_temp.member(current_setting('test.nomdel')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073162');
+DELETE FROM public.role_permission
+WHERE role_id = '00000000-0000-4000-8000-000000073161'
+  AND permission_id = (SELECT id FROM public.permission WHERE resource_name = 'public.media' AND command = 'delete');
 SELECT pg_temp.member(current_setting('test.noupd')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073151');
 SELECT pg_temp.member(current_setting('test.noupd')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073152');
 DELETE FROM public.role_permission
@@ -190,6 +196,17 @@ GRANT EXECUTE ON FUNCTION t.rules_bypassed_probe_073 () TO authenticated;
 -- The target id of a source row in a transfer's map, read as postgres.
 CREATE FUNCTION pg_temp.mapped (p_transfer JSONB, p_table TEXT, p_source TEXT) RETURNS UUID LANGUAGE sql AS $$
     SELECT ((SELECT t.id_map FROM public.transfer t WHERE t.id = (p_transfer ->> 'id')::UUID) -> p_table ->> current_setting('test.' || p_source))::UUID;
+$$;
+
+-- The objects a user's DELETE removes (the Storage policy filters what it may).
+CREATE FUNCTION pg_temp.remove_object (p_name TEXT) RETURNS BIGINT LANGUAGE plpgsql AS $$
+DECLARE
+    n BIGINT;
+BEGIN
+    DELETE FROM storage.objects WHERE bucket_id = 'media' AND name = p_name;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    RETURN n;
+END;
 $$;
 
 -- The rows of a table locked FOR UPDATE by this transaction.
@@ -459,6 +476,21 @@ UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('te
 SELECT set_config('test.zm_snapshot', (SELECT to_jsonb(d) - ARRAY['id', 'tenant_id', 'entity_id', 'media_id', 'created_by', 'created_at', 'updated_at']
                                        FROM public.document d WHERE d.id = current_setting('test.zm_doc')::UUID)::TEXT, TRUE);
 
+-- R5: the move removes THO's files only the moved rows use, so it needs media delete in THO.
+SELECT private.impersonate_scope(current_setting('test.nomdel')::UUID, current_setting('test.c')::UUID,
+                                 ARRAY[current_setting('test.c')::UUID, current_setting('test.p')::UUID]);
+SELECT throws_like(
+    $$ SELECT public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.zm')::UUID], 'move') $$,
+    '%transfer_permissions_required%',
+    'a move that would remove source files needs media delete in the source'
+);
+SELECT lives_ok(
+    $$ SELECT public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.zm')::UUID], 'copy') $$,
+    'a copy of the same package does not'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
+
 -- I2: a reader of THO without supplier_terms cannot read the pi file.
 SELECT set_config('test.pi_path', current_setting('test.c') || '/00000000-0000-4000-8000-000000073048/pi.pdf', TRUE);
 SELECT private.impersonate_scope(current_setting('test.noterms')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
@@ -549,8 +581,21 @@ SELECT is(
     1::BIGINT,
     'an unrestricted removed file stays as readable as it was until the service removes it'
 );
+-- R1: until the files are verified, nobody removes the object the service is to remove.
+SELECT set_config('test.zm_pdf', current_setting('test.c') || '/00000000-0000-4000-8000-000000073043/zm.pdf', TRUE);
+SELECT is(pg_temp.remove_object(current_setting('test.zm_pdf')), 0::BIGINT,
+          'while the move''s files are not verified, a source user cannot remove the object the service is to remove');
 RESET ROLE;
 SELECT private.unimpersonate();
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
+SELECT is(pg_temp.remove_object(current_setting('test.zm_pdf')), 0::BIGINT, 'nor can the copier');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT ok(
+    (SELECT bool_and(private.transfer_file_locked(f ->> 'to')) FROM public.transfer t CROSS JOIN LATERAL jsonb_array_elements(t.files) f
+     WHERE t.id = (current_setting('test.rm')::JSONB ->> 'id')::UUID),
+    'and every target copy is held as well'
+);
 SELECT is(
     (SELECT array_agg(a.tenant_id::TEXT ORDER BY i)
      FROM public.transfer t
@@ -588,6 +633,17 @@ SELECT is(
 );
 UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('test.rm')::JSONB ->> 'id')::UUID;
 
+-- R1, once verified: the source object goes by a user who may check the transfer (or the service).
+SELECT private.impersonate_scope(current_setting('test.noterms')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
+SELECT is(pg_temp.remove_object(current_setting('test.zm_pdf')), 0::BIGINT,
+          'once verified, a source user who may not check the transfer still cannot remove it');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
+SELECT is(pg_temp.remove_object(current_setting('test.zm_pdf')), 1::BIGINT, 'a user who may check it can');
+RESET ROLE;
+SELECT private.unimpersonate();
+
 -- L3: a row the write would drop (its entity not written) stops a move, and is only dropped in a copy.
 INSERT INTO public.transfer (id, tenant_id, source_tenant_id, product_ids, mode, started_by, report)
 VALUES ('00000000-0000-4000-8000-000000073061', current_setting('test.p')::UUID, current_setting('test.c')::UUID, '{}', 'move',
@@ -605,6 +661,16 @@ INSERT INTO pg_temp.transfer_map (table_name, source_id, target_id) VALUES ('doc
 SELECT throws_like($$ SELECT private.transfer_write('00000000-0000-4000-8000-000000073061', 'document') $$, '%transfer_package_invalid%',
                    'a move never drops a row it removed from the source');
 SELECT is(private.transfer_write('00000000-0000-4000-8000-000000073062', 'document'), '[]'::JSONB, 'a copy drops it with its entity');
+-- And a row whose required reference is not written (a link to a file not in the map).
+INSERT INTO pg_temp.transfer_rows (table_name, source_id, row, copy_only)
+VALUES ('media_link', '00000000-0000-4000-8000-000000073064',
+        jsonb_build_object('id', '00000000-0000-4000-8000-000000073064', 'tenant_id', current_setting('test.c'), 'media_id', gen_random_uuid(),
+                           'entity_type', 'product', 'entity_id', gen_random_uuid(), 'role', 'gallery'),
+        FALSE);
+INSERT INTO pg_temp.transfer_map (table_name, source_id, target_id) VALUES ('media_link', '00000000-0000-4000-8000-000000073064', gen_random_uuid());
+SELECT throws_like($$ SELECT private.transfer_write('00000000-0000-4000-8000-000000073061', 'media_link') $$, '%transfer_package_invalid%',
+                   'a move never drops a row whose required reference is not written');
+SELECT is(private.transfer_write('00000000-0000-4000-8000-000000073062', 'media_link'), '[]'::JSONB, 'a copy drops it');
 
 -- ---------------------------------------------------------------------------------------------
 -- D. The run trusts no rehearsal.

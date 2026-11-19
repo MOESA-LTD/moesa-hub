@@ -85,6 +85,8 @@
 --   L1  a real run carries the rehearsal's report_hash in its decisions (decisions.report_hash, not a
 --       decision: it is taken out before anything reads them); a fresh report with another hash, or
 --       none given, is refused with transfer_report_stale (409): the caller rehearses again.
+--   R5  a move whose package files would be left unused in the source (and so removed, I2) needs
+--       public.media delete in the source: transfer_permissions_required otherwise.
 --   L3  in a move, transfer_write raises transfer_package_invalid rather than drop a row the move
 --       already removed from the source.
 --   I2  a move removes the source's file rows that only the moved rows used (transfer_delete_source),
@@ -784,6 +786,28 @@ BEGIN
         SELECT 1 FROM (SELECT DISTINCT r.row ->> 'entity_type' AS entity FROM pg_temp.transfer_rows r WHERE r.table_name = 'media_link') l
         WHERE NOT (target_tenant = ANY (private.tenants_granting(auth.uid(), ARRAY[target_tenant], 'public.' || l.entity, 'update')))
     ) THEN
+        PERFORM private.transfer_raise('transfer_permissions_required', 403);
+    END IF;
+
+    -- 073 (R5): a move that leaves package files unused in the source removes their rows (I2), which
+    -- needs the media delete right there.
+    IF transfer_products.mode = 'move'
+       AND EXISTS (
+           SELECT 1 FROM pg_temp.transfer_rows f
+           WHERE f.table_name = 'media'
+             AND NOT EXISTS (
+                 SELECT 1 FROM public.media_link l
+                 WHERE l.tenant_id = transfer_products.source_tenant AND l.media_id = f.source_id
+                   AND NOT EXISTS (SELECT 1 FROM pg_temp.transfer_rows q WHERE q.table_name = 'media_link' AND q.source_id = l.id AND NOT q.copy_only)
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM public.document d
+                 WHERE d.tenant_id = transfer_products.source_tenant AND d.media_id = f.source_id
+                   AND NOT EXISTS (SELECT 1 FROM pg_temp.transfer_rows q WHERE q.table_name = 'document' AND q.source_id = d.id AND NOT q.copy_only)
+             )
+       )
+       AND NOT (transfer_products.source_tenant = ANY (
+           private.tenants_granting(auth.uid(), ARRAY[transfer_products.source_tenant], 'public.media', 'delete'))) THEN
         PERFORM private.transfer_raise('transfer_permissions_required', 403);
     END IF;
 

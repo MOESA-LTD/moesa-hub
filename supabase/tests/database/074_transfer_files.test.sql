@@ -4,7 +4,9 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- akif copies a product with a file and its thumbnail from MOESA Europe into MOESA LTD. Nothing
 -- copied: partial. Objects planted at the copied paths by a member who may only upload (a PDF where a
 -- PNG belongs, a thumbnail over the cap): partial, reported as mismatches, and the target still takes
--- no transfer (I1). The right objects: done, and done stays done (L2). A file row always has a size
+-- no transfer (I1). Nobody but a copier may upload into a folder whose row exists, so nothing is
+-- planted (R2); a wrong copy is removed by the service alone (R3). The right objects: done, and done
+-- stays done (L2). A file row always has a size A file row always has a size
 -- (N2: size_bytes is NOT NULL, so the copy's size is always the one the object must match). The check cannot be reverted from
 -- the log; who may check; what the answer shows a reader of the target alone (L4). Rolled back.
 --
@@ -12,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(23);
 
 SELECT private.create_test_helpers();
 
@@ -100,6 +102,17 @@ SELECT is(
 );
 SELECT col_not_null('public', 'media', 'size_bytes', 'a file row always has a size, which the copied object must match (N2)');
 
+-- The objects a user's DELETE removes (the Storage policy filters what it may).
+CREATE FUNCTION pg_temp.remove_object (p_name TEXT) RETURNS BIGINT LANGUAGE plpgsql AS $$
+DECLARE
+    n BIGINT;
+BEGIN
+    DELETE FROM storage.objects WHERE bucket_id = 'media' AND name = p_name;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    RETURN n;
+END;
+$$;
+
 CREATE FUNCTION pg_temp.check_as (p_user TEXT, p_scope UUID[]) RETURNS JSONB LANGUAGE plpgsql AS $$
 DECLARE
     result JSONB;
@@ -133,17 +146,50 @@ SELECT throws_like(
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- 4–6. I1: the planter puts its own objects at the copied paths first.
+-- 4–7. R2: nobody plants an object at a copied path; an ordinary upload (object first, then its row,
+-- as app/src/api/media/upload.ts does) still works, and its folder takes nothing once the row is in.
 SELECT private.impersonate_scope(current_setting('test.planter')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.p')::UUID]);
+SELECT throws_ok(
+    $$ INSERT INTO storage.objects (bucket_id, name, metadata)
+       VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "image/png", "size": 1000}') $$,
+    '42501', NULL,
+    'a member who may only upload cannot put an object at a copied path, even with the row''s type and size'
+);
+SELECT lives_ok(
+    format($q$ INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('media', %L, '{"mimetype": "image/png", "size": 10}');
+               INSERT INTO api.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
+               VALUES ('00000000-0000-4000-8000-000000074031', %L, %L, 'own.png', 'image/png', 10) $q$,
+           current_setting('test.p') || '/00000000-0000-4000-8000-000000074031/own.png', current_setting('test.p'),
+           current_setting('test.p') || '/00000000-0000-4000-8000-000000074031/own.png'),
+    'an ordinary upload still works: the object, then its row'
+);
+SELECT throws_ok(
+    format($q$ INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('media', %L, '{"mimetype": "image/webp", "size": 10}') $q$,
+           current_setting('test.p') || '/00000000-0000-4000-8000-000000074031/thumb/thumb.webp'),
+    '42501', NULL,
+    'and once its row is in, its folder takes no other object'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- 8–10. I1: a copier allowed to upload puts wrong files: one only its size differs, a thumbnail over the cap.
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
+                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]);
 INSERT INTO storage.objects (bucket_id, name, metadata)
-VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "application/pdf", "size": 52000000}'),
+VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "image/png", "size": 999}'),
        ('media', current_setting('test.paths')::JSONB ->> 1, '{"mimetype": "image/webp", "size": 52000000}');
+-- R3: a mismatched copy is not removed with a user's rights (the service role removes it).
+SELECT is(
+    pg_temp.remove_object(current_setting('test.paths')::JSONB ->> 0),
+    0::BIGINT,
+    'a mismatched copy cannot be removed by a user'
+);
 RESET ROLE;
 SELECT private.unimpersonate();
 SELECT is(
     pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID]) -> 'missing_files',
     (SELECT jsonb_agg('mismatch:' || (p #>> '{}')) FROM jsonb_array_elements(current_setting('test.paths')::JSONB) p),
-    'a PDF at the PNG''s path and a thumbnail over the cap are mismatches, not copies'
+    'a file of the right type but another size, and a thumbnail over the cap, are mismatches, not copies'
 );
 SELECT is((SELECT files_status FROM public.transfer WHERE id = current_setting('test.t1')::UUID), 'partial', 'the transfer stays partial');
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
@@ -156,11 +202,15 @@ SELECT ok(
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- 7–8. The planted objects removed, the right ones copied: done.
+-- The wrong objects removed by the service, the right ones copied: done.
 DELETE FROM storage.objects WHERE bucket_id = 'media' AND name IN (SELECT p #>> '{}' FROM jsonb_array_elements(current_setting('test.paths')::JSONB) p);
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
+                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]);
 INSERT INTO storage.objects (bucket_id, name, metadata)
 VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "image/png", "size": 1000}'),
        ('media', current_setting('test.paths')::JSONB ->> 1, '{"mimetype": "image/webp", "size": 100}');
+RESET ROLE;
+SELECT private.unimpersonate();
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT set_config('test.done', pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID])::TEXT, TRUE);
 SELECT is(

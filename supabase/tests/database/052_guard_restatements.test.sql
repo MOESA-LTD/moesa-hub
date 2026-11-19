@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company, 072 the
 -- rules bypass's transfer flag, the revert's transfer lock and the coordinator's standard role without
 -- the transfer right, 073 the media file check's transfer copy, the file restriction's hold and the
--- transfer entry point's run), or
+-- transfer entry point's run, 074 the media Storage checks' transfer holds), or
 -- extends it (a chain such as 021 → 032 → 036). A
 -- restated body is the owner's current body plus only the restating migration's own delta, so an
 -- edit of the owner that is not carried into the restatement would be undone silently, and so
@@ -24,7 +24,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(51);
+SELECT plan(53);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -116,6 +116,14 @@ VALUES
           'private.transfer_check_decisions(report', 'transfer_product_in_use', 'private.transfer_lock_rows()',
           'set_config(''moesa.transfer_id'', new_id::TEXT, TRUE)', 'set_config(''moesa.transfer_id'', '''', TRUE)',
           'private.transfer_apply(new_id)', 'transfer_report_stale', 'transfer_permissions_required']),
+   -- 074: no object is planted at, or removed from, a path a transfer still needs (R1, R2).
+   ('private.can_write_media_file(text)', '024', '074',
+    ARRAY['private.storage_folder_id(object_name) IS NOT NULL', '''public.media'', ''insert''',
+          'NOT EXISTS (SELECT 1 FROM public.media m WHERE m.id = private.storage_folder_id(object_name))',
+          'private.transfer_upload_allowed(object_name)']),
+   ('private.can_delete_media_file(text)', '024', '074',
+    ARRAY['private.can_write_media_file(object_name)', 'm.id = private.storage_folder_id(object_name)',
+          'NOT private.transfer_file_locked(object_name)']),
    -- 073: a file a move removed keeps its read restriction (I2).
    ('private.media_restriction(uuid)', '060', '073',
     ARRAY['''supplier_identity''', '''supplier_terms''', 'l.entity_type IN (''supplier'', ''purchase_order'')',
