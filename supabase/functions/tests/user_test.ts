@@ -1,7 +1,14 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { errorResponse } from '../_shared/http.ts';
 import { createUser, deleteUser, getUser, updateUser, USER_COLUMNS } from '../user/index.ts';
-import { authorizedRequest, CALLER, jsonResponse, stubFetch, TENANT } from './helpers.ts';
+import {
+   authorizedRequest,
+   authorizedRequestIn,
+   CALLER,
+   jsonResponse,
+   stubFetch,
+   TENANT
+} from './helpers.ts';
 
 const OTHER = '00000000-0000-4000-8000-0000000000bb';
 const ELSEWHERE = '00000000-0000-4000-8000-0000000000cc';
@@ -26,6 +33,12 @@ const backend = (
       /** The target account owns the caller's tenant. */
       owner?: boolean;
       superAdmin?: boolean;
+      /** The tenants the target account is a member of (default: by the flags above). */
+      memberOf?: string[];
+      /** The tenants the target account owns (GET only; HEAD follows `owner`). */
+      owns?: string[];
+      /** Tenant tree, id to parent: lets a caller sit in a branch of a company. */
+      parents?: Record<string, string | null>;
    } = {}
 ) => {
    const seen: Seen[] = [];
@@ -47,6 +60,8 @@ const backend = (
             }
             // `elsewhere`: the existing account belongs to another company only; `shared`: to this
             // one and another.
+            if (opts.memberOf)
+               return jsonResponse(opts.memberOf.map((tenant_id) => ({ tenant_id })));
             return jsonResponse(
                opts.shared
                   ? [{ tenant_id: TENANT }, { tenant_id: ELSEWHERE }]
@@ -58,9 +73,22 @@ const backend = (
                   headers: { 'Content-Range': opts.owner ? '*/1' : '*/0' }
                });
             }
+            if (opts.owns) return jsonResponse(opts.owns.map((tenant_id) => ({ tenant_id })));
             return jsonResponse(opts.owner ? [{ tenant_id: TENANT }] : []);
-         case '/rest/v1/tenant':
-            return jsonResponse([]);
+         case '/rest/v1/tenant': {
+            // companyTenants: a tenant's parent, then the children of a set of tenants.
+            const parents = opts.parents ?? {};
+            const id = url.searchParams.get('id');
+            if (id) return jsonResponse({ parent_id: parents[id.replace('eq.', '')] ?? null });
+            const above = (url.searchParams.get('parent_id') ?? '')
+               .replace(/^in\.\(|\)$/g, '')
+               .split(',');
+            return jsonResponse(
+               Object.entries(parents)
+                  .filter(([, parent]) => parent && above.includes(parent))
+                  .map(([child]) => ({ id: child }))
+            );
+         }
          case '/rest/v1/rpc/is_super_admin':
             return jsonResponse(opts.superAdmin ?? false);
          case '/rest/v1/rpc/is_provider_staff':
@@ -373,23 +401,111 @@ Deno.test('the client cannot change the metadata of a linked staff member', asyn
       });
       const res = await respond(updateUser(req, OTHER));
       assertEquals(res.status, 403);
-      assertEquals((await res.json()).message, 'user_not_allowed');
+      assertEquals((await res.json()).message, 'user_profile_shared');
    } finally {
       restore();
    }
    assertEquals(adminWrites(seen), []);
 });
 
-Deno.test('the provider still removes its staff member from the provider tenant', async () => {
-   // Same account, seen from the provider's side: a member of its own tenant and of a client's.
+Deno.test(
+   'the client gets its own refusal for a shared profile, owners and admins the usual one',
+   async () => {
+      const put = () =>
+         withBody(authorizedRequest(['update', 'user']), 'PUT', {
+            user_metadata: { display_name: 'X' }
+         });
+      for (const [opts, code] of [
+         [{ shared: true }, 'user_profile_shared'],
+         [{ shared: true, owner: true }, 'user_not_allowed'],
+         [{ shared: true, superAdmin: true }, 'user_not_allowed']
+      ] as const) {
+         const { restore } = backend({ canWrite: true, ...opts });
+         try {
+            const res = await respond(updateUser(put(), OTHER));
+            assertEquals(res.status, 403);
+            assertEquals((await res.json()).message, code);
+         } finally {
+            restore();
+         }
+      }
+   }
+);
+
+Deno.test('a PUT without a profile change answers with the id alone', async () => {
    const { seen, restore } = backend({ shared: true });
    try {
-      assertEquals((await deleteUser(authorizedRequest(['delete', 'user']), OTHER)).status, 204);
+      const res = await updateUser(
+         withBody(authorizedRequest(['update', 'user']), 'PUT', {}),
+         OTHER
+      );
+      assertEquals(await res.json(), { user: { id: OTHER } });
    } finally {
       restore();
    }
+   // The account is not read at all: only membership and reach.
+   assertEquals(
+      seen.filter((s) => s.path === '/rest/v1/user'),
+      []
+   );
+});
+
+Deno.test('the provider removes its staff member from the provider tenant', async () => {
+   // The provider's own tenant context; the account is also a member of a client's tenant.
+   const PROVIDER = '00000000-0000-4000-8000-0000000000dd';
+   const { seen, restore } = backend({ memberOf: [PROVIDER, ELSEWHERE] });
+   try {
+      const req = authorizedRequestIn(PROVIDER, ['delete', 'user']);
+      assertEquals((await deleteUser(req, OTHER)).status, 204);
+   } finally {
+      restore();
+   }
+   const [deleted] = removal(seen);
+   assertEquals(new URLSearchParams(deleted.search).get('tenant_id'), `eq.${PROVIDER}`);
+   // The client's membership is untouched: one delete, scoped to the provider's tenant.
    assertEquals(removal(seen).length, 1);
 });
+
+Deno.test('a branch admin cannot act on the owner of the company root', async () => {
+   const ROOT = '00000000-0000-4000-8000-0000000000ee';
+   // TENANT is a branch of ROOT; the target owns ROOT and is only a member of TENANT.
+   const { restore } = backend({ owns: [ROOT], memberOf: [TENANT], parents: { [TENANT]: ROOT } });
+   try {
+      for (const act of [
+         () => getUser(authorizedRequest(['select', 'user']), OTHER),
+         () => updateUser(withBody(authorizedRequest(['update', 'user']), 'PUT', {}), OTHER),
+         () => deleteUser(authorizedRequest(['delete', 'user']), OTHER)
+      ]) {
+         const res = await respond(act());
+         assertEquals(res.status, 403);
+         assertEquals((await res.json()).message, 'user_not_allowed');
+      }
+   } finally {
+      restore();
+   }
+});
+
+Deno.test(
+   'the owner of a sibling branch is refused deletion by the tenant-scope check',
+   async () => {
+      const ROOT = '00000000-0000-4000-8000-0000000000ee';
+      const SIBLING = '00000000-0000-4000-8000-0000000000ef';
+      // Not an owner of TENANT (cannot_delete_owner does not fire), but of a branch of its company.
+      const { seen, restore } = backend({
+         owns: [SIBLING],
+         memberOf: [TENANT],
+         parents: { [TENANT]: ROOT, [SIBLING]: ROOT }
+      });
+      try {
+         const res = await respond(deleteUser(authorizedRequest(['delete', 'user']), OTHER));
+         assertEquals(res.status, 403);
+         assertEquals((await res.json()).message, 'user_not_allowed');
+      } finally {
+         restore();
+      }
+      assertEquals(removal(seen), []);
+   }
+);
 
 Deno.test(
    'an owner of the tenant or a super admin is refused on every tenant-scoped action',

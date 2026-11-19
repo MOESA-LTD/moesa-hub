@@ -941,7 +941,8 @@
       "general_info": "Informazioni generali",
       "security": "Sicurezza",
       "owner_of": "Proprietario · {name}",
-      "owner_above": "Usa questa filiale come proprietario di una filiale superiore ed è gestito lì."
+      "owner_above": "Usa questa filiale come proprietario di una filiale superiore ed è gestito lì.",
+      "profile_managed_elsewhere": "Non modificato: questo profilo è gestito da un'altra azienda."
    },
    "form": {
       "required": "Questo campo è obbligatorio",

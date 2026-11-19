@@ -941,7 +941,8 @@
       "general_info": "Información general",
       "security": "Seguridad",
       "owner_of": "Propietario · {name}",
-      "owner_above": "Usa esta sucursal como propietario de una sucursal superior y se gestiona allí."
+      "owner_above": "Usa esta sucursal como propietario de una sucursal superior y se gestiona allí.",
+      "profile_managed_elsewhere": "Sin cambios: este perfil lo gestiona otra empresa."
    },
    "form": {
       "required": "Este campo es obligatorio",

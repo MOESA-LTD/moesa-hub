@@ -11,13 +11,19 @@ Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'service');
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 
 let granted: Permission[] = [];
+let grantedTenant = TENANT;
 
 const b64 = (value: unknown) =>
    btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 
 /** A request whose bearer token is for CALLER, who holds the given permissions in TENANT. */
-export const authorizedRequest = (...permissions: Permission[]): Request => {
+export const authorizedRequest = (...permissions: Permission[]): Request =>
+   authorizedRequestIn(TENANT, ...permissions);
+
+/** The same, working in another tenant (the one my_access answers with). */
+export const authorizedRequestIn = (tenantId: string, ...permissions: Permission[]): Request => {
    granted = permissions;
+   grantedTenant = tenantId;
    const token = `${b64({ alg: 'none' })}.${b64({ sub: CALLER })}.sig`;
    return new Request('http://localhost/user/x', {
       headers: { Authorization: `Bearer ${token}` }
@@ -42,7 +48,7 @@ globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
    if (url.pathname === '/rest/v1/rpc/my_access')
       return Promise.resolve(
          jsonResponse({
-            tenant_id: TENANT,
+            tenant_id: grantedTenant,
             permissions: granted.map(([command, subject]) => ({
                command,
                resource_name: `public.${subject}`

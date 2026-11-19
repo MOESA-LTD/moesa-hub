@@ -54,10 +54,11 @@ describe('isProfileManagedElsewhere', () => {
       );
 
    it('recognises the refusal to change an account another company uses', async () => {
-      expect(await isProfileManagedElsewhere(refusal(403, 'user_not_allowed'))).toBe(true);
+      expect(await isProfileManagedElsewhere(refusal(403, 'user_profile_shared'))).toBe(true);
    });
 
    it('lets every other failure through', async () => {
+      expect(await isProfileManagedElsewhere(refusal(403, 'user_not_allowed'))).toBe(false);
       expect(await isProfileManagedElsewhere(refusal(403, 'field_write_forbidden'))).toBe(false);
       expect(await isProfileManagedElsewhere(refusal(404, 'user_not_found'))).toBe(false);
       expect(await isProfileManagedElsewhere(new Error('offline'))).toBe(false);

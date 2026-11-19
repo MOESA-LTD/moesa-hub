@@ -941,7 +941,8 @@
       "general_info": "Allgemeine Informationen",
       "security": "Sicherheit",
       "owner_of": "Inhaber · {name}",
-      "owner_above": "Nutzt diese Filiale als Inhaber einer übergeordneten Filiale und wird dort verwaltet."
+      "owner_above": "Nutzt diese Filiale als Inhaber einer übergeordneten Filiale und wird dort verwaltet.",
+      "profile_managed_elsewhere": "Nicht geändert: Dieses Profil wird von einem anderen Unternehmen verwaltet."
    },
    "form": {
       "required": "Dieses Feld ist erforderlich",

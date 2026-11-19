@@ -941,7 +941,8 @@
       "general_info": "Informations générales",
       "security": "Sécurité",
       "owner_of": "Propriétaire · {name}",
-      "owner_above": "Utilise cette agence en tant que propriétaire d'une agence parente et y est géré."
+      "owner_above": "Utilise cette agence en tant que propriétaire d'une agence parente et y est géré.",
+      "profile_managed_elsewhere": "Non modifié : ce profil est géré par une autre entreprise."
    },
    "form": {
       "required": "Ce champ est obligatoire",

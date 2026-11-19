@@ -941,7 +941,8 @@
       "general_info": "일반 정보",
       "security": "보안",
       "owner_of": "소유자 · {name}",
-      "owner_above": "상위 지점의 소유자로서 이 지점을 사용하며, 그곳에서 관리됩니다."
+      "owner_above": "상위 지점의 소유자로서 이 지점을 사용하며, 그곳에서 관리됩니다.",
+      "profile_managed_elsewhere": "변경되지 않음: 이 프로필은 다른 회사에서 관리합니다."
    },
    "form": {
       "required": "필수 항목입니다",

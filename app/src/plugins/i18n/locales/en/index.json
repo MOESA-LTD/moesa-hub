@@ -942,7 +942,8 @@
       "general_info": "General Information",
       "security": "Security",
       "owner_of": "Owner · {name}",
-      "owner_above": "Uses this branch as the owner of a branch above it, and is managed there."
+      "owner_above": "Uses this branch as the owner of a branch above it, and is managed there.",
+      "profile_managed_elsewhere": "Not changed: this profile is managed by another company."
    },
    "form": {
       "required": "This field is required",

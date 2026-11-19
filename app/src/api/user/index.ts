@@ -1,3 +1,6 @@
+import i18n from '@plugins/i18n';
+import { ToastSeverity } from '@primevue/core/api';
+import ToastEventBus from 'primevue/toasteventbus';
 import { forTenant } from '@/api/formTenant';
 import { invalidateTables, queryKeys } from '@/api/queryKeys';
 import { useTenantKey } from '@/api/useTenantKey';
@@ -51,14 +54,14 @@ export type UserInput = {
    tenantId?: string | null;
 };
 
-/** Whether the user function refused to change the profile as another company relies on the account. */
+/** Whether the user function refused the profile change because another company uses the account too. */
 export const isProfileManagedElsewhere = async (error: unknown) => {
    if (!(error instanceof FunctionsHttpError) || error.context.status !== 403) return false;
    const body = await error.context
       .clone()
       .json()
       .catch(() => null);
-   return body?.message === 'user_not_allowed';
+   return body?.message === 'user_profile_shared';
 };
 
 export const userRepository = {
@@ -94,8 +97,9 @@ export const userRepository = {
          { method: id ? 'PUT' : 'POST', body: attributes, headers: tenantHeaders(tenantId) }
       );
       // An account another company uses too (a provider's staff member) keeps its profile with
-      // them: the roles here are still saved, and the profile is not sent anywhere else.
-      if (error && !(id && (await isProfileManagedElsewhere(error)))) throw error;
+      // them: the roles here are still saved, and the user is told the profile was left as it is.
+      const profileShared = !!error && !!id && (await isProfileManagedElsewhere(error));
+      if (error && !profileShared) throw error;
 
       const userId = id ?? data!.user.id;
 
@@ -106,6 +110,14 @@ export const userRepository = {
             publicSchema.rpc('set_user_roles', { user_id: userId, role_ids: roleIds }),
             tenantId
          ).throwOnError();
+      }
+
+      if (profileShared) {
+         ToastEventBus.emit('add', {
+            life: 6000,
+            severity: ToastSeverity.INFO,
+            summary: i18n.t('user.profile_managed_elsewhere')
+         });
       }
 
       return userRepository.get(userId, new AbortController().signal, tenantId);

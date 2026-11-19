@@ -64,35 +64,21 @@ const assertTenantMember = async (tenantId: string, userId: string) => {
 };
 
 /**
- * A member may be managed here only if nothing outside the caller's company relies on the
- * account: a membership row alone is not enough, as one can be added for any account. Callers
- * acting on their own account are let through.
- */
-const assertManageable = async ({ tenantId, userId }: AuthContext, id: string) => {
-   await assertTenantMember(tenantId, id);
-   if (id === userId) return;
-
-   const [reach, company] = await Promise.all([accountReach(id), companyTenants(tenantId)]);
-   if (!isManageable(reach, company)) {
-      throw new HttpError(403, 'user_not_allowed');
-   }
-};
-
-/**
  * What a tenant does to its own membership of an account (read it, assign roles, remove it) needs
  * only that the account is a member and is neither a super admin nor an owner of the caller's
  * company: it touches nothing outside this tenant, so another company also using the account (a
  * provider's staff member linked to a client) does not matter. Whatever changes the account itself
- * stays with assertManageable.
+ * stays with the caller (updateUser's profile write).
  */
 const assertTenantScoped = async ({ tenantId, userId }: AuthContext, id: string) => {
    await assertTenantMember(tenantId, id);
-   if (id === userId) return;
+   if (id === userId) return null;
 
    const [reach, company] = await Promise.all([accountReach(id), companyTenants(tenantId)]);
    if (reach.isSuperAdmin || reach.owns.some((owned) => company.has(owned))) {
       throw new HttpError(403, 'user_not_allowed');
    }
+   return { reach, company };
 };
 
 export const getUser = (req: Request, id: string) =>
@@ -177,17 +163,15 @@ export const updateUser = (req: Request, id: string) =>
          // Nothing of the account itself to change (the roles are saved apart, in the caller's
          // tenant): a member of this tenant answers 200, shared with another company or not.
          await assertTenantScoped(context, id);
-         const { data } = await supabaseAdmin()
-            .from('user')
-            .select('id, email')
-            .eq('id', id)
-            .maybeSingle()
-            .throwOnError();
-         return json({ user: { id, email: data?.email ?? null } });
+         return json({ user: { id } });
       }
 
-      // The profile is the account's, which another company may rely on too.
-      await assertManageable(context, id);
+      // The profile is the account's, which another company may rely on too. Owners and super
+      // admins are refused first (user_not_allowed); a shared account gets its own code, which the
+      // app answers by saving the roles alone.
+      const scope = await assertTenantScoped(context, id);
+      if (scope && !isManageable(scope.reach, scope.company))
+         throw new HttpError(403, 'user_profile_shared');
       await assertFieldWrite(req, id, ['user_metadata']);
 
       const { data, error } = await supabaseAdmin().auth.admin.updateUserById(id, {
