@@ -13,6 +13,7 @@ const mock = vi.hoisted(() => ({
    from: vi.fn(),
    select: vi.fn(),
    eq: vi.fn(),
+   in: vi.fn(),
    order: vi.fn(),
    result: vi.fn()
 }));
@@ -25,6 +26,7 @@ vi.mock('@/lib/supabase', () => ({
          const chain = {
             select: (...a: unknown[]) => (mock.select(...a), chain),
             eq: (...a: unknown[]) => (mock.eq(...a), chain),
+            in: (...a: unknown[]) => (mock.in(...a), chain),
             order: (...a: unknown[]) => (mock.order(...a), chain),
             throwOnError: () => mock.result()
          };
@@ -128,6 +130,8 @@ describe('fetchSignupPlans', () => {
       const plans = await fetchSignupPlans();
       expect(mock.from).toHaveBeenCalledWith('plan');
       expect(mock.eq).toHaveBeenCalledWith('is_active', true);
+      // Decision 21: only the plans offered to clients.
+      expect(mock.in).toHaveBeenCalledWith('target', ['client', 'all']);
       expect(plans).toEqual([
          {
             id: 'p1',

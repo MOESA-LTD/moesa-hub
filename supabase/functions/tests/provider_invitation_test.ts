@@ -559,7 +559,8 @@ const ACCEPT_REFUSALS: [string, number][] = [
    ['client_code_taken', 409],
    ['invitation_pending_exists', 409],
    ['invitation_self_invite', 409],
-   ['plan_inactive', 400]
+   ['plan_inactive', 400],
+   ['plan_not_for_clients', 400]
 ];
 
 Deno.test('accept maps each refusal to its status', async () => {
@@ -585,6 +586,7 @@ const RAISED: [{ status: number; code: string; message: string }, number][] = [
    [{ status: 400, code: '23514', message: 'invitation_payload_invalid' }, 400],
    [{ status: 400, code: '23514', message: 'invitation_staff_invalid' }, 400],
    [{ status: 400, code: '23514', message: 'plan_inactive' }, 400],
+   [{ status: 400, code: '23514', message: 'plan_not_for_clients' }, 400],
    [{ status: 409, code: '23505', message: 'client_code_taken' }, 409],
    [{ status: 409, code: '23505', message: 'invitation_pending_exists' }, 409],
    [{ status: 400, code: '23514', message: 'invitation_self_invite' }, 409],

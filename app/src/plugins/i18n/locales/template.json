@@ -371,6 +371,7 @@
       "standard_role_unknown": "",
       "company_payload_invalid": "",
       "plan_inactive": "",
+      "plan_not_for_clients": "",
       "invitation_forbidden": "",
       "invitation_payload_invalid": "",
       "invitation_staff_invalid": "",
@@ -571,6 +572,12 @@
          },
          "description": "",
          "audience": "",
+         "target": "",
+         "targets": {
+            "client": "",
+            "provider": "",
+            "all": ""
+         },
          "pricing": "",
          "billing_period": "",
          "unlimited": "",
@@ -695,6 +702,7 @@
          "company_email_exists": "",
          "company_phone_exists": "",
          "plan_inactive": "",
+         "plan_not_for_clients": "",
          "plan_limit_users": "",
          "generic": ""
       },
@@ -751,6 +759,7 @@
          "company_email_exists": "",
          "company_phone_exists": "",
          "plan_inactive": "",
+         "plan_not_for_clients": "",
          "generic": ""
       },
       "company_text": ""

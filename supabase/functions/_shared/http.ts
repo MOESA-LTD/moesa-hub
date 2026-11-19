@@ -39,6 +39,8 @@ export const NAMED_ERROR_STATUS: Record<string, number> = {
    invitation_payload_invalid: 400,
    invitation_staff_invalid: 400,
    plan_inactive: 400,
+   // Decision 21: the plan is not offered to clients (target provider).
+   plan_not_for_clients: 400,
    company_email_exists: 409,
    company_phone_exists: 409,
    client_code_taken: 409,

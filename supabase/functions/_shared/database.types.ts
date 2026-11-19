@@ -1691,6 +1691,7 @@ export type Database = {
           is_default: boolean | null
           position: number | null
           price: number | null
+          target: Database["public"]["Enums"]["plan_target"] | null
           trial_days: number | null
         }
         Insert: {
@@ -1705,6 +1706,7 @@ export type Database = {
           is_default?: boolean | null
           position?: number | null
           price?: number | null
+          target?: Database["public"]["Enums"]["plan_target"] | null
           trial_days?: number | null
         }
         Update: {
@@ -1719,6 +1721,7 @@ export type Database = {
           is_default?: boolean | null
           position?: number | null
           price?: number | null
+          target?: Database["public"]["Enums"]["plan_target"] | null
           trial_days?: number | null
         }
         Relationships: []
@@ -5857,6 +5860,7 @@ export type Database = {
           is_default: boolean
           position: number
           price: number | null
+          target: Database["public"]["Enums"]["plan_target"]
           trial_days: number
         }
         Insert: {
@@ -5871,6 +5875,7 @@ export type Database = {
           is_default?: boolean
           position?: number
           price?: number | null
+          target?: Database["public"]["Enums"]["plan_target"]
           trial_days?: number
         }
         Update: {
@@ -5885,6 +5890,7 @@ export type Database = {
           is_default?: boolean
           position?: number
           price?: number | null
+          target?: Database["public"]["Enums"]["plan_target"]
           trial_days?: number
         }
         Relationships: []
@@ -10254,6 +10260,7 @@ export type Database = {
       media_role: "primary_image" | "gallery" | "evidence_photo" | "attachment"
       payment_kind: "deposit" | "balance" | "other"
       payment_payer: "company" | "customer"
+      plan_target: "client" | "provider" | "all"
       platform_access: "authorized_user" | "none"
       procurement_model: "client" | "provider"
       product_status:

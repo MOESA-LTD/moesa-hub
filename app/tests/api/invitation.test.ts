@@ -210,6 +210,17 @@ describe('the invitation calls', () => {
       });
    });
 
+   it('maps a recommended plan not offered to clients to its field (decision 21)', async () => {
+      mock.invoke.mockResolvedValue({
+         data: null,
+         error: refusal(400, { message: 'plan_not_for_clients', code: '23514' })
+      });
+      const error = await createInvitation(parse().data!).catch((e) => e);
+      expect(mapPostgrestError(error, ['client_code', 'email', 'recommended_plan_id'])).toEqual({
+         recommended_plan_id: expect.any(String)
+      });
+   });
+
    it('leaves a toast-level refusal to the error handler', async () => {
       mock.invoke.mockResolvedValue({
          data: null,

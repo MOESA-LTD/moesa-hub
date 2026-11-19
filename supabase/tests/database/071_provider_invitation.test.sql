@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(188);
+SELECT plan(191);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -31,6 +31,8 @@ INSERT INTO public.tenant_owner (user_id, tenant_id)
 SELECT '00000000-0000-4000-8000-000000071105', t.id FROM public.tenant t WHERE t.display_name = 'MOESA Europe';
 -- A retired plan, the default (active) plan, and a client tenant for relationship fixtures (Atlas).
 INSERT INTO public.plan (id, display_name, is_active) VALUES ('00000000-0000-4000-8000-000000071103', 'Retired 071', FALSE);
+-- An active plan for providers only (decision 21): never offered to an invited customer.
+INSERT INTO public.plan (id, display_name, is_active, target, position) VALUES ('00000000-0000-4000-8000-000000071106', 'Providers 071', TRUE, 'provider', 98);
 SELECT set_config('test.plan', (SELECT id::TEXT FROM public.plan WHERE is_active ORDER BY position LIMIT 1), TRUE);
 SELECT set_config('test.atlas', (SELECT id::TEXT FROM public.tenant WHERE display_name = 'Atlas Danışmanlık'), TRUE);
 
@@ -132,6 +134,10 @@ SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_sett
    '{"email": "p@client.test", "company_name": "P Ltd", "client_code": "PPA", "procurement_model": "provider",
      "recommended_plan_id": "00000000-0000-4000-8000-000000071103"}', '[]') $$,
    '23514', 'plan_inactive', 'a retired plan cannot be recommended');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "p@client.test", "company_name": "P Ltd", "client_code": "PPA", "procurement_model": "provider",
+     "recommended_plan_id": "00000000-0000-4000-8000-000000071106"}', '[]') $$,
+   '23514', 'plan_not_for_clients', 'nor a plan for providers only (decision 21)');
 SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    jsonb_build_object('email', 'l@client.test', 'company_name', repeat('x', 201), 'client_code', 'LLA', 'procurement_model', 'provider'), '[]') $$,
    '23514', 'invitation_payload_invalid', 'a company name is at most 200 characters');
@@ -434,8 +440,11 @@ SELECT ok((SELECT result::TEXT NOT LIKE ALL (ARRAY['%' || current_setting('test.
            FROM acc_071 a, inv_071 i WHERE a.label = 'preview1' AND i.label = 'inv1'),
           'no staff user id or e-mail, token or hash in the preview');
 SELECT is((SELECT ARRAY(SELECT p ->> 'display_name' FROM jsonb_array_elements(result -> 'plans') AS p) FROM acc_071 WHERE label = 'preview1'),
-          ARRAY(SELECT display_name FROM public.plan WHERE is_active ORDER BY position, display_name),
-          'the plans are the active ones, in order');
+          ARRAY(SELECT display_name FROM public.plan WHERE is_active AND target IN ('client', 'all') ORDER BY position, display_name),
+          'the plans are the active ones offered to clients, in order');
+SELECT ok(NOT EXISTS (SELECT 1 FROM acc_071, jsonb_array_elements(result -> 'plans') AS p
+                      WHERE label = 'preview1' AND p ->> 'id' = '00000000-0000-4000-8000-000000071106'),
+          'a plan for providers only is not offered (decision 21)');
 SELECT results_eq($$ SELECT (p -> 'limits' ->> 'max_users')::INT, jsonb_typeof(p -> 'modules'), p ->> 'audience' IS NOT DISTINCT FROM pl.audience
    FROM acc_071, jsonb_array_elements(result -> 'plans') AS p JOIN public.plan pl ON pl.id = (p ->> 'id')::UUID
    WHERE label = 'preview1' AND p ->> 'display_name' = 'Basic' $$,
@@ -564,7 +573,13 @@ SELECT is(public.accept_provider_invitation(NULL, (SELECT token FROM inv_071 WHE
 SELECT is(public.accept_provider_invitation(current_setting('test.newbie')::UUID, (SELECT token FROM inv_071 WHERE label = 'inv1'),
                                             '{"display_name": "New Client GmbH"}', '00000000-0000-4000-8000-000000071103') ->> 'error',
           'plan_inactive', 'a retired plan cannot be chosen');
+SELECT is(public.accept_provider_invitation(current_setting('test.newbie')::UUID, (SELECT token FROM inv_071 WHERE label = 'inv1'),
+                                            '{"display_name": "New Client GmbH"}', '00000000-0000-4000-8000-000000071106') ->> 'error',
+          'plan_not_for_clients', 'nor a plan for providers only (decision 21)');
 RESET ROLE;
+-- That refusal is newbie's eleventh attempt this hour: take it back, so the later calls of this
+-- section keep the throttle budget they were written for.
+UPDATE private.invitation_attempt SET count = count - 1 WHERE key = 'accept:' || current_setting('test.newbie');
 SELECT results_eq($$ SELECT i.status::TEXT, (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'New Client GmbH')
    FROM public.provider_invitation i WHERE i.id = (SELECT id FROM inv_071 WHERE label = 'inv1') $$,
    $$ VALUES ('pending', 0) $$, 'the refusals leave the invitation pending and create nothing');

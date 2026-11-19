@@ -497,6 +497,13 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       field: 'recommended_plan_id',
       message: 'errors.plan_inactive'
    },
+   // Decision 21: the recommended plan is for providers only.
+   {
+      code: '23514',
+      name: 'plan_not_for_clients',
+      field: 'recommended_plan_id',
+      message: 'errors.plan_not_for_clients'
+   },
    {
       code: '23514',
       name: 'invitation_staff_invalid',

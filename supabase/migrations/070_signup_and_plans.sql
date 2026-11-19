@@ -6,6 +6,11 @@
 --   public.set_platform_setting   changes an existing key, super admin only (platform_setting_unknown).
 --   public.open_signup_enabled()  the create-account Edge Function asks (service role only).
 --   public.plan.audience          editable in the admin plan editor; save_plan carries it.
+--   public.plan.target            whom the plan is offered to (decision 21): client, provider or
+--                                 all (the default). Invitations and self-signup offer and accept
+--                                 only active plans for client or all (plan_not_for_clients);
+--                                 audience stays the description shown with it. save_plan carries
+--                                 it and keeps the stored one when the payload leaves it out.
 
 CREATE TABLE private.platform_setting (
     key TEXT PRIMARY KEY,
@@ -67,17 +72,20 @@ GRANT EXECUTE ON FUNCTION public.platform_settings () TO authenticated;
 GRANT EXECUTE ON FUNCTION public.set_platform_setting (TEXT, JSONB) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.open_signup_enabled () TO service_role;
 
--- Plan audience.
+-- Plan audience, and the plan's target (decision 21).
+CREATE TYPE public.plan_target AS ENUM ('client', 'provider', 'all');
+
 ALTER TABLE public.plan
-ADD COLUMN audience TEXT;
+ADD COLUMN audience TEXT,
+ADD COLUMN target public.plan_target NOT NULL DEFAULT 'all';
 
 INSERT INTO public.field_class (resource_name, field, class)
-VALUES ('public.plan', 'audience', 'open')
+VALUES ('public.plan', 'audience', 'open'), ('public.plan', 'target', 'open')
 ON CONFLICT DO NOTHING;
 
 SELECT private.enable_field_security ('plan');
 
--- 013's save_plan, now carrying audience. CREATE OR REPLACE keeps SECURITY DEFINER and the owner
+-- 013's save_plan, now carrying audience and target (decision 21). CREATE OR REPLACE keeps SECURITY DEFINER and the owner
 -- api_owner (058); both are restated below.
 CREATE OR REPLACE FUNCTION public.save_plan (plan_data JSONB, module_ids TEXT[] DEFAULT '{}', limits JSONB DEFAULT '{}') RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER
 SET
@@ -105,11 +113,12 @@ BEGIN
     END IF;
 
     IF saved_id IS NULL THEN
-        INSERT INTO public.plan (display_name, description, audience, price, currency, billing_period, trial_days, is_default, is_active, position)
+        INSERT INTO public.plan (display_name, description, audience, target, price, currency, billing_period, trial_days, is_default, is_active, position)
         VALUES (
             plan_data ->> 'display_name',
             plan_data ->> 'description',
             plan_data ->> 'audience',
+            coalesce((plan_data ->> 'target')::public.plan_target, 'all'),
             (plan_data ->> 'price')::NUMERIC,
             plan_data ->> 'currency',
             plan_data ->> 'billing_period',
@@ -124,6 +133,7 @@ BEGIN
             display_name = plan_data ->> 'display_name',
             description = plan_data ->> 'description',
             audience = plan_data ->> 'audience',
+            target = coalesce((plan_data ->> 'target')::public.plan_target, p.target),
             price = (plan_data ->> 'price')::NUMERIC,
             currency = plan_data ->> 'currency',
             billing_period = plan_data ->> 'billing_period',
@@ -171,7 +181,9 @@ GRANT EXECUTE ON FUNCTION public.save_plan (JSONB, TEXT[], JSONB) TO authenticat
 --   private.create_company(owner, company, plan)  the company from an allowlisted payload
 --                                                 (company_payload_invalid), its owner and member,
 --                                                 the standard roles and the subscription
---                                                 (plan_inactive). Not executable by any API role.
+--                                                 (plan_inactive; plan_not_for_clients, decision
+--                                                 21: a chosen plan targets client or all). Not
+--                                                 executable by any API role.
 --   public.register_tenant                        keeps its signature and delegates (restates 009).
 
 -- The viewer profile: of the sensitive fields only the sell price, contract and personal data, read
@@ -255,6 +267,10 @@ BEGIN
         SELECT * INTO chosen FROM public.plan p WHERE p.id = p_plan_id;
         IF NOT FOUND OR NOT chosen.is_active THEN
             RAISE EXCEPTION 'plan_inactive';
+        END IF;
+        -- Decision 21: both callers (self-signup, invitation acceptance) make a client company.
+        IF chosen.target NOT IN ('client', 'all') THEN
+            RAISE EXCEPTION 'plan_not_for_clients';
         END IF;
     END IF;
 

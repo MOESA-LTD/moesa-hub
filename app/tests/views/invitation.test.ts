@@ -307,6 +307,19 @@ describe('invitation page', () => {
       expect(text).not.toContain('invitations were sent');
    });
 
+   // Decision 21: a plan for providers only is refused; the plans are read again.
+   it('shows plan_not_for_clients and reloads the plans', async () => {
+      api.invoke.mockResolvedValue(
+         refusal(400, { message: 'plan_not_for_clients', code: 'P0001' })
+      );
+      const wrapper = await mountPage();
+      await accept(wrapper);
+
+      expect(wrapper.get('[data-notice]').text()).toContain('not offered to customers');
+      expect(api.rpc).toHaveBeenCalledTimes(2);
+      expect(api.errorHandler).not.toHaveBeenCalled();
+   });
+
    it('shows plan_limit_users from a 403 body and stays on the plan step', async () => {
       api.invoke.mockResolvedValue(refusal(403, { message: 'plan_limit_users', code: 'P0001' }));
       const wrapper = await mountPage();

@@ -461,6 +461,7 @@ Deno.test('the refusals of complete_signup keep their meaning', async () => {
       [{ completeRaises: 'signup_closed' }, 403, 'signup_closed'],
       [{ completeRaises: 'signup_unconfirmed' }, 403, 'signup_unconfirmed'],
       [{ completeRaises: 'plan_inactive' }, 400, 'plan_inactive'],
+      [{ completeRaises: 'plan_not_for_clients' }, 400, 'plan_not_for_clients'],
       [{ completeRaises: 'company_payload_invalid' }, 400, 'company_payload_invalid'],
       [{ uniqueViolation: 'tenant_email_key' }, 409, 'company_email_exists'],
       [{ uniqueViolation: 'tenant_phone_key' }, 409, 'company_phone_exists']

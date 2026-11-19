@@ -49,6 +49,7 @@ Scale today: `customer_id` sits on 32 tables and views (local DB). The customer 
 
 19. **A provider never invites itself.** An invitation is refused when its e-mail (compared lower-cased) belongs to an account that is a member or owner of any tenant of the provider's company (`invitation_self_invite`). Creation refuses it, and preview and acceptance check again, as the account may have joined the company in between.
 20. **A client does not see drafts.** A client sees a provider's purchase order, and the lines, shipments, incidents and change requests linked through it, only once the order has left draft. The sharing policy (`client_select`) of the order and of every row naming an order excludes drafts, a client cannot cite a draft in an incident or a change request, and the client status `pending` now means sent only.
+21. **A plan names whom it is offered to.** `plan.target` is `client`, `provider` or `all` (the default); `audience` stays the description shown with it. An invitation's preview and self-signup offer only active plans for `client` or `all`, acceptance and signup completion accept only those, and a provider may recommend only those (`plan_not_for_clients`). The admin plan editor sets the target.
 
 ## Goals
 

@@ -274,6 +274,18 @@ describe('sign-up completion page', () => {
       expect(api.errorHandler).not.toHaveBeenCalled();
    });
 
+   it('reloads the plans when the chosen one is not offered to clients (decision 21)', async () => {
+      auth.user.user_metadata = { password_set: true };
+      completion = refusal(400, { message: 'plan_not_for_clients', code: 'P0001' });
+      const wrapper = await mountPage();
+      api.plans.mockResolvedValue([plan('basic', 'Basic')]);
+      await completeNow(wrapper);
+
+      expect(wrapper.get('[data-notice]').text()).toContain('not offered to customers');
+      expect(wrapper.findAll('[data-plan]')).toHaveLength(1);
+      expect(api.errorHandler).not.toHaveBeenCalled();
+   });
+
    it('reloads the plans when the chosen one was withdrawn', async () => {
       auth.user.user_metadata = { password_set: true };
       completion = refusal(400, { message: 'plan_inactive', code: 'P0001' });

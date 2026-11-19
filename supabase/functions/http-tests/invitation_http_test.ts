@@ -218,6 +218,27 @@ t('the provider never invites an account of its own company, nor may one accept 
    assertEquals(await tenantsNamed('HTTP Inv Self Joiner'), 0);
 });
 
+t('a plan for providers only cannot be recommended (decision 21)', async () => {
+   const providerPlans = ((await admin('plan?target=eq.provider&is_active=is.true&select=id')).body as { id: string }[]).map((x) => x.id);
+   assert(providerPlans.length > 0, 'the seed has an active plan for providers only');
+   const r = refused(
+      await edge(f.owner.token, 'provider-invitation', {
+         headers: asProvider,
+         body: {
+            invitation: {
+               email: invEmail('provider-plan'),
+               company_name: 'HTTP Inv Provider Plan Co',
+               client_code: nextClientCode(),
+               procurement_model: 'provider',
+               recommended_plan_id: providerPlans[0],
+            },
+         },
+      }),
+      'recommended provider plan',
+   );
+   assertEquals([r.status, r.body?.message], [400, 'plan_not_for_clients'], JSON.stringify(r.body));
+});
+
 t('acceptance through the mailed link creates tenant, accepted relationship and stored staff roles', async () => {
    // The invited address had no account: the mail was an Auth invitation. Following it signs the
    // new user in (e-mail confirmed by the link), as the browser would.
@@ -237,6 +258,15 @@ t('acceptance through the mailed link creates tenant, accepted relationship and 
    const text = JSON.stringify(p.body);
    for (const s of f.staff) assert(!text.includes(s.email) && !text.includes(s.id), 'the preview names a staff e-mail or id');
    assert(!text.includes(main.token));
+   // Decision 21: the plans offered are the active ones for clients; a plan for providers only is
+   // neither offered nor accepted.
+   const providerPlans = ((await admin('plan?target=eq.provider&is_active=is.true&select=id')).body as { id: string }[]).map((x) => x.id);
+   assert(providerPlans.length > 0, 'the seed has an active plan for providers only');
+   const offered = (p.body.plans as { id: string }[]).map((x) => x.id);
+   assert(offered.includes(f.proPlan) && !offered.some((id) => providerPlans.includes(id)), JSON.stringify(offered));
+   const forProviders = refused(await acceptCompany(main.session.access, main.token, 'HTTP Inv Client Main', providerPlans[0]), 'provider plan');
+   assertEquals([forProviders.status, forProviders.body?.message], [400, 'plan_not_for_clients'], JSON.stringify(forProviders.body));
+   assertEquals(await tenantsNamed('HTTP Inv Client Main'), 0);
 
    const r = await acceptCompany(main.session.access, main.token, 'HTTP Inv Client Main', f.proPlan);
    assertEquals(r.status, 200, JSON.stringify(r.body));

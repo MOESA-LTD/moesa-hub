@@ -289,6 +289,7 @@
       "standard_role_unknown": "Böyle bir standart rol yok.",
       "company_payload_invalid": "Şirket bilgilerinde ayarlanamayan alanlar var.",
       "plan_inactive": "Bu plan kullanılamıyor.",
+      "plan_not_for_clients": "Bu plan müşterilere sunulmuyor.",
       "invitation_forbidden": "Bu daveti yönetme yetkiniz yok.",
       "invitation_payload_invalid": "Davet bilgileri geçerli değil.",
       "invitation_staff_invalid": "Davet edilen personel şirketinizin üyesi olmalı ve her biri yönetim, koordinatör ya da izleyici rolünde olmalı.",
@@ -1059,6 +1060,12 @@
          },
          "description": "Açıklama",
          "audience": "Kime uygun",
+         "target": "Kime sunulur",
+         "targets": {
+            "client": "Müşteriler",
+            "provider": "Sağlayıcılar",
+            "all": "Herkes"
+         },
          "pricing": "Fiyatlandırma",
          "billing_period": "Faturalama dönemi",
          "unlimited": "Sınırsız",
@@ -3600,6 +3607,7 @@
          "company_email_exists": "Bu e-postayla kayıtlı bir firma zaten var. Firma e-postasını değiştirip tekrar deneyin.",
          "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir firma zaten var. Telefon numarasını değiştirip tekrar deneyin.",
          "plan_inactive": "Bu plan artık sunulmuyor. Başka bir plan seçin.",
+         "plan_not_for_clients": "Bu plan müşterilere sunulmuyor. Başka bir plan seçin.",
          "generic": "Kayıt tamamlanamadı. Tekrar deneyin."
       },
       "company_text": "Bu bilgilerle paneldeki firmanız oluşturulur. Yalnızca siz ve eklediğiniz kişiler görebilir."
@@ -3681,6 +3689,7 @@
          "company_email_exists": "Bu e-posta adresiyle kayıtlı bir şirket zaten var.",
          "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir şirket zaten var.",
          "plan_inactive": "Bu plan artık sunulmuyor. Başka bir plan seçin.",
+         "plan_not_for_clients": "Bu plan müşterilere sunulmuyor. Başka bir plan seçin.",
          "plan_limit_users": "Bu plan, davetin getirdiği kullanıcı sayısından azına izin veriyor. Daha fazla kullanıcılı bir plan seçin.",
          "generic": "Davet kabul edilemedi. Yeniden deneyin."
       },

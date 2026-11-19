@@ -156,6 +156,13 @@ t('a proven inbox completes the sign-up once, with the company as edited and the
 
    assertEquals(await setPassword(session.access, 'Own-Pass-4821!'), 200);
 
+   // Decision 21: a plan offered to providers only (the seed's Enterprise) is refused, nothing created.
+   const providerPlans = (await admin('plan?target=eq.provider&is_active=is.true&select=id')).body as { id: string }[];
+   assert(providerPlans.length > 0, 'the seed has an active plan for providers only');
+   const forProviders = await complete(session.access, providerPlans[0].id, { display_name: 'HTTP Inv Signup Done', email: invEmail('su-done-co2') });
+   assertEquals([forProviders.status, forProviders.body?.message], [400, 'plan_not_for_clients'], JSON.stringify(forProviders.body));
+   assertEquals(await tenantsNamed('HTTP Inv Signup Done'), 0);
+
    // A company e-mail that is taken: refused, nothing created, the sign-up still pending.
    const taken = await complete(session.access, f.proPlan, { display_name: 'HTTP Inv Signup Done', email: invEmail('provider-co') });
    assertEquals([taken.status, taken.body?.message], [409, 'company_email_exists'], JSON.stringify(taken.body));

@@ -15,6 +15,7 @@ const { t } = useI18n();
 const columns = computed<Props['columns']>(() => [
    { field: 'display_name', sortable: true, header: t('fields.name') },
    { field: 'audience', header: t('admin.plan.audience') },
+   { field: 'target', sortable: true, header: t('admin.plan.target') },
    { field: 'price', sortable: true, header: t('admin.plan.price') },
    { field: 'trial_days', sortable: true, header: t('admin.plan.trial_days') },
    { field: 'plan_module', header: t('subscription.modules') },
@@ -89,6 +90,7 @@ const dialogRef = useDialogRef();
          </template>
          <span v-else class="text-muted-color">-</span>
       </template>
+      <template #target_body="{ data }">{{ $t(`admin.plan.targets.${data.target}`) }}</template>
       <!-- The table shows nothing for a 0. -->
       <template #trial_days_body="{ data }">{{ data.trial_days }}</template>
       <template #plan_module_body="{ data }">

@@ -219,7 +219,7 @@ const accept = async () => {
       } else {
          notice.value = code;
          // The plan changed meanwhile: show the plans as they are now.
-         if (code === 'plan_inactive') await reloadPlans();
+         if (code === 'plan_inactive' || code === 'plan_not_for_clients') await reloadPlans();
       }
    } finally {
       accepting.value = false;

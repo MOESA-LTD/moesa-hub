@@ -612,6 +612,7 @@
       "standard_role_unknown": "That standard role does not exist.",
       "company_payload_invalid": "The company details contain fields that cannot be set.",
       "plan_inactive": "That plan is not available.",
+      "plan_not_for_clients": "That plan is not offered to customers.",
       "invitation_forbidden": "You may not manage this invitation.",
       "invitation_payload_invalid": "The invitation details are not valid.",
       "invitation_staff_invalid": "Invited staff must be members of your company, each with the management, coordinator or viewer role.",
@@ -1059,6 +1060,12 @@
          },
          "description": "説明",
          "audience": "Who it suits",
+         "target": "Offered to",
+         "targets": {
+            "client": "Clients",
+            "provider": "Providers",
+            "all": "Everyone"
+         },
          "pricing": "料金",
          "billing_period": "請求期間",
          "unlimited": "無制限",
@@ -3621,6 +3628,7 @@
          "company_email_exists": "A company with this e-mail address is already registered.",
          "company_phone_exists": "A company with this phone number is already registered.",
          "plan_inactive": "This plan is no longer offered. Choose another one.",
+         "plan_not_for_clients": "This plan is not offered to customers. Choose another one.",
          "plan_limit_users": "This plan allows fewer users than this invitation brings. Choose a plan with more users.",
          "generic": "The invitation could not be accepted. Try again."
       },
@@ -3687,6 +3695,7 @@
          "company_email_exists": "A company with this e-mail is already registered. Sign up again with another company e-mail.",
          "company_phone_exists": "A company with this phone number is already registered. Sign up again with another phone number.",
          "plan_inactive": "This plan is no longer offered. Choose another one.",
+         "plan_not_for_clients": "This plan is not offered to customers. Choose another one.",
          "generic": "The sign-up could not be completed. Try again.",
          "signup_unconfigured": "Sign-up is not set up on this server yet."
       },

@@ -157,8 +157,9 @@ const complete = async () => {
       } else if (code === 'signup_payload_invalid' || code === 'company_payload_invalid') {
          notice.value = code;
          step.value = 2;
-      } else if (code === 'plan_inactive') {
-         // The plan was withdrawn meanwhile: show the plans as they are now.
+      } else if (code === 'plan_inactive' || code === 'plan_not_for_clients') {
+         // The plan was withdrawn, or is no longer offered to clients (decision 21), meanwhile:
+         // show the plans as they are now.
          notice.value = code;
          await loadPlans().catch(() => undefined);
       } else {

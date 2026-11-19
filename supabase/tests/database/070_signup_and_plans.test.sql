@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- verify-first self-signup: complete_signup and signup_throttle (Task 11, task-5-review I1).
 BEGIN;
 
-SELECT plan(45);
+SELECT plan(55);
 
 SELECT is((SELECT value FROM private.platform_setting WHERE key = 'open_signup'), 'false'::JSONB, 'open signup is off by default');
 
@@ -33,9 +33,32 @@ RESET ROLE;
 SELECT private.unimpersonate();
 SELECT has_column('public', 'plan', 'audience', 'plans say who they suit');
 
+-- Decision 21: whom a plan is offered to (plan.target); audience stays its description.
+SELECT enum_has_labels('public', 'plan_target', ARRAY['client', 'provider', 'all'], 'a plan targets clients, providers or all');
+SELECT col_type_is('public', 'plan', 'target', 'plan_target', 'plan.target is a plan_target');
+SELECT col_not_null('public', 'plan', 'target', 'every plan has a target');
+SELECT col_default_is('public', 'plan', 'target', 'all', 'a plan is offered to all unless set');
+SELECT is((SELECT class FROM public.field_class WHERE resource_name = 'public.plan' AND field = 'target'), 'open',
+          'plan.target is classified (open)');
+
+-- save_plan carries it (the admin plan editor): stored, kept when left out, changed when given.
+CREATE TEMP TABLE plan_070 (id UUID) ON COMMIT DROP;
+GRANT ALL ON plan_070 TO authenticated;
+SELECT private.impersonate_scope((SELECT id FROM auth.users WHERE email = 'admin@moesa-panel.test'), NULL, NULL);
+INSERT INTO plan_070 SELECT public.save_plan('{"display_name": "Target 070", "target": "provider"}', '{}', '{}');
+SELECT is((SELECT target::TEXT FROM api.plan WHERE id = (SELECT id FROM plan_070)), 'provider', 'save_plan stores the target');
+SELECT public.save_plan(jsonb_build_object('id', (SELECT id FROM plan_070), 'display_name', 'Target 070 renamed'), '{}', '{}');
+SELECT is((SELECT target::TEXT FROM api.plan WHERE id = (SELECT id FROM plan_070)), 'provider', 'and keeps it when the payload leaves it out');
+SELECT public.save_plan(jsonb_build_object('id', (SELECT id FROM plan_070), 'display_name', 'Target 070', 'target', 'client'), '{}', '{}');
+SELECT is((SELECT target::TEXT FROM api.plan WHERE id = (SELECT id FROM plan_070)), 'client', 'and changes it when given');
+RESET ROLE;
+SELECT private.unimpersonate();
+
 -- Section 2: one company-creation path (private.create_company) with the standard roles.
 -- Fixtures: an inactive plan and a company owned by ayse, created by the service-only path.
 INSERT INTO public.plan (id, display_name, is_active) VALUES ('00000000-0000-4000-8000-000000070201', 'Retired 070', FALSE);
+-- An active plan for providers only (decision 21).
+INSERT INTO public.plan (id, display_name, is_active, target) VALUES ('00000000-0000-4000-8000-000000070202', 'Providers 070', TRUE, 'provider');
 
 SELECT throws_ok(
     $$ SELECT private.create_company((SELECT id FROM auth.users WHERE email = 'ayse@moesa-panel.test'),
@@ -47,6 +70,12 @@ SELECT throws_ok(
                                      '{"display_name": "Retired plan 070", "email": "retired070@example.test"}',
                                      '00000000-0000-4000-8000-000000070201') $$,
     'P0001', 'plan_inactive', 'an inactive plan is refused');
+
+SELECT throws_ok(
+    $$ SELECT private.create_company((SELECT id FROM auth.users WHERE email = 'ayse@moesa-panel.test'),
+                                     '{"display_name": "Provider plan 070", "email": "providerplan070@example.test"}',
+                                     '00000000-0000-4000-8000-000000070202') $$,
+    'P0001', 'plan_not_for_clients', 'a plan for providers only is refused (decision 21)');
 
 SELECT ok(NOT has_function_privilege('authenticated', 'private.create_company(uuid, jsonb, uuid)', 'EXECUTE'),
           'a signed-in user cannot create a company directly');
@@ -136,6 +165,11 @@ SELECT throws_ok(
     $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Retired 070 co"}',
                                      '00000000-0000-4000-8000-000000070201') $$,
     'P0001', 'plan_inactive', 'the plan must be active');
+
+SELECT throws_ok(
+    $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Provider plan 070 co"}',
+                                     '00000000-0000-4000-8000-000000070202') $$,
+    'P0001', 'plan_not_for_clients', 'and offered to clients (decision 21)');
 
 SELECT throws_ok(
     $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Injected 070", "tenant_id": "x"}', NULL) $$,

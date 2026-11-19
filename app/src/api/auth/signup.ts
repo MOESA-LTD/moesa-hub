@@ -60,12 +60,19 @@ type PlanRow = Omit<PlanSummary, 'modules' | 'limits'> & {
    plan_limit: { limit_key: string; value: number | null }[] | null;
 };
 
-/** The active plans, in the shape the invitation preview gives them (PlanCompare's input). */
+/** The plans a client may choose (decision 21): their targets. */
+export const CLIENT_PLAN_TARGETS = ['client', 'all'] as const;
+
+/**
+ * The active plans offered to clients, in the shape the invitation preview gives them
+ * (PlanCompare's input).
+ */
 export async function fetchSignupPlans(): Promise<PlanSummary[]> {
    const { data } = await supabase
       .from('plan')
       .select(PLAN_SELECT)
       .eq('is_active', true)
+      .in('target', [...CLIENT_PLAN_TARGETS])
       .order('position')
       .order('display_name')
       .throwOnError();

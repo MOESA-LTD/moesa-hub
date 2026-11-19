@@ -17,7 +17,9 @@
 --   public.revoke_provider_invitation(invitation_id)                                    authenticated
 --
 -- Refusals: invitation_forbidden (42501: the actor lacks the right, or the invitation is unknown),
--- invitation_payload_invalid and invitation_staff_invalid (23514), client_code_taken and
+-- invitation_payload_invalid and invitation_staff_invalid (23514), plan_inactive and
+-- plan_not_for_clients (23514, decision 21: a recommended plan is active and targets client or
+-- all), client_code_taken and
 -- invitation_pending_exists (23505), invitation_throttled and invitation_invalid (P0001: not pending),
 -- invitation_self_invite (23514, decision 19: the e-mail is that of an account that is a member or
 -- owner of a tenant of the provider's company, compared lower-cased; private.invitation_self_invite).
@@ -390,11 +392,17 @@ BEGIN
         RAISE EXCEPTION 'client_code_taken' USING ERRCODE = 'unique_violation';
     END IF;
 
-    -- A recommended plan must be one the customer can pick: active (the plan step lists active plans).
-    IF p_invitation ? 'recommended_plan_id' AND p_invitation ->> 'recommended_plan_id' IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM public.plan pl
+    -- A recommended plan must be one the customer can pick: active (the plan step lists active plans)
+    -- and offered to clients (decision 21: target client or all).
+    IF p_invitation ? 'recommended_plan_id' AND p_invitation ->> 'recommended_plan_id' IS NOT NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM public.plan pl
                        WHERE pl.id::TEXT = lower(p_invitation ->> 'recommended_plan_id') AND pl.is_active) THEN
-        RAISE EXCEPTION 'plan_inactive' USING ERRCODE = 'check_violation';
+            RAISE EXCEPTION 'plan_inactive' USING ERRCODE = 'check_violation';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM public.plan pl
+                       WHERE pl.id::TEXT = lower(p_invitation ->> 'recommended_plan_id') AND pl.target IN ('client', 'all')) THEN
+            RAISE EXCEPTION 'plan_not_for_clients' USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
 
     BEGIN
@@ -636,7 +644,8 @@ REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authent
 -- is not the invited one; counted by acceptance only, so a preview never locks an invitation),
 -- invitation_payload_invalid (also a p_staff that is not an array of the preview's indexes),
 -- invitation_self_invite (decision 19: the invited account is now a member or owner of a tenant of
--- the provider's company; preview too), plan_inactive, company_email_exists, company_phone_exists. A failure
+-- the provider's company; preview too), plan_inactive, plan_not_for_clients (decision 21: the plan
+-- targets client or all; the preview lists only those), company_email_exists, company_phone_exists. A failure
 -- after the first write raises and leaves nothing: company_email_exists, company_phone_exists
 -- (23505, a concurrent registration), invitation_payload_invalid (23514), invitation_staff_invalid
 -- (23514), plan_limit_users.
@@ -818,7 +827,7 @@ BEGIN
                        'limits', coalesce((SELECT jsonb_object_agg(pl.limit_key, pl.value) FROM public.plan_limit pl WHERE pl.plan_id = p.id), '{}'::JSONB)
                    ) ORDER BY p.position, p.display_name)
             FROM public.plan p
-            WHERE p.is_active
+            WHERE p.is_active AND p.target IN ('client', 'all')
         ), '[]'::JSONB)
     );
 END;
@@ -893,6 +902,10 @@ BEGIN
     END IF;
     IF p_plan_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.plan p WHERE p.id = p_plan_id AND p.is_active) THEN
         v_result := jsonb_build_object('error', 'plan_inactive');
+        EXIT body;
+    END IF;
+    IF p_plan_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.plan p WHERE p.id = p_plan_id AND p.target IN ('client', 'all')) THEN
+        v_result := jsonb_build_object('error', 'plan_not_for_clients');
         EXIT body;
     END IF;
 

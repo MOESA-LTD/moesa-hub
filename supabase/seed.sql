@@ -51,6 +51,11 @@ NOTIFY pgrst,
 -- five approved suppliers and the sourcing of THO's products (cost and supplier), each sourcing row
 -- naming THO as its client.
 
+-- The plans' targets (decision 21): Basic suits a client company, Pro anyone, and Enterprise (every
+-- module, without limits) is for providers, so an invitation or a self-signup does not offer it.
+UPDATE public.plan SET target = 'client' WHERE display_name = 'Basic';
+UPDATE public.plan SET target = 'provider' WHERE display_name = 'Enterprise';
+
 -- Demo helpers, dropped at the end.
 
 -- A confirmed account that signs in with Demo1234! (public.user follows through handle_new_user).
