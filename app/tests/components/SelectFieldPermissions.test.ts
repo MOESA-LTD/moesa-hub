@@ -259,4 +259,21 @@ describe('SelectFieldPermissions', () => {
          box(w, 'field-group-public.product-cost-write').find('input').attributes('disabled')
       ).toBeDefined();
    });
+
+   it('offers only client-visible fields under Shared by a provider', async () => {
+      const w = await mountWith([]);
+      // The shared section of purchase_order_line, expanded.
+      const toggles = w.findAll('.p-datatable-row-toggle-button');
+      for (const t of toggles) await t.trigger('click');
+      await flushPromises();
+      expect(box(w, 'field-public.purchase_order_line#shared-sell_price_eur-read').exists()).toBe(
+         true
+      );
+      expect(box(w, 'field-public.purchase_order_line#shared-unit_price-read').exists()).toBe(
+         false
+      );
+      // The own section still offers every field.
+      expect(box(w, 'field-public.purchase_order_line-unit_price-read').exists()).toBe(true);
+      expect(w.find('[data-test="shared-fields-note"]').exists()).toBe(true);
+   });
 });
