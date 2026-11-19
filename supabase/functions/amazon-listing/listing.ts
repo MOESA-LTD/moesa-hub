@@ -14,6 +14,7 @@ import {
    withProvided
 } from '../_shared/listingCompleteness.ts';
 export {
+   markActiveProviders,
    SOURCING_LISTING_COLUMNS,
    sourcingArtNo,
    type SourcingArtNoRow

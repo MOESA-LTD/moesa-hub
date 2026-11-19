@@ -36,7 +36,9 @@ SELECT private.create_test_helpers();
 -- line ...6961, shipment ...6971, event ...6973, shipment line ...6974, warehouse ...6975 (C),
 -- cr_c ...6992, inc_c ...6995 and its log ...69a1, spy ...6912 with role 'Spy' ...6934.
 -- Provider-only rows (their ids are sentinels, ...69fN): supplier f1, contact f2, payment f3,
--- update f4, documents pi f5, packing f6, spec f7, contract f8, media f9, LEAK-ROLE fa.
+-- update f4, documents pi f5, packing f6, spec f7, contract f8, media f9, LEAK-ROLE fa; a transfer
+-- ...6981 from the provider into C (final review M4: the row is C's, its description the provider's,
+-- guarded by source_tenant_id), naming the provider-only product id ...69fe.
 SELECT set_config('test.c', (SELECT id::TEXT FROM public.tenant WHERE code = 'THO'), TRUE);
 SELECT set_config('test.p', (SELECT tenant_id::TEXT FROM public.provider_relationship WHERE client_tenant_id = current_setting('test.c')::UUID), TRUE);
 SELECT set_config('test.rel', (SELECT id::TEXT FROM public.provider_relationship WHERE client_tenant_id = current_setting('test.c')::UUID), TRUE);
@@ -133,6 +135,11 @@ INSERT INTO public.provider_invitation (id, tenant_id, email, company_name, clie
     current_setting('test.koordinator')::UUID);
 INSERT INTO public.provider_invitation_staff (id, invitation_id, tenant_id, user_id, role_name) VALUES
    ('00000000-0000-4000-8000-0000000069fc', '00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'viewer');
+-- A transfer from the provider into C (072/073): C's row; report, decisions, id_map and files take
+-- their sentinels below (guarded: rights column source_tenant_id), product_ids an id sentinel.
+INSERT INTO public.transfer (id, tenant_id, source_tenant_id, product_ids, mode, started_by, files_status) VALUES
+   ('00000000-0000-4000-8000-000000006981', current_setting('test.c')::UUID, current_setting('test.p')::UUID,
+    ARRAY['00000000-0000-4000-8000-0000000069fe']::UUID[], 'copy', current_setting('test.koordinator')::UUID, 'done');
 
 CREATE TEMP TABLE leak_target (tbl TEXT, id UUID, mode TEXT) ON COMMIT DROP;
 INSERT INTO leak_target VALUES
@@ -153,6 +160,7 @@ INSERT INTO leak_target VALUES
    ('document', '00000000-0000-4000-8000-0000000069f8', 'provider'),
    ('media', '00000000-0000-4000-8000-0000000069f9', 'provider'),
    ('provider_invitation', '00000000-0000-4000-8000-0000000069fb', 'provider'),
+   ('transfer', '00000000-0000-4000-8000-000000006981', 'guarded'),
    ('change_request', '00000000-0000-4000-8000-000000006992', 'guarded'),
    ('incident_log', '00000000-0000-4000-8000-0000000069a1', 'guarded');
 
@@ -217,7 +225,8 @@ SELECT is_empty($$
                        'shipment_event.note', 'shipment_event.channel', 'supplier.display_name', 'supplier.product_groups',
                        'supplier_contact.email', 'purchase_order_payment.amount', 'purchase_order_update.note',
                        'document.file_name', 'media.file_name', 'change_request.cost_impact', 'incident_log.cost_amount',
-                       'provider_invitation.company_name', 'provider_invitation.extra_cost_rule'])
+                       'provider_invitation.company_name', 'provider_invitation.extra_cost_rule',
+                       'transfer.report', 'transfer.decisions', 'transfer.id_map', 'transfer.files'])
    EXCEPT SELECT tbl || '.' || col FROM leak_held $$,
    'a sentinel sits in every provider-only column the scan relies on');
 SELECT diag('not seeded: ' || string_agg(tbl || '.' || col || ' (' || error || ')', '; ' ORDER BY tbl, col))

@@ -14,7 +14,10 @@ import {
    requiredAttributes,
    serverProvided,
    toDefinitionRow,
-   toPropertyGroups
+   toPropertyGroups,
+   markActiveProviders,
+   sourcingArtNo,
+   type SourcingArtNoRow
 } from '../_shared/listingCompleteness.ts';
 import { EU_MARKETPLACES } from '../_shared/amazon.ts';
 
@@ -272,4 +275,62 @@ Deno.test('toDefinitionRow takes the downloaded schema when the answer carries a
    assertEquals(row.locale, 'fr_FR');
    assertEquals(row.schema, schema);
    assertThrows(() => toDefinitionRow(meta), Error, 'schema');
+});
+
+// Final review M5: the row the article number comes from does not depend on row order.
+Deno.test('sourcingArtNo: the own row, then an active provider, then the newest', () => {
+   const own: SourcingArtNoRow = {
+      product_id: 'p',
+      tenant_id: 'me',
+      client_tenant_id: null,
+      manufacturer_art_no: 'OWN',
+      updated_at: '2026-01-01'
+   };
+   const ended = {
+      product_id: 'p',
+      tenant_id: 'old-provider',
+      client_tenant_id: 'me',
+      manufacturer_art_no: 'ENDED',
+      updated_at: '2026-11-01'
+   };
+   const active = {
+      product_id: 'p',
+      tenant_id: 'provider',
+      client_tenant_id: 'me',
+      manufacturer_art_no: 'ACTIVE',
+      updated_at: '2026-02-01'
+   };
+   const relationships = [
+      { tenant_id: 'provider', client_tenant_id: 'me', status: 'active' },
+      { tenant_id: 'old-provider', client_tenant_id: 'me', status: 'ended' }
+   ];
+   const marked = (rows: SourcingArtNoRow[]) => markActiveProviders(rows, relationships);
+
+   for (const rows of [
+      [own, ended, active],
+      [active, ended, own],
+      [ended, own, active]
+   ]) {
+      assertEquals(sourcingArtNo(marked(rows), 'me', 'p'), 'OWN');
+   }
+   for (const rows of [
+      [ended, active],
+      [active, ended]
+   ]) {
+      assertEquals(sourcingArtNo(marked(rows), 'me', 'p'), 'ACTIVE');
+   }
+   // No active relationship: the newest row, whatever the order.
+   const older = {
+      ...active,
+      tenant_id: 'other',
+      manufacturer_art_no: 'OLDER',
+      updated_at: '2026-03-01'
+   };
+   for (const rows of [
+      [older, ended],
+      [ended, older]
+   ]) {
+      assertEquals(sourcingArtNo(markActiveProviders(rows, []), 'me', 'p'), 'ENDED');
+   }
+   assertEquals(sourcingArtNo([], 'me', 'p'), null);
 });

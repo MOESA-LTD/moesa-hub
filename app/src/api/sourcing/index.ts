@@ -4,7 +4,12 @@ import { useLookup } from '@/api/useLookup';
 import { useTenantKey } from '@/api/useTenantKey';
 import { dateOnly, optional, parseDateOnly, required } from '@/lib/form/fields';
 import { supabase } from '@/lib/supabase';
-import { SOURCING_LISTING_COLUMNS, type SourcingArtNoRow } from '@edge-shared/listingCompleteness';
+import {
+   markActiveProviders,
+   SOURCING_LISTING_COLUMNS,
+   type SourcingArtNoRow,
+   type SourcingRelationship
+} from '@edge-shared/listingCompleteness';
 import { useQuery } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 import * as z from 'zod';
@@ -60,7 +65,8 @@ export function useSourcing(productId: MaybeRefOrGetter<string | null | undefine
  * The sourcing rows of a product the Amazon previews derive the model and part number from (F24):
  * the article number and what picks the row (SOURCING_LISTING_COLUMNS, as amazon-listing reads
  * them), nothing sensitive. The product row never carries the article number; sourcingArtNo picks
- * the tenant's own row, else its provider's shared one.
+ * the tenant's own row, else the shared row of a provider whose relationship is active (each row is
+ * marked from the relationships in scope, client-visible columns only), else the newest (M5).
  */
 export function useListingSourcing(productId: MaybeRefOrGetter<string | null | undefined>) {
    const tenantKey = useTenantKey();
@@ -73,13 +79,24 @@ export function useListingSourcing(productId: MaybeRefOrGetter<string | null | u
          })
       ),
       queryFn: async ({ signal }) => {
-         const { data } = await supabase
-            .from('sourcing')
-            .select(SOURCING_LISTING_COLUMNS)
-            .eq('product_id', toValue(productId)!)
-            .abortSignal(signal)
-            .throwOnError();
-         return data as SourcingArtNoRow[];
+         const [{ data }, { data: relationships }] = await Promise.all([
+            supabase
+               .from('sourcing')
+               .select(SOURCING_LISTING_COLUMNS)
+               .eq('product_id', toValue(productId)!)
+               .abortSignal(signal)
+               .throwOnError(),
+            supabase
+               .from('provider_relationship')
+               .select('tenant_id, client_tenant_id, status')
+               .eq('status', 'active')
+               .abortSignal(signal)
+               .throwOnError()
+         ]);
+         return markActiveProviders(
+            (data ?? []) as SourcingArtNoRow[],
+            (relationships ?? []) as SourcingRelationship[]
+         );
       },
       enabled: computed(() => !!toValue(productId))
    });

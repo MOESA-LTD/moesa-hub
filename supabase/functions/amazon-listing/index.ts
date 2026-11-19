@@ -87,6 +87,7 @@ import {
    putListingsItem,
    requireLanguageTag,
    skuFor,
+   markActiveProviders,
    SOURCING_LISTING_COLUMNS,
    sourcingArtNo,
    withNewItemAvailability
@@ -178,8 +179,15 @@ const loadContext = async (db: Db, tenantId: string, id: string): Promise<CellCo
       .eq('product_tenant_id', tenantId)
       .in('product_id', parent ? [product.id, parent.id] : [product.id]);
    if (sourcingError) throw sourcingError;
-   product.manufacturer_art_no = sourcingArtNo(sourcing ?? [], tenantId, product.id);
-   if (parent) parent.manufacturer_art_no = sourcingArtNo(sourcing ?? [], tenantId, parent.id);
+   // M5: a provider's row is preferred while its relationship is active (client-visible columns).
+   const { data: relationships, error: relationshipError } = await db
+      .from('provider_relationship')
+      .select('tenant_id, client_tenant_id, status')
+      .eq('status', 'active');
+   if (relationshipError) throw relationshipError;
+   const rows = markActiveProviders(sourcing ?? [], relationships ?? []);
+   product.manufacturer_art_no = sourcingArtNo(rows, tenantId, product.id);
+   if (parent) parent.manufacturer_art_no = sourcingArtNo(rows, tenantId, parent.id);
    let parentCell: MarketCellRow | null = null;
    if (parent) {
       const { data, error } = await db

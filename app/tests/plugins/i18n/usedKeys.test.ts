@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = resolve(__dirname, '../../../src');
 const MIGRATIONS = resolve(__dirname, '../../../../supabase/migrations');
+const FUNCTIONS = resolve(__dirname, '../../../../supabase/functions');
 /** The business modules' migrations (015 on), whose error codes the app shows as errors.<code>. */
 const FIRST_BUSINESS_MIGRATION = 15;
 const messages = JSON.parse(readFileSync(join(SRC, 'plugins/i18n/locales/en/index.json'), 'utf-8'));
@@ -63,6 +64,32 @@ describe('database error codes', () => {
          });
 
       expect(codes.length).toBeGreaterThan(0);
+      expect([...new Set(codes)].filter((code) => lookup(`errors.${code}`) === undefined)).toEqual(
+         []
+      );
+   });
+});
+
+describe('Edge Function configuration refusals', () => {
+   it('every *_unconfigured refusal of an Edge Function has an errors.<code> message', () => {
+      const codes = readdirSync(FUNCTIONS)
+         .map((name) => join(FUNCTIONS, name, 'index.ts'))
+         .filter((file) => {
+            try {
+               return statSync(file).isFile();
+            } catch {
+               return false;
+            }
+         })
+         .flatMap((file) =>
+            [
+               ...readFileSync(file, 'utf-8').matchAll(
+                  /HttpError\(\s*\d+,\s*'([a-z0-9_]+_unconfigured)'/g
+               )
+            ].map((match) => match[1]!)
+         );
+
+      expect(codes).toContain('signup_unconfigured');
       expect([...new Set(codes)].filter((code) => lookup(`errors.${code}`) === undefined)).toEqual(
          []
       );

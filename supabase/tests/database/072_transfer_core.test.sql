@@ -745,7 +745,7 @@ SELECT throws_like(
                                                     jsonb_build_object('action', 'map', 'target_id', current_setting('test.zs1'))), FALSE) $$,
     '%transfer_decision_invalid%', 'a supplier is mapped onto a supplier of the target'
 );
--- 073 replaced the 501 transfer_apply_unavailable with the run (its own tests are 073's).
+-- A settled run is applied (the run's own tests are 073's).
 SELECT is(pg_temp.pe('copy', current_setting('test.d')::JSONB
                              || jsonb_build_object('report_hash', pg_temp.pe('copy', current_setting('test.d')::JSONB) ->> 'report_hash'), FALSE)
           ->> 'tenant_id', current_setting('test.e'),

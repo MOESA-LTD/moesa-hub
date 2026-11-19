@@ -3,9 +3,8 @@
 -- guard, the rights gate and the rehearsal (the dry-run report). Ported from M21 (055b03b: 040 and
 -- 042) and reshaped for customer = tenant: no customer root, no projects, orders, shipments,
 -- incidents, change requests or listing submissions (they stay where they were created, decision 13),
--- no cheap path, no code renumbering. The run itself (copy, move, files) is 073/074 (Task 13): here a
--- real run (rehearse => FALSE) checks everything a run checks, then refuses with
--- transfer_apply_unavailable (501) until 073 replaces public.transfer_products.
+-- no cheap path, no code renumbering. The run itself (copy, move, files) is 073/074 (Task 13): 073
+-- restates public.transfer_products with it; here the entry point returns the rehearsal's report.
 --
 -- transfer              One transfer of products from a source tenant to a target tenant; tenant_id is
 --                       the target. It keeps the rehearsal's report, the decisions taken, the map of
@@ -598,9 +597,7 @@ $$;
 -- public.transfer_products   The entry point (SECURITY DEFINER, authenticated): refusal (400/403/409),
 --                            the products (transfer_products_invalid), the package, a package file an
 --                            earlier transfer into the source has not copied yet
---                            (transfer_files_pending), the report. A rehearsal returns the report; a
---                            real run checks the decisions and a move's blocking links, then refuses
---                            with transfer_apply_unavailable (501) until 073.
+--                            (transfer_files_pending), the report. 073 restates it with the real run.
 
 -- A refusal in the next_code pattern.
 CREATE OR REPLACE FUNCTION private.transfer_raise (code TEXT, status INT) RETURNS VOID LANGUAGE plpgsql
@@ -1794,20 +1791,8 @@ BEGIN
         source_tenant, target_tenant, transfer_products.mode, transfer_products.decisions, transfer_products.product_ids, excluded
     );
 
-    IF coalesce(rehearse, TRUE) THEN
-        RETURN report;
-    END IF;
-
-    PERFORM private.transfer_check_decisions(report, transfer_products.decisions, target_tenant, transfer_products.mode);
-
-    IF transfer_products.mode = 'move'
-       AND EXISTS (SELECT 1 FROM jsonb_array_elements(report -> 'left_behind') e WHERE (e ->> 'blocks')::BOOLEAN) THEN
-        PERFORM private.transfer_raise('transfer_product_in_use', 409);
-    END IF;
-
-    -- The run is 073's (Task 13).
-    PERFORM private.transfer_raise('transfer_apply_unavailable', 501);
-    RETURN NULL;
+    -- The run (rehearse => FALSE) is 073's restatement (Task 13).
+    RETURN report;
 END;
 $$;
 

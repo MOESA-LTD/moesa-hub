@@ -1536,6 +1536,27 @@ Deno.test("validate prefers the tenant's own sourcing row (the client procures)"
    assertEquals((await validateSent(state)).model_number, [{ value: 'OWN-7', marketplace_id: DE }]);
 });
 
+// Final review M5: of two providers' rows, the one whose relationship is active, whatever the order.
+Deno.test('validate prefers the row of a provider with an active relationship', async () => {
+   for (const order of [0, 1]) {
+      const state = withPartNumbers(withMediaObject(story()));
+      const active = { ...sourcingRow(PROVIDER, 'ACTIVE-1'), updated_at: '2026-01-01' };
+      const ended = {
+         ...sourcingRow('ended-provider', 'ENDED-1'),
+         client_tenant_id: TENANT,
+         updated_at: '2026-11-01'
+      };
+      state.tables.sourcing = order ? [ended, active] : [active, ended];
+      state.tables.provider_relationship = [
+         { tenant_id: PROVIDER, client_tenant_id: TENANT, status: 'active' },
+         { tenant_id: 'ended-provider', client_tenant_id: TENANT, status: 'ended' }
+      ];
+      assertEquals((await validateSent(state)).model_number, [
+         { value: 'ACTIVE-1', marketplace_id: DE }
+      ]);
+   }
+});
+
 Deno.test(
    'validate derives no model or part number from a masked (NULL) or missing number',
    async () => {
@@ -2231,7 +2252,13 @@ Deno.test('amazon-listing selects no sensitive product or cell column', () => {
    // carries the (client-visible, Q3) article number and nothing sensitive.
    assert(!product.includes('manufacturer_art_no'));
    const sourcing = SOURCING_LISTING_COLUMNS.split(',').map((s) => s.trim());
-   assertEquals(sourcing, ['product_id', 'tenant_id', 'manufacturer_art_no']);
+   assertEquals(sourcing, [
+      'product_id',
+      'tenant_id',
+      'client_tenant_id',
+      'manufacturer_art_no',
+      'updated_at'
+   ]);
    for (const c of SENSITIVE) assert(!sourcing.includes(c), c);
    assert(!cell.includes('notes'));
 });

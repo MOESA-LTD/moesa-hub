@@ -6,7 +6,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- policies' shared-row call, the signed access caches (tenant_scope, permitted_tenants), the api
 -- view generator's shared-row masking, and the forwarder's and the base write guard's rights
 -- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
--- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company, 072 the
+-- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company and
+-- save_plan's audience, 071 the audit's trusted service actors with the invitation's, 072 the
 -- rules bypass's transfer flag, the revert's transfer lock and the coordinator's standard role without
 -- the transfer right, 073 the media file check's transfer copy, the file restriction's hold and the
 -- transfer entry point's run, 074 the media Storage checks' transfer holds), or
@@ -24,7 +25,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(53);
+SELECT plan(55);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -217,7 +218,20 @@ VALUES
           'NEW.entity_tenant_id IS DISTINCT FROM OLD.entity_tenant_id']),
    -- 070: self-signup takes the one company-creation path (allowlisted payload, standard roles).
    ('public.register_tenant(uuid, jsonb)', '009', '070',
-    ARRAY['SECURITY DEFINER', 'private.create_company(register_tenant.owner_id, register_tenant.company, NULL)']);
+    ARRAY['SECURITY DEFINER', 'private.create_company(register_tenant.owner_id, register_tenant.company, NULL)']),
+   -- 070: the plan editor writes the audience (final review M2).
+   ('public.save_plan(jsonb, text[], jsonb)', '013', '070',
+    ARRAY['SECURITY DEFINER', 'plan_default_inactive', 'plan_default_required', 'plan_not_found',
+          'UPDATE public.plan p SET is_default = FALSE WHERE p.is_default AND p.id IS DISTINCT FROM saved_id',
+          'audience = plan_data ->> ''audience''', 'DELETE FROM public.plan_module pm WHERE pm.plan_id = saved_id',
+          'DELETE FROM public.plan_limit pl']),
+   -- 071: the audit trusts a header-named actor only on a service-role transaction of a known function,
+   -- the provider-invitation function among them (final review M2).
+   ('private.audit_service_actor()', '046', '071',
+    ARRAY['NEW.actor_id IS NOT NULL OR NEW.actor_role IS DISTINCT FROM ''service_role''', '''x-audit-role''',
+          '''amazon-auth''', '''amazon-listing''', '''amazon-schema''', '''amazon-poll''', '''amazon-schema-refresh''',
+          '''provider-invitation''', 'NEW.actor_role := v_headers ->> ''x-audit-role''',
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$']);
 
 SELECT is_empty(format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n WHERE strpos(pg_get_functiondef(%L::REGPROCEDURE), n) = 0 $q$,
                        r.needle, r.fn),

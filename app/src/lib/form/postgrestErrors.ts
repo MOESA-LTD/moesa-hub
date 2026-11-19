@@ -506,7 +506,8 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
    { code: 'P0001', name: 'invitation_invalid', message: 'errors.invitation_invalid' },
    // The function's own refusals carry no database code: their HTTP status stands in for it.
    { code: '502', name: 'invitation_mail_failed', message: 'errors.invitation_mail_failed' },
-   { code: '500', name: 'invitation_unconfigured', message: 'errors.invitation_unconfigured' }
+   { code: '500', name: 'invitation_unconfigured', message: 'errors.invitation_unconfigured' },
+   { code: '500', name: 'signup_unconfigured', message: 'errors.signup_unconfigured' }
 ];
 
 /**
