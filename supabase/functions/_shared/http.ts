@@ -26,6 +26,31 @@ const PG_ERROR_STATUS: Record<string, number> = {
 /** The form of the app's error keys (errors.* in the locales), e.g. subscription_read_only. */
 const ERROR_KEY = /^[a-z0-9_]+$/;
 
+/**
+ * The database's named refusals whose status is not the SQLSTATE's (P0001 is 403 otherwise, 23514
+ * has none). The invitation functions raise them or, before their first write, return them as
+ * `{"error": key}` (Plan 3 F2); both are answered alike.
+ */
+export const NAMED_ERROR_STATUS: Record<string, number> = {
+   invitation_throttled: 429,
+   invitation_invalid: 404,
+   invitation_email_mismatch: 403,
+   invitation_forbidden: 403,
+   invitation_payload_invalid: 400,
+   invitation_staff_invalid: 400,
+   plan_inactive: 400,
+   company_email_exists: 409,
+   company_phone_exists: 409,
+   client_code_taken: 409,
+   invitation_pending_exists: 409
+};
+
+/** An error for a refusal the database returned as `{"error": key}`, named by its key alone. */
+export const namedRefusal = (key: unknown) =>
+   typeof key === 'string' && ERROR_KEY.test(key)
+      ? new HttpError(NAMED_ERROR_STATUS[key] ?? 403, key)
+      : new HttpError(403, 'request_rejected');
+
 /** Maps an error to a response without leaking internals; unknown errors are logged and returned as 500. */
 export const errorResponse = (error: unknown) => {
    if (error instanceof HttpError) {
@@ -43,6 +68,17 @@ export const errorResponse = (error: unknown) => {
    }
 
    const { code, status } = (error ?? {}) as { code?: string; status?: number };
+
+   // A named database refusal (a SQLSTATE and a known key): its own status, its key and no more.
+   const named = (error as { message?: unknown } | null)?.message;
+   if (
+      typeof code === 'string' &&
+      /^[0-9A-Z]{5}$/.test(code) &&
+      typeof named === 'string' &&
+      Object.hasOwn(NAMED_ERROR_STATUS, named)
+   ) {
+      return json({ message: named, code }, NAMED_ERROR_STATUS[named]);
+   }
 
    // Raised on purpose by the database. Only the app's own reasons (keys such as plan_limit_users)
    // are passed on; any other message may carry internals, so it is logged instead.

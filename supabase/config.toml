@@ -98,7 +98,7 @@ enabled = true
 # in emails.
 site_url = "http://localhost:6161"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:6161"]
+additional_redirect_urls = ["http://localhost:6161", "http://localhost:6161/invitation/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # If disabled, the refresh token will never expire.
@@ -252,6 +252,11 @@ inspector_port = 8083
 verify_jwt = true
 
 [functions.create-account]
+verify_jwt = true
+
+# Providers create and resend invitations (insert / update right, checked with withAuthorization);
+# customers accept with their own JWT (verified again in code; the user is never taken from the body).
+[functions.provider-invitation]
 verify_jwt = true
 
 # The weekly cron call (047) carries the service key, not a user JWT: the function checks it

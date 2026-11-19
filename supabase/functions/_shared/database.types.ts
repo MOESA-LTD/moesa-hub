@@ -9801,6 +9801,13 @@ export type Database = {
         }
         Returns: undefined
       }
+      revoke_unsent_provider_invitation: {
+        Args: {
+          p_invitation: string
+          p_actor: string
+        }
+        Returns: undefined
+      }
       rollback_gate: {
         Args: {
           gate_id: string

@@ -506,6 +506,41 @@ GRANT EXECUTE ON FUNCTION public.rotate_provider_invitation_token (UUID, UUID) T
 
 GRANT EXECUTE ON FUNCTION public.revoke_provider_invitation (UUID) TO authenticated;
 
+-- The provider-invitation Edge Function's undo when the invitation e-mail could not be sent (Task 5):
+-- nobody holds the token, so the invitation is revoked and its e-mail and code are free again. The
+-- service role has no auth.uid(), so revoke_provider_invitation cannot serve it. Only the creator,
+-- still holding the insert right, discards a pending invitation; anything else is invitation_forbidden
+-- (an unknown id included). The issue stays logged, so failed mails still count toward the cap.
+CREATE OR REPLACE FUNCTION public.revoke_unsent_provider_invitation (p_invitation UUID, p_actor UUID) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    inv public.provider_invitation;
+    v_status public.invitation_status;
+BEGIN
+    -- Authorise on an unlocked read (as revoke_provider_invitation), then lock and re-read the status.
+    SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = p_invitation;
+
+    IF inv.id IS NULL OR p_actor IS NULL OR inv.created_by IS DISTINCT FROM p_actor
+       OR coalesce(cardinality(private.tenants_permitting(p_actor, ARRAY[inv.tenant_id], 'public.provider_invitation', 'insert')), 0) = 0 THEN
+        RAISE EXCEPTION 'invitation_forbidden' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    SELECT i.status INTO v_status FROM public.provider_invitation i WHERE i.id = inv.id AND i.tenant_id = inv.tenant_id FOR UPDATE;
+
+    IF v_status IS DISTINCT FROM 'pending' THEN
+        RAISE EXCEPTION 'invitation_invalid';
+    END IF;
+
+    UPDATE public.provider_invitation i SET status = 'revoked', revoked_at = now() WHERE i.id = inv.id;
+    DELETE FROM private.provider_invitation_token t WHERE t.invitation_id = inv.id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.revoke_unsent_provider_invitation (UUID, UUID) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.revoke_unsent_provider_invitation (UUID, UUID) TO service_role;
+
 -- 046's audit_service_actor plus the provider-invitation label (F27): the Edge Function's writes are
 -- audited under its name and, through x-audit-actor, the user it acts for.
 CREATE OR REPLACE FUNCTION private.audit_service_actor () RETURNS TRIGGER LANGUAGE plpgsql

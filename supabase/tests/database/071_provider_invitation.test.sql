@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4).
 BEGIN;
 
-SELECT plan(135);
+SELECT plan(146);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -702,6 +702,50 @@ RESET ROLE;
 SELECT private.unimpersonate();
 SELECT results_eq($$ SELECT key FROM private.invitation_attempt WHERE key LIKE 'preview:%-071' $$, $$ VALUES ('preview:fresh-071') $$,
    'stale attempt rows are pruned, current ones kept');
+
+-- ---------------------------------------------------------------------------------------------
+-- Section 3: the Edge Function's undo of an invitation whose e-mail was not sent (Task 5).
+SELECT ok(has_function_privilege('service_role', 'public.revoke_unsent_provider_invitation(uuid,uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('authenticated', 'public.revoke_unsent_provider_invitation(uuid,uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.revoke_unsent_provider_invitation(uuid,uuid)', 'EXECUTE'),
+          'only the service role (the Edge Function) discards an unsent invitation');
+
+DELETE FROM private.provider_invitation_issue WHERE tenant_id = current_setting('test.p')::UUID;
+SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
+SET LOCAL ROLE service_role;
+INSERT INTO inv_071 SELECT 'unsent', i.id, i.token FROM public.create_provider_invitation(
+   current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "unsent@client.test", "company_name": "Unsent Ltd", "client_code": "UNS", "procurement_model": "provider"}', '[]') i;
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.koordinator')::UUID) $$,
+   '42501', 'invitation_forbidden', 'another member of the provider cannot discard it');
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.limited')::UUID) $$,
+   '42501', 'invitation_forbidden', 'nor can a reader');
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), NULL) $$,
+   '42501', 'invitation_forbidden', 'nor can nobody');
+-- A creator who no longer holds the insert right (the reader stands in as creator for one call).
+RESET ROLE;
+UPDATE public.provider_invitation SET created_by = current_setting('test.limited')::UUID WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent');
+SET LOCAL ROLE service_role;
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.limited')::UUID) $$,
+   '42501', 'invitation_forbidden', 'a creator without the insert right cannot discard it');
+RESET ROLE;
+UPDATE public.provider_invitation SET created_by = current_setting('test.baris')::UUID WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent');
+SET LOCAL ROLE service_role;
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation(gen_random_uuid(), current_setting('test.baris')::UUID) $$,
+   '42501', 'invitation_forbidden', 'an unknown invitation is refused like a forbidden one');
+SELECT lives_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
+   'its creator discards it');
+SELECT throws_ok($$ SELECT public.revoke_unsent_provider_invitation((SELECT id FROM inv_071 WHERE label = 'unsent'), current_setting('test.baris')::UUID) $$,
+   'P0001', 'invitation_invalid', 'a revoked invitation cannot be discarded again');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '', TRUE);
+
+SELECT results_eq($$ SELECT status::TEXT, revoked_at IS NOT NULL FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'unsent') $$,
+   $$ VALUES ('revoked', TRUE) $$, 'the unsent invitation is revoked');
+SELECT is_empty($$ SELECT 1 FROM private.provider_invitation_token WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent') $$,
+   'and its hash is gone');
+SELECT is((SELECT count(*)::INT FROM private.provider_invitation_issue WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent')), 1,
+          'the failed mail still counts toward the cap');
 
 SELECT * FROM finish();
 ROLLBACK;

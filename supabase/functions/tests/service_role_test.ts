@@ -52,7 +52,11 @@ Deno.test('supabaseAdmin is used only where the allow-list says why', () => {
 /** The only lines that may build a full (system) service client: no user is there. */
 const SYSTEM_CLIENTS: Record<string, RegExp> = {
    'amazon-poll/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-poll' \}\)/,
-   'amazon-schema/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-schema-refresh' \}\)/
+   'amazon-schema/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-schema-refresh' \}\)/,
+   // Not a system run: the invitation token is minted, checked and mailed where no API role
+   // reaches it (service-only RPCs and the Auth mail), audited as acting for the verified caller.
+   'provider-invitation/index.ts':
+      /^\s*const db = supabaseService\(\{ role: 'provider-invitation', actorId \}\);\r?$/
 };
 
 /** Every construction of a service client that is neither the narrow ServiceRole nor allowed above. */
