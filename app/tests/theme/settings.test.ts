@@ -5,6 +5,7 @@ import {
    parseSettings,
    SETTINGS_KEY
 } from '@/lib/theme/settings';
+import { findPalette, PRIMARY_COLORS } from '@/lib/theme/palettes';
 import { describe, expect, it } from 'vitest';
 
 const memoryStorage = (entries: Record<string, string> = {}) => {
@@ -18,6 +19,16 @@ const memoryStorage = (entries: Record<string, string> = {}) => {
 };
 
 describe('parseSettings', () => {
+   it('defaults to the MOESA palette', () => {
+      expect(DEFAULT_SETTINGS.light.primary).toBe('moesa');
+      expect(findPalette(PRIMARY_COLORS, 'moesa')?.['500']).toBe('#0069b2');
+   });
+
+   it('keeps a stored orange theme', () => {
+      const stored = JSON.stringify({ light: { primary: 'orange' } });
+      expect(parseSettings(stored).light.primary).toBe('orange');
+   });
+
    it('falls back to the defaults for missing or unreadable settings', () => {
       expect(parseSettings(null)).toEqual(DEFAULT_SETTINGS);
       expect(parseSettings('not json')).toEqual(DEFAULT_SETTINGS);

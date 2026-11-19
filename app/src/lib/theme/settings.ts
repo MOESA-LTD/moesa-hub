@@ -15,7 +15,8 @@ const colorName = (colors: { name: string }[]) =>
 
 const DEFAULT_PROFILE = {
    preset: 'aura',
-   primary: 'orange',
+   // MOESA's own blue (the design system's primary_blue / cyan_accent / dark_navy).
+   primary: 'moesa',
    surface: 'viva',
    uiScale: 1,
    sidebarMode: 'static'
