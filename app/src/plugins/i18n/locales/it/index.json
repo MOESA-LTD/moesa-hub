@@ -703,7 +703,17 @@
       "shipment_scope_missing": "The shipment cannot get a code: the company or the client has none.",
       "shipment_po_link_immutable": "An order on a shipment cannot be swapped: take it off and add the other one.",
       "incident_scope_missing": "The incident cannot get a code: the company has none.",
-      "change_request_scope_missing": "The change request cannot get a code: the company has none."
+      "change_request_scope_missing": "The change request cannot get a code: the company has none.",
+      "standard_role_unknown": "That standard role does not exist.",
+      "company_payload_invalid": "The company details contain fields that cannot be set.",
+      "plan_inactive": "That plan is not available.",
+      "invitation_forbidden": "You may not manage this invitation.",
+      "invitation_payload_invalid": "The invitation details are not valid.",
+      "invitation_staff_invalid": "Invited staff must be members of your company, each with the management, coordinator or viewer role.",
+      "invitation_throttled": "Too many invitations were sent today. Try again later.",
+      "invitation_invalid": "This invitation is no longer valid.",
+      "invitation_pending_exists": "This e-mail address already has a pending invitation.",
+      "client_code_taken": "This client code is already in use."
    },
    "route": {
       "label": {

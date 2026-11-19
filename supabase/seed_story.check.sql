@@ -206,7 +206,11 @@ VALUES
     ('field_class', 'class', 'exempt', 'reference data, not tenant rows'),
     ('platform_account', 'api_connection', 'exempt', 'revoked comes only from Amazon (invalid_grant)'),
     ('listing_submission', 'kind', 'exempt', 'API-driven; the story holds create'),
-    ('listing_submission', 'status', 'exempt', 'API-driven; the story holds done, invalid and processing');
+    ('listing_submission', 'status', 'exempt', 'API-driven; the story holds done, invalid and processing'),
+    ('provider_invitation', 'procurement_model', 'exempt', 'copied onto the relationship, whose column covers every value'),
+    ('provider_invitation', 'commercial_model', 'exempt', 'copied onto the relationship, whose column covers every value'),
+    ('provider_invitation', 'contract_status', 'exempt', 'copied onto the relationship, whose column covers every value'),
+    ('provider_invitation', 'status', 'exempt', 'the story onboards by an accepted invitation (Plan 3 Task 16); pending and revoked are 071''s tests');
 
 -- core.cast: the tenants the story runs in
 SELECT 'core.cast', n FROM unnest(ARRAY['MOESA LTD', 'MOESA Europe', 'MOESA Trading GmbH', 'THOMETZKI ONLINE HANDEL', 'Kernhaus Living GmbH',

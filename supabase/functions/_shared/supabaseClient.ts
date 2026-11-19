@@ -35,7 +35,8 @@ export type AuditRole =
    | 'amazon-listing'
    | 'amazon-schema'
    | 'amazon-poll'
-   | 'amazon-schema-refresh';
+   | 'amazon-schema-refresh'
+   | 'provider-invitation';
 
 /**
  * A service-role client whose audited writes name the function (actor_role) and, when it acts for

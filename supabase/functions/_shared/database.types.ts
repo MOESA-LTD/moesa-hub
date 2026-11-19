@@ -2334,6 +2334,125 @@ export type Database = {
           },
         ]
       }
+      provider_invitation: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          client_code: string | null
+          client_tenant_id: string | null
+          commercial_model:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          company_name: string | null
+          contract_status: Database["public"]["Enums"]["contract_status"] | null
+          created_at: string | null
+          created_by: string | null
+          deposit_rate: number | null
+          email: string | null
+          eu_responsible_person: string | null
+          expires_at: string | null
+          extra_cost_rule: string | null
+          failed_attempts: number | null
+          id: string | null
+          packages: string[] | null
+          procurement_model:
+            | Database["public"]["Enums"]["procurement_model"]
+            | null
+          recommended_plan_id: string | null
+          revoked_at: string | null
+          start_on: string | null
+          status: Database["public"]["Enums"]["invitation_status"] | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_invitation_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_recommended_plan_id_fkey"
+            columns: ["recommended_plan_id"]
+            isOneToOne: false
+            referencedRelation: "plan"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_invitation_staff: {
+        Row: {
+          invitation_id: string | null
+          role_name: string | null
+          tenant_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          invitation_id?: string | null
+          role_name?: string | null
+          tenant_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          invitation_id?: string | null
+          role_name?: string | null
+          tenant_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_invitation_staff_invitation_fkey"
+            columns: ["invitation_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_invitation"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_relationship: {
         Row: {
           accepted_at: string | null
@@ -6383,6 +6502,179 @@ export type Database = {
           },
         ]
       }
+      provider_invitation: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          client_code: string
+          client_tenant_id: string | null
+          commercial_model:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          company_name: string
+          contract_status: Database["public"]["Enums"]["contract_status"]
+          created_at: string
+          created_by: string
+          deposit_rate: number | null
+          email: string
+          eu_responsible_person: string | null
+          expires_at: string
+          extra_cost_rule: string | null
+          failed_attempts: number
+          id: string
+          packages: string[]
+          procurement_model: Database["public"]["Enums"]["procurement_model"]
+          recommended_plan_id: string | null
+          revoked_at: string | null
+          start_on: string | null
+          status: Database["public"]["Enums"]["invitation_status"]
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          client_code: string
+          client_tenant_id?: string | null
+          commercial_model?:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          company_name: string
+          contract_status?: Database["public"]["Enums"]["contract_status"]
+          created_at?: string
+          created_by: string
+          deposit_rate?: number | null
+          email: string
+          eu_responsible_person?: string | null
+          expires_at?: string
+          extra_cost_rule?: string | null
+          failed_attempts?: number
+          id?: string
+          packages?: string[]
+          procurement_model: Database["public"]["Enums"]["procurement_model"]
+          recommended_plan_id?: string | null
+          revoked_at?: string | null
+          start_on?: string | null
+          status?: Database["public"]["Enums"]["invitation_status"]
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          client_code?: string
+          client_tenant_id?: string | null
+          commercial_model?:
+            | Database["public"]["Enums"]["commercial_model"]
+            | null
+          company_name?: string
+          contract_status?: Database["public"]["Enums"]["contract_status"]
+          created_at?: string
+          created_by?: string
+          deposit_rate?: number | null
+          email?: string
+          eu_responsible_person?: string | null
+          expires_at?: string
+          extra_cost_rule?: string | null
+          failed_attempts?: number
+          id?: string
+          packages?: string[]
+          procurement_model?: Database["public"]["Enums"]["procurement_model"]
+          recommended_plan_id?: string | null
+          revoked_at?: string | null
+          start_on?: string | null
+          status?: Database["public"]["Enums"]["invitation_status"]
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_invitation_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_client_tenant_id_fkey"
+            columns: ["client_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_recommended_plan_id_fkey"
+            columns: ["recommended_plan_id"]
+            isOneToOne: false
+            referencedRelation: "plan"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_invitation_staff: {
+        Row: {
+          invitation_id: string
+          role_name: string
+          tenant_id: string
+          user_id: string
+        }
+        Insert: {
+          invitation_id: string
+          role_name: string
+          tenant_id: string
+          user_id: string
+        }
+        Update: {
+          invitation_id?: string
+          role_name?: string
+          tenant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_invitation_staff_invitation_fkey"
+            columns: ["invitation_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "provider_invitation"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_invitation_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_relationship: {
         Row: {
           accepted_at: string
@@ -9171,6 +9463,18 @@ export type Database = {
           website: string | null
         }
       }
+      create_provider_invitation: {
+        Args: {
+          p_tenant: string
+          p_actor: string
+          p_invitation: Json
+          p_staff?: Json
+        }
+        Returns: {
+          id: string
+          token: string
+        }[]
+      }
       delete_branch: {
         Args: {
           branch_id: string
@@ -9470,6 +9774,12 @@ export type Database = {
           user_metadata: Json | null
         }[]
       }
+      revoke_provider_invitation: {
+        Args: {
+          invitation_id: string
+        }
+        Returns: undefined
+      }
       rollback_gate: {
         Args: {
           gate_id: string
@@ -9494,6 +9804,13 @@ export type Database = {
           status: Database["public"]["Enums"]["gate_status"] | null
           tenant_id: string | null
         }
+      }
+      rotate_provider_invitation_token: {
+        Args: {
+          p_invitation: string
+          p_actor: string
+        }
+        Returns: string
       }
       save_plan: {
         Args: {
@@ -9650,6 +9967,7 @@ export type Database = {
         | "customer"
       incident_severity: "s1" | "s2" | "s3"
       incident_status: "open" | "contained" | "closed"
+      invitation_status: "pending" | "accepted" | "revoked"
       listing_state: "draft" | "ready" | "submitted" | "live" | "issues"
       listing_submission_kind: "create" | "update" | "delete"
       listing_submission_status:

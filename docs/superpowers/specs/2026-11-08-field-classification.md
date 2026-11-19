@@ -4,7 +4,7 @@ Source: the local DB `information_schema.columns` (public base tables, 645 colum
 
 **Result: 81 sensitive columns in 9 field groups.** Per group: cost 17, internal_note 20, supplier_terms 13, personal_data 8, contract 6, supplier_identity 5, finance 5, supplier_contact 4, sell_price 3.
 
-**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 88 columns are sensitive (`049_field_catalog.sql` is the authority, plus `068`'s two change request cost fields): contract 5, cost 20, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts in the line above are the original draft's.
+**Customer = tenant (2026-11-18).** The `customer*` tables are gone: a client is a tenant of its own, linked to its provider by `provider_relationship`, and `brand`, `contact`, `warehouse` and `platform_account` are tenant-level tables. Cost, supplier and sell price moved from `product` to `sourcing`; purchase order lines carry `sell_price_eur`. The groups are unchanged; 88 columns are sensitive (`049_field_catalog.sql` is the authority, plus `068`'s two change request cost fields; `071` adds the provider invitation's e-mail and three contract terms, 92 in all: contract 8, personal_data 9): contract 5, cost 20, finance 5, internal_note 22, personal_data 8, sell_price 3, supplier_contact 4, supplier_identity 8, supplier_terms 13. The sections below follow the new tables; the counts in the line above are the original draft's.
 
 
 ## Classes
@@ -60,6 +60,46 @@ The coordinator defaults keep today's operational work (entering POs, PI check, 
 | notes | text | **sensitive** | `internal_note` | RW | RW | RW | — |  |
 | created_at | timestamptz | system | | | | | |  |
 | updated_at | timestamptz | system | | | | | |  |
+
+### provider_invitation (071, Plan 3: the provider's invitation of a new client; the client reads none of it)
+
+Read-only through `api` (F3): created and resent by the service role (the provider-invitation Edge Function), revoked by `public.revoke_provider_invitation`. The token's hash is not a column: it lives in `private.provider_invitation_token`, which no API role reads, the owner included. Classified like the relationship it becomes.
+
+| column | type | class | group | owner | mgmt | coord | portal | note |
+|---|---|---|---|---|---|---|---|---|
+| id | uuid | system | | | | | |  |
+| tenant_id | uuid | system | | | | | | the provider |
+| email | text | **sensitive** | `personal_data` | RW | RW | RW | R | the invited person's address |
+| company_name | text | public-to-tenant | | | | | |  |
+| client_code | text | public-to-tenant | | | | | | held while pending (unique with the relationships' codes) |
+| procurement_model | enum | public-to-tenant | | | | | |  |
+| commercial_model | enum | public-to-tenant | | | | | |  |
+| packages | ARRAY | public-to-tenant | | | | | |  |
+| contract_status | enum | public-to-tenant | | | | | |  |
+| start_on | date | **sensitive** | `contract` | RW | RW | R | — | as on provider_relationship |
+| deposit_rate | numeric | **sensitive** | `contract` | RW | RW | R | — | as on provider_relationship |
+| extra_cost_rule | text | **sensitive** | `contract` | RW | RW | R | — | as on provider_relationship |
+| eu_responsible_person | text | public-to-tenant | | | | | |  |
+| recommended_plan_id | uuid | system | | | | | | FK plan |
+| expires_at | timestamptz | public-to-tenant | | | | | | changes only by a resend |
+| status | enum | public-to-tenant | | | | | | pending, accepted, revoked (expiry is derived) |
+| failed_attempts | integer | public-to-tenant | | | | | |  |
+| accepted_at | timestamptz | public-to-tenant | | | | | |  |
+| accepted_by | uuid | system | | | | | |  |
+| client_tenant_id | uuid | system | | | | | | FK, the tenant made on acceptance |
+| revoked_at | timestamptz | public-to-tenant | | | | | |  |
+| created_by | uuid | system | | | | | |  |
+| created_at | timestamptz | system | | | | | |  |
+| updated_at | timestamptz | system | | | | | |  |
+
+### provider_invitation_staff (071: the provider staff an invitation adds to the client's tenant)
+
+| column | type | class | group | owner | mgmt | coord | portal | note |
+|---|---|---|---|---|---|---|---|---|
+| invitation_id | uuid | system | | | | | | FK |
+| tenant_id | uuid | system | | | | | | the provider |
+| user_id | uuid | system | | | | | | FK, a provider member |
+| role_name | text | public-to-tenant | | | | | | management, coordinator or viewer |
 
 ### brand (tenant-level: a tenant's own brands)
 

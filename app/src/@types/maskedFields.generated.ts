@@ -11,6 +11,7 @@ export const MASKED_FIELDS = {
    product: ['notes'],
    project: ['notes'],
    project_gate: ['note'],
+   provider_invitation: ['deposit_rate', 'email', 'extra_cost_rule', 'start_on'],
    provider_relationship: [
       'contract_accepted_on',
       'contract_document_id',

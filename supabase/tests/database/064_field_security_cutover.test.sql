@@ -109,6 +109,10 @@ SELECT private.unimpersonate();
 --   platform_settings, set_platform_setting (070): super admin only, both refuse anyone else with 42501
 --   super_admin_required; they read and write private.platform_setting, which no role can reach. The
 --   third function of 070, open_signup_enabled, is granted to the service role alone and is not listed.
+--   revoke_provider_invitation (071): allowed only to a caller holding the update right on
+--   invitations in the invitation's tenant; an unknown id is refused with the same 42501 as a
+--   forbidden one. It returns nothing (VOID) and deletes the token hash; it never reads or returns it.
+--   The invitation's other two functions (create, rotate) are granted to the service role alone.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
 --   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
@@ -137,6 +141,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.pass_gate'),
    ('public.platform_settings'),
    ('public.revert_audit_transaction'),
+   ('public.revoke_provider_invitation'),
    ('public.rollback_gate'),
    ('public.save_plan'),
    ('public.save_role'),
