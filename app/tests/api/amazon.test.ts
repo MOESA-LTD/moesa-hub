@@ -3,6 +3,8 @@ import {
    AMAZON_LANGUAGE_TAGS,
    AmazonApiError,
    amazonErrorText,
+   amazonLanguageLabel,
+   amazonLanguageOptions,
    amazonIssueSchema,
    API_CONNECTIONS,
    checkCell,
@@ -138,6 +140,15 @@ describe('constants', () => {
       expect(LISTING_STATE_SEVERITY.issues).toBe('danger');
       expect(listingStateSeverity('brand_new')).toBe('secondary');
       expect(listingStateSeverity(null)).toBe('secondary');
+   });
+
+   it('names each listing language in the app language instead of its tag', () => {
+      expect(amazonLanguageLabel('de_DE', 'en')).toBe('German (Germany)');
+      expect(amazonLanguageLabel('fr_BE', 'en')).toBe('French (Belgium)');
+      expect(amazonLanguageLabel('de_DE', 'tr')).toBe('Almanca (Almanya)');
+      const options = amazonLanguageOptions('en');
+      expect(options.map(({ tag }) => tag)).toEqual([...AMAZON_LANGUAGE_TAGS]);
+      expect(options.every(({ tag, label }) => label !== tag)).toBe(true);
    });
 });
 

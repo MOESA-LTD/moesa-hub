@@ -30,7 +30,7 @@ const version = import.meta.env.PACKAGE_VERSION;
             @click="sidebar.toggle"
             v-if="isSignedIn"
          />
-         <router-link to="/" class="layout-topbar-logo">
+         <router-link :to="{ name: 'home' }" class="layout-topbar-logo">
             <span class="flex flex-col gap-1">
                <TopbarBrand :logo :alt="currentTenant?.display_name" />
                <small v-if="version" class="text-xs text-muted-color" v-text="`v${version}`" />

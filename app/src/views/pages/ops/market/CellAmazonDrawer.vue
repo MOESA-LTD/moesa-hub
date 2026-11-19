@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
-   AMAZON_LANGUAGE_TAGS,
+   amazonLanguageLabel,
+   amazonLanguageOptions,
    AMAZON_SCHEMA_LOCALE,
    amazonErrorText,
    amazonSchemaOf,
@@ -721,8 +722,14 @@ const askRemove = () =>
                            v-bind="slotProps"
                            v-model="fields.listing_language"
                            data-field="listing_language"
-                           :options="[...AMAZON_LANGUAGE_TAGS]"
-                           :placeholder="defaultLanguageTag(cell.country) ?? undefined"
+                           :options="amazonLanguageOptions()"
+                           optionLabel="label"
+                           optionValue="tag"
+                           :placeholder="
+                              defaultLanguageTag(cell.country)
+                                 ? amazonLanguageLabel(defaultLanguageTag(cell.country)!)
+                                 : undefined
+                           "
                            showClear
                            :disabled="!canEditCell"
                         />

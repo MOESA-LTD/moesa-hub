@@ -5,6 +5,7 @@ on:
     push:
         branches:
             - main
+            - refactor/**
 
 concurrency:
     group: ci-${{ github.ref }}
@@ -70,13 +71,18 @@ jobs:
               with:
                   version: 2.9.6
 
+            # The Edge Functions read supabase/functions/.env (git-ignored) when served by start;
+            # invitations and sign-up need SITE_URL, Amazon stays unconfigured (fails closed).
+            - run: printf 'SITE_URL=http://localhost:6161\nSIGNUP_TRUSTED_PROXY_HOPS=1\n' > supabase/functions/.env
+
             # Migrations and seed.sql run on start. Auth and Storage stay up: the seed writes
-            # auth.users/identities and the migrations write storage.buckets.
-            - run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector
+            # auth.users/identities and the migrations write storage.buckets. The edge runtime serves
+            # the functions the HTTP suite calls (invitation, sign-up, transfer, user).
+            - run: supabase start -x studio,imgproxy,logflare,vector
             - run: supabase test db
 
             # The field-security attack suite over real HTTP (local PostgREST, GoTrue, Storage); the
-            # Edge Function case skips itself here (edge-runtime is not started). Keys stay in env.
+            # Edge Functions are served by the edge runtime above. Keys stay in env.
             - uses: denoland/setup-deno@v2
               with:
                   deno-version: v2.x
@@ -95,10 +101,11 @@ jobs:
                   MASKED_FIELDS_REQUIRE_DB: '1'
 
     # Cloudflare Pages previews read the staging project (moesa-panel-staging). After a pull
-    # request's database tests pass, staging is rebuilt from that branch's migrations and seed,
+    # request's database tests pass, or a push to a refactor/** branch (merged pull requests land
+    # there), staging is rebuilt from that branch's migrations and seed,
     # so the newest preview and its database match. Older previews are not kept working.
     staging:
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/refactor/')
         needs: database
         runs-on: ubuntu-latest
         concurrency:
@@ -142,7 +149,7 @@ jobs:
                   REFRESH_TOKEN: ${{ secrets.STAGING_AMAZON_SPAPI_REFRESH_TOKEN }}
                   STATE_SECRET: ${{ secrets.STAGING_AMAZON_SPAPI_STATE_SECRET }}
               run: |
-                  alias=$(printf '%s' "$GITHUB_HEAD_REF" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9]/-/g' | cut -c1-28 | sed 's/-*$//')
+                  alias=$(printf '%s' "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9]/-/g' | cut -c1-28 | sed 's/-*$//')
                   umask 077
                   cat > /tmp/staging-functions.env <<EOF
                   AMAZON_SPAPI_ENV=sandbox
