@@ -5,6 +5,7 @@ import { email, requiredText } from '@/lib/form/fields';
 import { publicSchema, supabase } from '@/lib/supabase';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as z from 'zod';
 
 type Role = Pick<Tables['role']['Row'], 'id' | 'display_name' | 'tenant_id'>;
@@ -50,6 +51,16 @@ export type UserInput = {
    tenantId?: string | null;
 };
 
+/** Whether the user function refused to change the profile as another company relies on the account. */
+export const isProfileManagedElsewhere = async (error: unknown) => {
+   if (!(error instanceof FunctionsHttpError) || error.context.status !== 403) return false;
+   const body = await error.context
+      .clone()
+      .json()
+      .catch(() => null);
+   return body?.message === 'user_not_allowed';
+};
+
 export const userRepository = {
    /** Read in `tenantId` alone if given (a membership of a branch), so it is managed there. */
    async get(id: string, signal: AbortSignal, tenantId?: string | null) {
@@ -82,7 +93,9 @@ export const userRepository = {
          id ? `user/${id}` : 'user',
          { method: id ? 'PUT' : 'POST', body: attributes, headers: tenantHeaders(tenantId) }
       );
-      if (error) throw error;
+      // An account another company uses too (a provider's staff member) keeps its profile with
+      // them: the roles here are still saved, and the profile is not sent anywhere else.
+      if (error && !(id && (await isProfileManagedElsewhere(error)))) throw error;
 
       const userId = id ?? data!.user.id;
 

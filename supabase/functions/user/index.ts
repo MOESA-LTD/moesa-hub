@@ -46,7 +46,9 @@ const assertFieldWrite = async (req: Request, target: string | null, fields: Use
          p_field: field
       });
       if (error) throw error;
-      if (data !== true) throw new HttpError(403, 'field_write_forbidden', { field });
+      if (data !== true) {
+         throw new HttpError(403, 'field_write_forbidden', { field });
+      }
    }
 };
 
@@ -71,12 +73,31 @@ const assertManageable = async ({ tenantId, userId }: AuthContext, id: string) =
    if (id === userId) return;
 
    const [reach, company] = await Promise.all([accountReach(id), companyTenants(tenantId)]);
-   if (!isManageable(reach, company)) throw new HttpError(403, 'user_not_allowed');
+   if (!isManageable(reach, company)) {
+      throw new HttpError(403, 'user_not_allowed');
+   }
+};
+
+/**
+ * What a tenant does to its own membership of an account (read it, assign roles, remove it) needs
+ * only that the account is a member and is neither a super admin nor an owner of the caller's
+ * company: it touches nothing outside this tenant, so another company also using the account (a
+ * provider's staff member linked to a client) does not matter. Whatever changes the account itself
+ * stays with assertManageable.
+ */
+const assertTenantScoped = async ({ tenantId, userId }: AuthContext, id: string) => {
+   await assertTenantMember(tenantId, id);
+   if (id === userId) return;
+
+   const [reach, company] = await Promise.all([accountReach(id), companyTenants(tenantId)]);
+   if (reach.isSuperAdmin || reach.owns.some((owned) => company.has(owned))) {
+      throw new HttpError(403, 'user_not_allowed');
+   }
 };
 
 export const getUser = (req: Request, id: string) =>
    withAuthorization(req, [['select', 'user']], async (context) => {
-      await assertManageable(context, id);
+      await assertTenantScoped(context, id);
 
       // As the caller, through api: a personal field the caller may not read comes back NULL. The
       // admin API would return every field of the account.
@@ -115,8 +136,9 @@ export const createUser = (req: Request) =>
             accountReach(user.id),
             companyTenants(tenantId)
          ]);
-         if (!belongsToCompany(reach, company) && !(await isProviderStaff(tenantId, user.id)))
+         if (!belongsToCompany(reach, company) && !(await isProviderStaff(tenantId, user.id))) {
             throw new HttpError(409, 'user_exists_elsewhere');
+         }
       } else {
          // The invitation writes the new account's e-mail and metadata (admin API).
          await assertFieldWrite(req, null, written);
@@ -149,10 +171,24 @@ export const createUser = (req: Request) =>
 
 export const updateUser = (req: Request, id: string) =>
    withAuthorization(req, [['update', 'user']], async (context) => {
-      await assertManageable(context, id);
-
       const { user_metadata } = updateUserSchema.parse(await req.json());
-      if (user_metadata) await assertFieldWrite(req, id, ['user_metadata']);
+
+      if (!user_metadata) {
+         // Nothing of the account itself to change (the roles are saved apart, in the caller's
+         // tenant): a member of this tenant answers 200, shared with another company or not.
+         await assertTenantScoped(context, id);
+         const { data } = await supabaseAdmin()
+            .from('user')
+            .select('id, email')
+            .eq('id', id)
+            .maybeSingle()
+            .throwOnError();
+         return json({ user: { id, email: data?.email ?? null } });
+      }
+
+      // The profile is the account's, which another company may rely on too.
+      await assertManageable(context, id);
+      await assertFieldWrite(req, id, ['user_metadata']);
 
       const { data, error } = await supabaseAdmin().auth.admin.updateUserById(id, {
          ...(user_metadata ? { user_metadata } : {})
@@ -162,7 +198,7 @@ export const updateUser = (req: Request, id: string) =>
       return json({ user: { id: data.user.id, email: data.user.email } });
    });
 
-const deleteUser = (req: Request, id: string) =>
+export const deleteUser = (req: Request, id: string) =>
    withAuthorization(req, [['delete', 'user']], async (context) => {
       const { tenantId } = context;
       await assertTenantMember(tenantId, id);
@@ -176,7 +212,8 @@ const deleteUser = (req: Request, id: string) =>
 
       if (count) throw new HttpError(403, 'cannot_delete_owner');
 
-      await assertManageable(context, id);
+      // Only this tenant's membership goes (below), so a shared account may be removed.
+      await assertTenantScoped(context, id);
 
       await supabaseClient(req)
          .from('tenant_user')

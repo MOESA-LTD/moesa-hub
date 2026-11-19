@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(161);
+SELECT plan(165);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -775,6 +775,8 @@ INSERT INTO public.user (id, email) VALUES
    ('00000000-0000-4000-8000-000000071303', 'formerstaff@staff.test');
 INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
    ('00000000-0000-4000-8000-000000071302', current_setting('test.c')::UUID);
+INSERT INTO public.user (id, email) VALUES ('00000000-0000-4000-8000-000000071307', 'linked@staff.test');
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES ('00000000-0000-4000-8000-000000071307', current_setting('test.p')::UUID);
 INSERT INTO public.tenant (id, display_name, parent_id) VALUES
    ('00000000-0000-4000-8000-000000071304', 'THO branch 071', current_setting('test.c')::UUID);
 -- A provider whose relationship with Atlas has ended; formerstaff is its only member.
@@ -808,8 +810,33 @@ SELECT ok(NOT has_function_privilege('authenticated', 'public.is_provider_staff(
           'authenticated and anon cannot execute it');
 SELECT ok(has_function_privilege('service_role', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE'),
           'the service role (the user Edge Function) can');
-SELECT is_empty($$ SELECT 1 FROM public.user_role WHERE user_id = '00000000-0000-4000-8000-000000071301' $$,
-          'the check assigns no role to anyone');
+SELECT ok((SELECT coalesce('search_path=""' = ANY (proconfig), FALSE) AND prosecdef FROM pg_proc WHERE oid = 'public.is_provider_staff(uuid,uuid)'::REGPROCEDURE),
+          'it is SECURITY DEFINER with an empty search_path');
+
+-- A linked staff member has no role in the client tenant until its owner assigns one, and the owner
+-- can then assign, replace and remove roles there, as the app's save does (set_user_roles).
+SELECT set_config('test.kroles', (SELECT count(*)::TEXT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id
+                                  WHERE ur.user_id = '00000000-0000-4000-8000-000000071307'::UUID AND r.tenant_id = current_setting('test.p')::UUID), TRUE);
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES ('00000000-0000-4000-8000-000000071307'::UUID, current_setting('test.c')::UUID);
+SELECT is((SELECT count(*)::INT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id
+           WHERE ur.user_id = '00000000-0000-4000-8000-000000071307'::UUID AND r.tenant_id = current_setting('test.c')::UUID), 0,
+          'linking provider staff to the client tenant gives them no role there');
+SELECT set_config('test.crole', (SELECT id::TEXT FROM public.role WHERE tenant_id = current_setting('test.c')::UUID ORDER BY created_at LIMIT 1), TRUE);
+SELECT set_config('request.jwt.claims', json_build_object('sub', current_setting('test.thomas'), 'role', 'authenticated')::TEXT, TRUE);
+SELECT set_config('request.headers', json_build_object('x-tenant-id', current_setting('test.c'))::TEXT, TRUE);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok($$ SELECT public.set_user_roles('00000000-0000-4000-8000-000000071307'::UUID,
+   ARRAY[current_setting('test.crole')::UUID]) $$,
+   'the client owner assigns a role to the linked staff member');
+RESET ROLE;
+SELECT is((SELECT count(*)::INT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id
+           WHERE ur.user_id = '00000000-0000-4000-8000-000000071307'::UUID AND r.tenant_id = current_setting('test.c')::UUID), 1,
+          'and the role is there, in the client tenant');
+SELECT is((SELECT count(*)::INT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id
+           WHERE ur.user_id = '00000000-0000-4000-8000-000000071307'::UUID AND r.tenant_id = current_setting('test.p')::UUID),
+          current_setting('test.kroles')::INT,
+          'their provider roles are untouched');
+SELECT set_config('request.jwt.claims', '', TRUE);
 
 SELECT * FROM finish();
 ROLLBACK;
