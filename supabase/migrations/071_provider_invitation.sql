@@ -540,8 +540,9 @@ REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authent
 --
 --   private.invitation_attempt                 attempts per key in a window (the throttles).
 --   private.invitation_throttle(key, limit, w) counts one attempt; TRUE while within the limit.
---   private.invitation_open(user, token)       finds and locks the invitation behind a token and
---                                              checks it for the user (shared by both below).
+--   private.invitation_open(user, token, count) finds (and, to count, locks) the invitation behind
+--                                              a token and checks it for the user (shared by both
+--                                              below; only acceptance counts a mismatch).
 --   public.invitation_preview(token) → JSONB   authenticated (auth.uid()); consumes nothing.
 --   public.accept_provider_invitation(p_user, p_token, p_company, p_plan_id) → JSONB
 --                                              service role only (F1): the provider-invitation Edge
@@ -550,10 +551,12 @@ REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authent
 -- Refusals before the first write return {"error": code} and do not raise (F2), so the attempt
 -- counts and failed_attempts they wrote commit: invitation_throttled (preview:<uid> 30 per 10
 -- minutes, accept:<uid> 10 per hour), invitation_invalid (unknown, used, revoked, expired, or locked
--- by 10 failed attempts until a resend), invitation_email_mismatch (the user's confirmed e-mail is
--- not the invited one; counted), invitation_payload_invalid, plan_inactive. A failure after the
--- first write raises and leaves nothing: company_email_exists, company_phone_exists,
--- company_name_exists (23505), invitation_payload_invalid (23514), plan_limit_users.
+-- by 10 failed acceptances until a resend), invitation_email_mismatch (the user's confirmed e-mail
+-- is not the invited one; counted by acceptance only, so a preview never locks an invitation),
+-- invitation_payload_invalid, plan_inactive, company_email_exists, company_phone_exists. A failure
+-- after the first write raises and leaves nothing: company_email_exists, company_phone_exists
+-- (23505, a concurrent registration), invitation_payload_invalid (23514), invitation_staff_invalid
+-- (23514), plan_limit_users.
 CREATE TABLE private.invitation_attempt (
    key TEXT PRIMARY KEY,
    window_start TIMESTAMPTZ NOT NULL,
@@ -564,16 +567,25 @@ ALTER TABLE private.invitation_attempt OWNER TO postgres;
 
 ALTER TABLE private.invitation_attempt ENABLE ROW LEVEL SECURITY;
 
+CREATE INDEX idx_invitation_attempt_window ON private.invitation_attempt (window_start);
+
 REVOKE ALL ON TABLE private.invitation_attempt FROM PUBLIC, anon, authenticated, service_role, api_owner;
 
 -- One attempt under p_key: a window of p_window opens with the first attempt; within it at most
 -- p_limit attempts pass. The count stops at p_limit + 1, so a refused caller cannot overflow it.
+-- Each call also prunes up to 100 rows whose window started over a day ago (no throttle window is
+-- longer), skipping rows another call holds, so the table stays small at a bounded cost.
 CREATE OR REPLACE FUNCTION private.invitation_throttle (p_key TEXT, p_limit INT, p_window INTERVAL) RETURNS BOOLEAN LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 DECLARE
     v_count INT;
 BEGIN
+    DELETE FROM private.invitation_attempt a
+    WHERE a.key IN (SELECT o.key FROM private.invitation_attempt o
+                    WHERE o.window_start < now() - INTERVAL '1 day' AND o.key <> p_key
+                    LIMIT 100 FOR UPDATE SKIP LOCKED);
+
     INSERT INTO private.invitation_attempt AS a (key, window_start, count)
     VALUES (p_key, now(), 1)
     ON CONFLICT (key) DO UPDATE
@@ -590,9 +602,11 @@ REVOKE ALL ON FUNCTION private.invitation_throttle (TEXT, INT, INTERVAL) FROM PU
 -- the invitation (FOR UPDATE, so concurrent accepts, resends and revokes are serialised) and checks
 -- the hash again under the lock, as a resend or revoke may have replaced it meanwhile. One answer,
 -- invitation_invalid, for unknown, accepted, revoked, expired and locked. The e-mail is proven by
--- auth.users (F1): the user's address, confirmed, is the invited one; else the failed attempt is
--- counted and invitation_email_mismatch returned (the caller returns it without raising, F2).
-CREATE OR REPLACE FUNCTION private.invitation_open (p_user UUID, p_token TEXT, OUT invitation_id UUID, OUT error TEXT) LANGUAGE plpgsql
+-- auth.users (F1): the user's address, confirmed, is the invited one; else invitation_email_mismatch
+-- (the caller returns it without raising, F2). With p_count (acceptance) the invitation is locked
+-- and the mismatch counted toward the lock-out; preview passes FALSE: it neither locks nor counts,
+-- so whoever holds the link cannot lock the invited user out by previewing.
+CREATE OR REPLACE FUNCTION private.invitation_open (p_user UUID, p_token TEXT, p_count BOOLEAN, OUT invitation_id UUID, OUT error TEXT) LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 DECLARE
@@ -610,7 +624,11 @@ BEGIN
     v_hash := extensions.digest(p_token, 'sha256');
     SELECT t.invitation_id INTO v_id FROM private.provider_invitation_token t WHERE t.token_hash = v_hash;
     IF v_id IS NOT NULL THEN
-        SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id FOR UPDATE;
+        IF p_count THEN
+            SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id FOR UPDATE;
+        ELSE
+            SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM private.provider_invitation_token t WHERE t.invitation_id = v_id AND t.token_hash = v_hash) THEN
             inv := NULL;
         END IF;
@@ -623,7 +641,9 @@ BEGIN
 
     SELECT lower(u.email), u.email_confirmed_at INTO v_email, v_confirmed FROM auth.users u WHERE u.id = p_user;
     IF v_confirmed IS NULL OR v_email IS DISTINCT FROM inv.email THEN
-        UPDATE public.provider_invitation i SET failed_attempts = i.failed_attempts + 1 WHERE i.id = inv.id;
+        IF p_count THEN
+            UPDATE public.provider_invitation i SET failed_attempts = i.failed_attempts + 1 WHERE i.id = inv.id;
+        END IF;
         error := 'invitation_email_mismatch';
         RETURN;
     END IF;
@@ -632,10 +652,11 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION private.invitation_open (UUID, TEXT) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION private.invitation_open (UUID, TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated, service_role;
 
 -- What the invited user sees before accepting: the invitation's terms, the seats it needs (the owner
--- and the staff) and the active plans. Same rules as acceptance; consumes nothing. Staff identities,
+-- and the staff still with the provider, the viewer aside) and the active plans. Same validity and
+-- e-mail rules as acceptance, but consumes and counts nothing. Staff identities,
 -- the token and its hash are never returned. needs_password: the user has none yet (a magic-link
 -- sign-in), so the page asks for one.
 CREATE OR REPLACE FUNCTION public.invitation_preview (token TEXT) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
@@ -654,7 +675,7 @@ BEGIN
         RETURN jsonb_build_object('error', 'invitation_throttled');
     END IF;
 
-    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(uid, invitation_preview.token) o;
+    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(uid, invitation_preview.token, FALSE) o;
     IF v_error IS NOT NULL THEN
         RETURN jsonb_build_object('error', v_error);
     END IF;
@@ -669,7 +690,9 @@ BEGIN
                                        'start_on', inv.start_on, 'deposit_rate', inv.deposit_rate),
         'recommended_plan_id', inv.recommended_plan_id,
         'expires_at', inv.expires_at,
-        'seats', 1 + (SELECT count(*) FROM public.provider_invitation_staff s WHERE s.invitation_id = inv.id),
+        'seats', 1 + (SELECT count(*) FROM public.provider_invitation_staff s
+                      WHERE s.invitation_id = inv.id AND s.user_id <> uid
+                        AND EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = inv.tenant_id AND tu.user_id = s.user_id)),
         'needs_password', (SELECT coalesce(u.encrypted_password, '') = '' FROM auth.users u WHERE u.id = uid),
         'plans', coalesce((
             SELECT jsonb_agg(jsonb_build_object(
@@ -704,25 +727,31 @@ DECLARE
     v_constraint TEXT;
     s RECORD;
     skipped UUID[] := '{}';
+    v_headers TEXT := current_setting('request.headers', TRUE);
+    v_result JSONB;
 BEGIN
     IF p_user IS NULL OR NOT EXISTS (SELECT 1 FROM public.user u WHERE u.id = p_user) THEN
         RETURN jsonb_build_object('error', 'invitation_invalid');
     END IF;
 
     -- Every write below is audited as the provider-invitation function acting for p_user (F27),
-    -- whatever actor the caller's header names.
+    -- whatever actor the caller's header names. The caller's headers are restored on return.
     PERFORM set_config('request.headers',
-                       (coalesce(nullif(current_setting('request.headers', TRUE), '')::JSONB, '{}'::JSONB)
+                       (coalesce(nullif(v_headers, '')::JSONB, '{}'::JSONB)
                         || jsonb_build_object('x-audit-role', 'provider-invitation', 'x-audit-actor', p_user))::TEXT,
                        TRUE);
 
+    <<body>>
+    BEGIN
     IF NOT private.invitation_throttle('accept:' || p_user::TEXT, 10, INTERVAL '1 hour') THEN
-        RETURN jsonb_build_object('error', 'invitation_throttled');
+        v_result := jsonb_build_object('error', 'invitation_throttled');
+        EXIT body;
     END IF;
 
-    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(p_user, p_token) o;
+    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(p_user, p_token, TRUE) o;
     IF v_error IS NOT NULL THEN
-        RETURN jsonb_build_object('error', v_error);
+        v_result := jsonb_build_object('error', v_error);
+        EXIT body;
     END IF;
     SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
 
@@ -730,15 +759,28 @@ BEGIN
     IF jsonb_typeof(p_company) IS DISTINCT FROM 'object'
        OR EXISTS (SELECT 1 FROM jsonb_each(p_company) AS e WHERE e.key <> ALL (allowed) OR jsonb_typeof(e.value) NOT IN ('string', 'null'))
        OR length(btrim(coalesce(p_company ->> 'display_name', ''))) NOT BETWEEN 3 AND 200 THEN
-        RETURN jsonb_build_object('error', 'invitation_payload_invalid');
+        v_result := jsonb_build_object('error', 'invitation_payload_invalid');
+        EXIT body;
     END IF;
     IF p_plan_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.plan p WHERE p.id = p_plan_id AND p.is_active) THEN
-        RETURN jsonb_build_object('error', 'plan_inactive');
+        v_result := jsonb_build_object('error', 'plan_inactive');
+        EXIT body;
     END IF;
 
     company := p_company || jsonb_build_object('display_name', btrim(p_company ->> 'display_name'));
     IF nullif(btrim(coalesce(company ->> 'email', '')), '') IS NULL THEN
         company := company || jsonb_build_object('email', inv.email);
+    END IF;
+
+    -- The company's unique e-mail and phone, checked before the first write so the refusal keeps
+    -- the throttle count (F2); the unique keys below still catch a concurrent registration.
+    IF EXISTS (SELECT 1 FROM public.tenant t WHERE t.email = nullif(company ->> 'email', '')) THEN
+        v_result := jsonb_build_object('error', 'company_email_exists');
+        EXIT body;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.tenant t WHERE t.phone = nullif(company ->> 'phone', '')) THEN
+        v_result := jsonb_build_object('error', 'company_phone_exists');
+        EXIT body;
     END IF;
 
     -- From here a failure raises: the whole acceptance is undone.
@@ -751,8 +793,6 @@ BEGIN
                 RAISE EXCEPTION 'company_email_exists' USING ERRCODE = 'unique_violation';
             ELSIF v_constraint = 'tenant_phone_key' THEN
                 RAISE EXCEPTION 'company_phone_exists' USING ERRCODE = 'unique_violation';
-            ELSIF v_constraint = 'unique_tenant_display_name' THEN
-                RAISE EXCEPTION 'company_name_exists' USING ERRCODE = 'unique_violation';
             END IF;
             RAISE;
         WHEN check_violation OR not_null_violation OR string_data_right_truncation THEN
@@ -794,9 +834,17 @@ BEGIN
         INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (created.id, s.user_id);
         INSERT INTO public.user_role (user_id, role_id)
         SELECT s.user_id, r.id FROM public.role r WHERE r.tenant_id = created.id AND r.display_name = s.role_name;
+        -- Never a member without a role.
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'invitation_staff_invalid' USING ERRCODE = 'check_violation';
+        END IF;
     END LOOP;
 
-    RETURN jsonb_build_object('tenant_id', created.id, 'skipped_staff', to_jsonb(skipped));
+    v_result := jsonb_build_object('tenant_id', created.id, 'skipped_staff', to_jsonb(skipped));
+    END;
+
+    PERFORM set_config('request.headers', coalesce(v_headers, ''), TRUE);
+    RETURN v_result;
 END;
 $$;
 

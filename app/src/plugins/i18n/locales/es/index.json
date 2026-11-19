@@ -749,7 +749,6 @@
       "invitation_email_mismatch": "This invitation was sent to another e-mail address. Sign in with that address to accept it.",
       "company_email_exists": "A company with this e-mail address is already registered.",
       "company_phone_exists": "A company with this phone number is already registered.",
-      "company_name_exists": "A company with this name is already registered.",
       "tenant_has_provider_relationship": "This company is the client of a provider relationship. The provider must end the relationship first."
    },
    "account": {

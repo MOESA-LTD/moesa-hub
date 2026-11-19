@@ -378,7 +378,6 @@
       "invitation_email_mismatch": "",
       "company_email_exists": "",
       "company_phone_exists": "",
-      "company_name_exists": "",
       "tenant_has_provider_relationship": "",
       "invalid_website": "",
       "invalid_tax_number": "",

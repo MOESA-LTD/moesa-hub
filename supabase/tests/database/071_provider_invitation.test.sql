@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4).
 BEGIN;
 
-SELECT plan(116);
+SELECT plan(133);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -299,7 +299,9 @@ FROM (VALUES ('00000000-0000-4000-8000-000000071201', 'new@client.test'),
              ('00000000-0000-4000-8000-000000071204', 'departed@invite.test'),
              ('00000000-0000-4000-8000-000000071205', 'late@client.test'),
              ('00000000-0000-4000-8000-000000071206', 'small@client.test'),
-             ('00000000-0000-4000-8000-000000071207', 'lockee@client.test')) AS v (id, email);
+             ('00000000-0000-4000-8000-000000071207', 'lockee@client.test'),
+             ('00000000-0000-4000-8000-000000071208', 'insider@client.test'),
+             ('00000000-0000-4000-8000-000000071209', 'badrole@client.test')) AS v (id, email);
 SELECT set_config('test.newbie', '00000000-0000-4000-8000-000000071201', TRUE);
 SELECT set_config('test.other', '00000000-0000-4000-8000-000000071202', TRUE);
 SELECT set_config('test.third', '00000000-0000-4000-8000-000000071203', TRUE);
@@ -307,10 +309,13 @@ SELECT set_config('test.departed', '00000000-0000-4000-8000-000000071204', TRUE)
 SELECT set_config('test.late', '00000000-0000-4000-8000-000000071205', TRUE);
 SELECT set_config('test.small', '00000000-0000-4000-8000-000000071206', TRUE);
 SELECT set_config('test.lockee', '00000000-0000-4000-8000-000000071207', TRUE);
+SELECT set_config('test.insider', '00000000-0000-4000-8000-000000071208', TRUE);
+SELECT set_config('test.badrole', '00000000-0000-4000-8000-000000071209', TRUE);
 SELECT set_config('test.akif', (SELECT id::TEXT FROM public.user WHERE email = 'akif@moesa-panel.test'), TRUE);
 SELECT set_config('test.ali', (SELECT id::TEXT FROM public.user WHERE email = 'ali@moesa-panel.test'), TRUE);
 SELECT set_config('test.pro_plan', (SELECT id::TEXT FROM public.plan WHERE display_name = 'Pro'), TRUE);
-INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (current_setting('test.departed')::UUID, current_setting('test.p')::UUID);
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (current_setting('test.departed')::UUID, current_setting('test.p')::UUID),
+                                                           (current_setting('test.insider')::UUID, current_setting('test.p')::UUID);
 -- A plan for two users, below the three seats of an invitation with two staff.
 INSERT INTO public.plan (id, display_name, is_active, position) VALUES ('00000000-0000-4000-8000-000000071210', 'Tiny 071', TRUE, 99);
 INSERT INTO public.plan_limit (plan_id, limit_key, value) VALUES ('00000000-0000-4000-8000-000000071210', 'max_users', 2);
@@ -356,12 +361,19 @@ INSERT INTO inv_071 SELECT 'seats', i.id, i.token FROM public.create_provider_in
                      jsonb_build_object('user_id', current_setting('test.akif'), 'role_name', 'viewer'))) i;
 INSERT INTO inv_071 SELECT 'lock', i.id, i.token FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "lockee@client.test", "company_name": "Lock Co", "client_code": "LCK", "procurement_model": "provider"}', '[]') i;
+INSERT INTO inv_071 SELECT 'insider', i.id, i.token FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "insider@client.test", "company_name": "Insider Co", "client_code": "INS", "procurement_model": "provider"}',
+   jsonb_build_array(jsonb_build_object('user_id', current_setting('test.insider'), 'role_name', 'viewer'),
+                     jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i;
+INSERT INTO inv_071 SELECT 'badrole', i.id, i.token FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "badrole@client.test", "company_name": "Badrole Co", "client_code": "BDR", "procurement_model": "provider"}',
+   jsonb_build_array(jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i;
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '', TRUE);
 
 UPDATE public.provider_invitation SET expires_at = now() - interval '1 second' WHERE id = (SELECT id FROM inv_071 WHERE label = 'expired');
 DELETE FROM public.tenant_user WHERE user_id = current_setting('test.departed')::UUID AND tenant_id = current_setting('test.p')::UUID;
-SELECT is((SELECT count(*)::INT FROM inv_071 WHERE label IN ('inv1', 'inv2', 'inv3', 'expired', 'seats', 'lock')), 6, 'the fixture invitations are made');
+SELECT is((SELECT count(*)::INT FROM inv_071 WHERE label IN ('inv1', 'inv2', 'inv3', 'expired', 'seats', 'lock', 'insider', 'badrole')), 8, 'the fixture invitations are made');
 
 -- Preview: what the customer sees before accepting, as themself (authenticated).
 SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
@@ -409,7 +421,40 @@ SELECT is((SELECT result FROM acc_071 WHERE label = 'preview_other'), '{"error":
           'another account cannot preview the invitation');
 SELECT results_eq($$ SELECT i.status::TEXT, i.failed_attempts, EXISTS (SELECT 1 FROM private.provider_invitation_token h WHERE h.invitation_id = i.id)
    FROM public.provider_invitation i WHERE i.id = (SELECT id FROM inv_071 WHERE label = 'inv1') $$,
-   $$ VALUES ('pending', 1, TRUE) $$, 'previewing consumes nothing; the other account''s attempt is counted');
+   $$ VALUES ('pending', 0, TRUE) $$, 'previewing consumes and counts nothing, not even the other account''s attempt');
+
+-- A preview never locks an invitation: ten previews by the wrong account, then the invitee still
+-- previews (and accepts, below). The e-mail comes from auth.users, never the JWT: a claim naming
+-- the invited address changes nothing.
+SELECT set_config('request.jwt.claims', json_build_object('sub', current_setting('test.other'), 'role', 'authenticated',
+                                                          'email', 'new@client.test', 'email_verified', TRUE)::TEXT, TRUE);
+SET LOCAL ROLE authenticated;
+SELECT is(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1')) ->> 'error', 'invitation_email_mismatch',
+          'a JWT e-mail claim naming the invited address is not proof');
+SELECT is((SELECT count(*)::INT FROM generate_series(1, 10) g
+           WHERE public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1')) ->> 'error' = 'invitation_email_mismatch'), 10,
+          'the wrong account previews ten times');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '', TRUE);
+SELECT is((SELECT failed_attempts FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'inv1')), 0,
+          'and counts nothing');
+SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
+SELECT is(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1')) ->> 'company_name', 'New Client',
+          'the invited user still previews: no lock-out by previews');
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- Seats: the staff still with the provider, the viewer aside.
+SELECT private.impersonate_scope(current_setting('test.third')::UUID, NULL, '{}'::UUID[]);
+SELECT is((public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv3')) ->> 'seats')::INT, 2,
+          'a departed staff member takes no seat');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT private.impersonate_scope(current_setting('test.insider')::UUID, NULL, '{}'::UUID[]);
+SELECT is((public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')) ->> 'seats')::INT, 2,
+          'nor does the viewer listed as staff (they are the owner)');
+RESET ROLE;
+SELECT private.unimpersonate();
 
 -- The preview throttle: 30 per user per 10 minutes, and the refusal keeps its count (F2).
 UPDATE private.invitation_attempt SET window_start = now(), count = 30 WHERE key = 'preview:' || current_setting('test.newbie');
@@ -433,8 +478,8 @@ SET LOCAL ROLE service_role;
 SELECT is(public.accept_provider_invitation(current_setting('test.other')::UUID, (SELECT token FROM inv_071 WHERE label = 'inv1'),
                                             '{"display_name": "New Client GmbH"}', NULL) ->> 'error',
           'invitation_email_mismatch', 'wrong account refused');
-SELECT is((SELECT failed_attempts FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'inv1')), 2,
-          'the mismatch is counted, and the count survives the refusal');
+SELECT is((SELECT failed_attempts FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'inv1')), 1,
+          'an acceptance mismatch is counted, and the count survives the refusal');
 RESET ROLE;
 UPDATE auth.users SET email_confirmed_at = NULL WHERE id = current_setting('test.newbie')::UUID;
 SET LOCAL ROLE service_role;
@@ -474,6 +519,9 @@ SELECT lives_ok($$ INSERT INTO acc_071 SELECT 'inv1', public.accept_provider_inv
    (SELECT token FROM inv_071 WHERE label = 'inv1'), '{"display_name": "New Client GmbH", "country": "Germany"}', current_setting('test.pro_plan')::UUID) $$,
    'the invited user accepts');
 SELECT set_config('test.tx_accept', current_setting('audit.transaction_id', TRUE), TRUE);
+SELECT is(current_setting('request.headers', TRUE)::JSONB,
+          jsonb_build_object('x-audit-role', 'provider-invitation', 'x-audit-actor', current_setting('test.baris')),
+          'the caller''s request headers are restored when acceptance returns');
 -- Serialised by the row lock: a second accept, after the first, finds the invitation used.
 SELECT is(public.accept_provider_invitation(current_setting('test.newbie')::UUID, (SELECT token FROM inv_071 WHERE label = 'inv1'),
                                             '{"display_name": "Again Ltd"}', NULL) ->> 'error',
@@ -556,6 +604,54 @@ SELECT results_eq($$ SELECT i.status::TEXT, i.client_tenant_id, EXISTS (SELECT 1
    FROM public.provider_invitation i WHERE i.id = (SELECT id FROM inv_071 WHERE label = 'seats') $$,
    $$ VALUES ('pending', NULL::UUID, TRUE, 0, 0, 0) $$, 'and creates nothing: no tenant, no relationship, the invitation still pending');
 
+-- A company e-mail or phone another tenant holds: refused before any write, keeping the count (F2).
+UPDATE public.tenant SET phone = '+49 30 071071' WHERE display_name = 'Nova Yazılım';
+DELETE FROM private.invitation_attempt WHERE key = 'accept:' || current_setting('test.small');
+SET LOCAL ROLE service_role;
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co", "email": "info@nova.test"}', NULL) ->> 'error',
+          'company_email_exists', 'a company e-mail already registered is refused');
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co", "phone": "+49 30 071071"}', NULL) ->> 'error',
+          'company_phone_exists', 'a company phone already registered is refused');
+RESET ROLE;
+SELECT results_eq($$ SELECT (SELECT count FROM private.invitation_attempt WHERE key = 'accept:' || current_setting('test.small')),
+                            (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'Small Co'),
+                            (SELECT status::TEXT FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'seats')) $$,
+   $$ VALUES (2, 0, 'pending') $$, 'both refusals are counted by the throttle and create nothing');
+
+-- The insider: invited under their own e-mail and listed as staff; they own the new tenant, not join it as staff.
+SET LOCAL ROLE service_role;
+SELECT is(public.accept_provider_invitation(current_setting('test.insider')::UUID, (SELECT token FROM inv_071 WHERE label = 'insider'),
+                                            '{"display_name": "Insider Co"}', NULL) -> 'skipped_staff', '[]'::JSONB,
+          'the accepting user listed as staff is passed over, not reported');
+RESET ROLE;
+SELECT results_eq($$ SELECT (SELECT array_agg(tu.user_id ORDER BY tu.user_id) FROM public.tenant_user tu JOIN public.tenant t ON t.id = tu.tenant_id WHERE t.display_name = 'Insider Co'),
+                            (SELECT count(*)::INT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id JOIN public.tenant t ON t.id = r.tenant_id
+                             WHERE t.display_name = 'Insider Co' AND ur.user_id = current_setting('test.insider')::UUID),
+                            (SELECT count(*)::INT FROM public.tenant_owner o JOIN public.tenant t ON t.id = o.tenant_id
+                             WHERE t.display_name = 'Insider Co' AND o.user_id = current_setting('test.insider')::UUID) $$,
+   $$ VALUES ((SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[current_setting('test.insider')::UUID, current_setting('test.koordinator')::UUID]) u), 0, 1) $$,
+   'they own the tenant, with no staff role; the other staff join');
+
+-- A staff role missing in the new tenant fails the whole call: never a member without a role. Only
+-- reachable past the role CHECK, so the test lifts it for one row.
+ALTER TABLE public.provider_invitation_staff DROP CONSTRAINT provider_invitation_staff_role_name_check;
+-- (Delete and insert: the audit trigger cannot diff an UPDATE of the staff table, which has no id.)
+DELETE FROM public.provider_invitation_staff WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'badrole');
+INSERT INTO public.provider_invitation_staff (invitation_id, tenant_id, user_id, role_name)
+VALUES ((SELECT id FROM inv_071 WHERE label = 'badrole'), current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'auditor');
+SET LOCAL ROLE service_role;
+SELECT throws_ok($$ SELECT public.accept_provider_invitation(current_setting('test.badrole')::UUID, (SELECT token FROM inv_071 WHERE label = 'badrole'),
+   '{"display_name": "Badrole Co"}', NULL) $$, '23514', 'invitation_staff_invalid', 'a staff role missing in the new tenant fails the call');
+RESET ROLE;
+SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'Badrole Co'),
+                            (SELECT status::TEXT FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'badrole')) $$,
+   $$ VALUES (0, 'pending') $$, 'and leaves nothing behind');
+DELETE FROM public.provider_invitation_staff WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'badrole');
+ALTER TABLE public.provider_invitation_staff ADD CONSTRAINT provider_invitation_staff_role_name_check
+   CHECK (role_name IN ('management', 'coordinator', 'viewer'));
+
 -- The accept throttle: 10 per user per hour, and the refusal keeps its count (F2).
 INSERT INTO private.invitation_attempt (key, window_start, count) VALUES ('accept:' || current_setting('test.small'), now(), 10)
 ON CONFLICT (key) DO UPDATE SET window_start = now(), count = 10;
@@ -584,6 +680,24 @@ SELECT throws_ok($$ DELETE FROM public.tenant WHERE id = current_setting('test.n
    '23503', 'tenant_has_provider_relationship', 'a client tenant with a relationship cannot be deleted');
 INSERT INTO public.tenant (id, display_name) VALUES ('00000000-0000-4000-8000-000000071211', 'Lonely 071');
 SELECT lives_ok($$ DELETE FROM public.tenant WHERE id = '00000000-0000-4000-8000-000000071211' $$, 'a tenant no relationship names is deleted as before');
+INSERT INTO public.tenant (id, display_name) VALUES ('00000000-0000-4000-8000-000000071212', 'Provider 071');
+INSERT INTO public.provider_relationship (tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model)
+VALUES ('00000000-0000-4000-8000-000000071212', current_setting('test.atlas')::UUID, 'PRV', 'Atlas', 'Provider 071', 'client');
+SELECT lives_ok($$ DELETE FROM public.tenant WHERE id = '00000000-0000-4000-8000-000000071212' $$,
+   'a provider deletes its own tenant: its relationships go with it');
+SELECT is_empty($$ SELECT 1 FROM public.provider_relationship WHERE tenant_id = '00000000-0000-4000-8000-000000071212' $$,
+   'no relationship of the deleted provider is left');
+
+-- The attempt counters are pruned as they go: a row whose window started over a day ago is gone
+-- after the next attempt; a current one stays.
+INSERT INTO private.invitation_attempt (key, window_start, count) VALUES ('preview:stale-071', now() - interval '2 days', 3),
+                                                                         ('preview:fresh-071', now() - interval '1 hour', 3);
+SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
+SELECT public.invitation_preview('not-a-token');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT results_eq($$ SELECT key FROM private.invitation_attempt WHERE key LIKE 'preview:%-071' $$, $$ VALUES ('preview:fresh-071') $$,
+   'stale attempt rows are pruned, current ones kept');
 
 SELECT * FROM finish();
 ROLLBACK;

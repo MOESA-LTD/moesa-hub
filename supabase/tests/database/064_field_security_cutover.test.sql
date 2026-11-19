@@ -115,9 +115,10 @@ SELECT private.unimpersonate();
 --   The invitation's other two functions (create, rotate) are granted to the service role alone.
 --   invitation_preview (071): the caller is auth.uid(); it answers only for the invitation behind the
 --   token it is given, and only when the caller's confirmed auth.users e-mail is the invited one,
---   else {"error"} (a mismatch is counted, 10 lock the invitation; 30 previews per user per 10
---   minutes). It returns the invitation's terms, the seat count and the active plans: no staff
---   identity, token or hash, and it writes nothing but those counters. accept_provider_invitation is
+--   else {"error"} (30 previews per user per 10 minutes). It neither locks nor counts a mismatch
+--   toward the invitation's lock-out, so previewing can never lock the invited user out. It returns
+--   the invitation's terms, the seat count and the active plans: no staff identity, token or hash,
+--   and it writes nothing but its own throttle counter. accept_provider_invitation is
 --   granted to the service role alone (F1) and is not listed.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
