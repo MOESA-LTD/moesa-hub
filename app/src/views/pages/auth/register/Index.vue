@@ -50,10 +50,17 @@ const companyErrors = computed(() =>
    )
 );
 
-const toCompany = () => {
+const toCompany = async () => {
    if (!validateFields(['account'])) return;
-   // The company's e-mail starts as the owner's.
-   if (!values.value.company.email) values.value.company.email = values.value.account.email.trim();
+   // The company's e-mail starts as the owner's. Filling it in is not an edit: the form's watcher
+   // would validate the whole company and greet the step with "required" on every empty field.
+   if (!values.value.company.email) {
+      values.value.company.email = values.value.account.email.trim();
+      await nextTick();
+      errors.value = Object.fromEntries(
+         Object.entries(errors.value).filter(([path]) => !path.startsWith('company.'))
+      );
+   }
    step.value = 'company';
 };
 
@@ -81,9 +88,10 @@ const errorText = (code: string) =>
 
 <template>
    <div class="flex-auto w-full flex flex-col gap-8" data-register-page>
-      <div class="w-full text-center flex flex-col justify-center gap-4">
-         <div class="text-3xl font-medium" v-text="$t('auth.register.create_account')" />
-      </div>
+      <h2
+         class="m-0 text-3xl font-semibold tracking-tight"
+         v-text="$t('auth.register.create_account')"
+      />
 
       <div v-if="isPending" class="text-muted-color text-center">{{ $t('signup.loading') }}</div>
 
@@ -133,14 +141,16 @@ const errorText = (code: string) =>
 
          <FormBox
             v-if="step === 'email'"
-            class="!w-full"
+            class="!w-full gap-6"
             data-step="email"
             v-focustrap
             @submit="toCompany"
          >
             <p class="m-0 text-muted-color">{{ $t('signup.email_text') }}</p>
+            <!-- Full width, with the button under it, as on the sign-in form. -->
             <FormField
                v-slot="slotProps"
+               class="w-full"
                fluid
                :label="$t('fields.email')"
                :error="errors['account.email']"
@@ -156,7 +166,8 @@ const errorText = (code: string) =>
             <template #form-actions>
                <Button
                   data-next
-                  class="self-end"
+                  class="w-full"
+                  size="large"
                   :label="$t('signup.next')"
                   :icon="PrimeIcons.CARET_RIGHT"
                   iconPos="right"
