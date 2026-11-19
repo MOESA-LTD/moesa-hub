@@ -469,7 +469,44 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       code: '23503',
       name: 'tenant_has_provider_relationship',
       message: 'errors.tenant_has_provider_relationship'
-   }
+   },
+   // Provider invitations (071_provider_invitation.sql and the provider-invitation function). The
+   // codes tied to one input show on it; the others are shown as a toast.
+   {
+      code: '23505',
+      name: 'client_code_taken',
+      field: 'client_code',
+      message: 'errors.client_code_taken'
+   },
+   {
+      code: '23505',
+      name: 'invitation_pending_exists',
+      field: 'email',
+      message: 'errors.invitation_pending_exists'
+   },
+   {
+      code: '23514',
+      name: 'plan_inactive',
+      field: 'recommended_plan_id',
+      message: 'errors.plan_inactive'
+   },
+   {
+      code: '23514',
+      name: 'invitation_staff_invalid',
+      field: 'staff',
+      message: 'errors.invitation_staff_invalid'
+   },
+   {
+      code: '23514',
+      name: 'invitation_payload_invalid',
+      message: 'errors.invitation_payload_invalid'
+   },
+   { code: '42501', name: 'invitation_forbidden', message: 'errors.invitation_forbidden' },
+   { code: 'P0001', name: 'invitation_throttled', message: 'errors.invitation_throttled' },
+   { code: 'P0001', name: 'invitation_invalid', message: 'errors.invitation_invalid' },
+   // The function's own refusals carry no database code: their HTTP status stands in for it.
+   { code: '502', name: 'invitation_mail_failed', message: 'errors.invitation_mail_failed' },
+   { code: '500', name: 'invitation_unconfigured', message: 'errors.invitation_unconfigured' }
 ];
 
 /**

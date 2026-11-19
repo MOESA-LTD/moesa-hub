@@ -374,6 +374,8 @@
       "invitation_throttled": "",
       "invitation_invalid": "",
       "invitation_pending_exists": "",
+      "invitation_mail_failed": "",
+      "invitation_unconfigured": "",
       "client_code_taken": "",
       "invitation_email_mismatch": "",
       "company_email_exists": "",

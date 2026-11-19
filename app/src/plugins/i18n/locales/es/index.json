@@ -261,7 +261,12 @@
          "ops_change_request_decision": "Decision",
          "ops_change_request_documents": "Documents",
          "guide": "System guide",
-         "ops_product_amazon": "Amazon"
+         "ops_product_amazon": "Amazon",
+         "ops_client": "Clients",
+         "ops_client_list": "Relationships",
+         "ops_client_manage": "Relationship",
+         "ops_client_invitations": "Invitations",
+         "ops_client_invitation_create": "Invite a client"
       }
    },
    "auth": {
@@ -745,6 +750,8 @@
       "invitation_throttled": "Too many invitations were sent today. Try again later.",
       "invitation_invalid": "This invitation is no longer valid.",
       "invitation_pending_exists": "This e-mail address already has a pending invitation.",
+      "invitation_mail_failed": "The e-mail could not be sent, so no invitation was created. Try again later.",
+      "invitation_unconfigured": "Invitations are not set up on this server yet.",
       "client_code_taken": "This client code is already in use.",
       "invitation_email_mismatch": "This invitation was sent to another e-mail address. Sign in with that address to accept it.",
       "company_email_exists": "A company with this e-mail address is already registered.",
@@ -1199,7 +1206,117 @@
             "active": "Active",
             "ended": "Ended"
          },
-         "own": "No client (our own)"
+         "own": "No client (our own)",
+         "fields": {
+            "client_code": "Code",
+            "client_name": "Client",
+            "provider_name": "Provider",
+            "procurement_model": "Procurement",
+            "commercial_model": "Commercial model",
+            "packages": "Packages",
+            "contract_status": "Contract",
+            "start_on": "Start date",
+            "deposit_rate": "Deposit rate",
+            "extra_cost_rule": "Extra-cost rule",
+            "eu_responsible_person": "EU responsible person",
+            "status": "Status",
+            "notes": "Notes",
+            "restricted_drive_url": "Drive link",
+            "accepted_at": "Since",
+            "ended_at": "Ended"
+         },
+         "procurement_model": {
+            "client": "Client procures",
+            "provider": "Provider procures"
+         },
+         "commercial_model": {
+            "trading_partner": "Trading partner",
+            "commercial_representative": "Commercial representative",
+            "operations_partner": "Operations partner"
+         },
+         "contract_status": {
+            "lead": "Lead",
+            "onboarding": "Onboarding",
+            "active": "Active",
+            "paused": "Paused",
+            "closed": "Closed"
+         },
+         "sections": {
+            "clients": "Clients",
+            "providers": "Providers",
+            "contract": "Contract terms",
+            "internal": "Internal"
+         },
+         "empty": {
+            "clients": "No clients yet.",
+            "providers": "No provider works for you yet."
+         },
+         "manage": {
+            "provider_terms": "These terms are set by your provider and cannot be changed here.",
+            "model_note": "A provider-procured relationship can be changed to client-procured, never back: only a new invitation starts one that way.",
+            "saved": "The relationship was saved."
+         },
+         "end": {
+            "action": "End relationship",
+            "title": "End the relationship with {name}?",
+            "message": "No new shared orders or shipments can be made for this relationship. Everything shared before stays visible, and nobody loses their account or membership. An ended relationship cannot be reopened.",
+            "accept": "End relationship",
+            "done": "The relationship was ended."
+         },
+         "invitation": {
+            "add": "Invite a client",
+            "fields": {
+               "email": "E-mail",
+               "company_name": "Company",
+               "client_code": "Client code",
+               "state": "State",
+               "expires_at": "Expires",
+               "staff": "Staff",
+               "recommended_plan_id": "Recommended plan",
+               "procurement_model": "Procurement",
+               "commercial_model": "Commercial model",
+               "packages": "Packages",
+               "contract_status": "Contract",
+               "start_on": "Start date",
+               "deposit_rate": "Deposit rate",
+               "extra_cost_rule": "Extra-cost rule",
+               "eu_responsible_person": "EU responsible person"
+            },
+            "state": {
+               "pending": "Pending",
+               "expired": "Expired",
+               "accepted": "Accepted",
+               "revoked": "Revoked"
+            },
+            "sections": {
+               "company": "Client company",
+               "contract": "Contract terms",
+               "staff": "Your staff",
+               "plan": "Plan"
+            },
+            "invalid_code": "Use three capital letters.",
+            "no_plan": "No recommendation",
+            "staff_hint": "These members of your company get access to the new client company, with the role you choose.",
+            "staff_add": "Add staff member",
+            "staff_member": "Member",
+            "staff_role": "Role",
+            "role": {
+               "management": "Management",
+               "coordinator": "Coordinator",
+               "viewer": "Viewer"
+            },
+            "created": "The invitation was sent.",
+            "resend": {
+               "action": "Resend",
+               "done": "The invitation was sent again."
+            },
+            "revoke": {
+               "action": "Revoke",
+               "title": "Revoke this invitation?",
+               "message": "The link in the e-mail stops working. The client code becomes free again.",
+               "done": "The invitation was revoked."
+            }
+         }
       },
       "company": {
          "title": "Company profile",

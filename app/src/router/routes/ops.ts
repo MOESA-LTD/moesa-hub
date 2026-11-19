@@ -148,6 +148,8 @@ const routes: RouteRecordRaw[] = [
             { action: 'select', subject: 'purchase_order' },
             { action: 'select', subject: 'shipment' },
             { action: 'select', subject: 'supplier' },
+            { action: 'select', subject: 'provider_relationship' },
+            { action: 'select', subject: 'provider_invitation' },
             { action: 'select', subject: 'setting' },
             { action: 'select', subject: 'brand' },
             { action: 'select', subject: 'contact' },
@@ -329,6 +331,63 @@ const routes: RouteRecordRaw[] = [
                   components: {
                      default: () => import('@/views/pages/ops/supplier/ContactUpsert.vue'),
                      skeleton: () => import('@/views/pages/ops/supplier/ContactUpsert.vue')
+                  }
+               }
+            ]
+         },
+         {
+            // The provider's clients: their invitations here, the relationships with them on the
+            // list. Each page is shown to those who may read it (a client company reads its
+            // providers on the list too).
+            path: 'clients',
+            name: 'ops-client',
+            meta: {
+               label: 'route.label.ops_client',
+               icon: PrimeIcons.USERS,
+               anyPermission: [
+                  { action: 'select', subject: 'provider_relationship' },
+                  { action: 'select', subject: 'provider_invitation' }
+               ]
+            },
+            component: CustomRouteView,
+            redirect: { name: 'ops-client-invitations' },
+            children: [
+               {
+                  path: 'invitations',
+                  name: 'ops-client-invitations',
+                  meta: {
+                     label: 'route.label.ops_client_invitations',
+                     icon: PrimeIcons.ENVELOPE,
+                     requiredPermissions: [{ action: 'select', subject: 'provider_invitation' }],
+                     contextMenuItems: [
+                        {
+                           label: 'ops.client.invitation.add',
+                           route: {
+                              name: 'ops-client-invitation-create',
+                              query: { showDialog: DIALOG_POSITIONS.CENTER }
+                           }
+                        }
+                     ]
+                  },
+                  components: {
+                     default: () => import('@/views/pages/ops/client/invitations/Index.vue'),
+                     skeleton: () => import('@/views/pages/ops/client/invitations/Index.vue')
+                  }
+               },
+               {
+                  path: 'invitations/create',
+                  name: 'ops-client-invitation-create',
+                  meta: {
+                     label: 'route.label.ops_client_invitation_create',
+                     icon: PrimeIcons.PLUS,
+                     visible: false,
+                     requiredPermissions: [{ action: 'create', subject: 'provider_invitation' }]
+                  },
+                  components: {
+                     default: () =>
+                        import('@/views/pages/ops/client/invitations/InvitationCreate.vue'),
+                     skeleton: () =>
+                        import('@/views/pages/ops/client/invitations/InvitationCreate.vue')
                   }
                }
             ]
