@@ -1,5 +1,10 @@
 import { createAccount, registerSchema } from '@/api/auth';
-import { completeSignup, fetchSignupPlans, pendingSignup, SignupError } from '@/api/auth/signup';
+import {
+   completeSignup,
+   fetchPendingSignup,
+   fetchSignupPlans,
+   SignupError
+} from '@/api/auth/signup';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -64,17 +69,18 @@ describe('createAccount', () => {
 });
 
 describe('completeSignup', () => {
-   it('posts the chosen plan only', async () => {
+   it('posts the company as confirmed and the chosen plan', async () => {
       mock.invoke.mockResolvedValue({
          data: { tenant: { id: 't1', display_name: 'Leafline GmbH' } },
          error: null
       });
-      await expect(completeSignup('plan-1')).resolves.toEqual({
+      const edited = { display_name: 'Leafline GmbH', email: 'info@leafline.test' };
+      await expect(completeSignup('plan-1', edited)).resolves.toEqual({
          tenant: { id: 't1', display_name: 'Leafline GmbH' }
       });
       expect(mock.invoke).toHaveBeenCalledWith('create-account/complete', {
          method: 'POST',
-         body: { plan_id: 'plan-1' }
+         body: { company: edited, plan_id: 'plan-1' }
       });
    });
 
@@ -82,7 +88,21 @@ describe('completeSignup', () => {
       mock.invoke.mockResolvedValue(
          refusal(403, { message: 'signup_closed', code: 'signup_closed' })
       );
-      await expect(completeSignup(null)).rejects.toEqual(new SignupError('signup_closed'));
+      await expect(completeSignup(null, {})).rejects.toEqual(new SignupError('signup_closed'));
+   });
+});
+
+describe('fetchPendingSignup', () => {
+   it('reads the waiting company and plan from the function, not from the token', async () => {
+      const pending = { company: { display_name: 'Leafline GmbH' }, plan_id: 'p1' };
+      mock.invoke.mockResolvedValue({ data: pending, error: null });
+      await expect(fetchPendingSignup()).resolves.toEqual(pending);
+      expect(mock.invoke).toHaveBeenCalledWith('create-account/complete', { method: 'GET' });
+   });
+
+   it('names the refusal', async () => {
+      mock.invoke.mockResolvedValue(refusal(409, { message: 'signup_not_pending' }));
+      await expect(fetchPendingSignup()).rejects.toEqual(new SignupError('signup_not_pending'));
    });
 });
 
@@ -123,17 +143,5 @@ describe('fetchSignupPlans', () => {
             limits: { max_users: 10 }
          }
       ]);
-   });
-});
-
-describe('pendingSignup', () => {
-   it('reads the company waiting in app_metadata only', () => {
-      const pending = { company: { display_name: 'Leafline GmbH' }, plan_id: 'p1' };
-      expect(pendingSignup({ app_metadata: { pending_company: pending } })).toEqual(pending);
-      expect(
-         pendingSignup({ app_metadata: {}, user_metadata: { pending_company: pending } })
-      ).toBeNull();
-      expect(pendingSignup({ app_metadata: { pending_company: null } })).toBeNull();
-      expect(pendingSignup(null)).toBeNull();
    });
 });

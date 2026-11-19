@@ -3,7 +3,11 @@ import type { CompanyValues } from '@/api/invitation/accept';
 
 // Step 2: the new company's details (the keys private.create_company takes). The form lives in
 // the page, which owns its validation and the refusals of the accept call.
-defineProps<{ errors: Record<string, string | undefined> }>();
+defineProps<{
+   errors: Record<string, string | undefined>;
+   /** The line under the title (the invitation's by default). */
+   text?: string;
+}>();
 const values = defineModel<CompanyValues>({ required: true });
 const emit = defineEmits<{ back: []; next: [] }>();
 </script>
@@ -11,7 +15,7 @@ const emit = defineEmits<{ back: []; next: [] }>();
 <template>
    <div class="flex flex-col gap-4" data-step="company">
       <h2 class="m-0 text-xl font-medium">{{ $t('invitation.company.title') }}</h2>
-      <p class="m-0 text-muted-color">{{ $t('invitation.company.text') }}</p>
+      <p class="m-0 text-muted-color">{{ text ?? $t('invitation.company.text') }}</p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
          <FormField

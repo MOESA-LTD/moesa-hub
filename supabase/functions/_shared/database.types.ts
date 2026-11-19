@@ -9380,6 +9380,12 @@ export type Database = {
       }
     }
     Functions: {
+      abandoned_signup: {
+        Args: {
+          p_user: string
+        }
+        Returns: boolean
+      }
       accept_provider_invitation: {
         Args: {
           p_user: string
@@ -9767,6 +9773,12 @@ export type Database = {
           tenant_id: string | null
         }
       }
+      pending_signup: {
+        Args: {
+          p_user: string
+        }
+        Returns: Json
+      }
       phase_after: {
         Args: {
           code: Database["public"]["Enums"]["gate_code"]
@@ -9871,6 +9883,14 @@ export type Database = {
           p_actor: string
         }
         Returns: string
+      }
+      save_pending_signup: {
+        Args: {
+          p_user: string
+          p_company: Json
+          p_plan_id: string
+        }
+        Returns: undefined
       }
       save_plan: {
         Args: {

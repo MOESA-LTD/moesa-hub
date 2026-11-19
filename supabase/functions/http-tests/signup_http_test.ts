@@ -1,9 +1,10 @@
 // Verify-first self-signup over real HTTP (Plan 3, Task 11; task-5-review I1). The open sign-up no
 // longer creates a confirmed account with the caller's password: create-account invites the address
-// and keeps the company in app_metadata; the company is created by create-account/complete once the
-// mailed link has proven the inbox. The last test replays the takeover chain of I1 and shows it is
-// closed: an attacker who registers a customer's address learns no password, and the customer, later
-// invited by a provider, owns an account nobody else can sign in to.
+// and keeps the company server side (private.pending_signup, read here through the service-only
+// public.pending_signup); the company is created by create-account/complete, as the owner confirmed
+// or edited it, once the mailed link has proven the inbox. The takeover test replays the chain of
+// I1 and shows it is closed: an attacker who registers a customer's address learns no password, and
+// the customer, later invited by a provider, owns an account nobody else can sign in to.
 //
 // Opens self-signup for its run (as the seeded super admin; set_platform_setting checks auth.uid(),
 // so the service role cannot) and restores the setting at the end. Needs the Edge Functions served
@@ -41,8 +42,14 @@ const t = (name: string, fn: () => Promise<void>) => Deno.test({ name, fn, sanit
 const CHECK_EMAIL = { status: 'check_email' };
 const signup = (email: string, company: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
    edge(null, 'create-account', { body: { account: { email, ...extra }, company } });
-const complete = (token: string | null, plan_id: string | null) => edge(token, 'create-account/complete', { body: { plan_id } });
+const complete = (token: string | null, plan_id: string | null, company?: Record<string, unknown>) =>
+   edge(token, 'create-account/complete', { body: company ? { company, plan_id } : { plan_id } });
 
+/** The pending sign-up of an account (service role), or null. */
+const pendingOf = async (userId: string) =>
+   (await admin('rpc/pending_signup', { method: 'POST', body: { p_user: userId } })).body as
+      | { company: Record<string, string>; plan_id: string | null }
+      | null;
 const tenantsNamed = async (name: string) =>
    ((await admin(`tenant?display_name=eq.${encodeURIComponent(name)}&select=id`)).body as { id: string }[]).length;
 const ownedTenants = async (userId: string) =>
@@ -79,7 +86,7 @@ t('sign-up takes no password, creates no company and answers alike for every add
    }
    assertEquals(await authUsersWithEmail(email), 0, 'a password in the body creates nothing');
 
-   // A new address: an unconfirmed account with nothing but the pending company, and a mail.
+   // A new address: an unconfirmed account, its pending sign-up server side, and a mail.
    const first = await signup(email, company);
    assertEquals([first.status, first.body], [202, CHECK_EMAIL]);
    const { redirectTo } = await mailedLink(email, 0);
@@ -88,17 +95,18 @@ t('sign-up takes no password, creates no company and answers alike for every add
    const id = (await userIdByEmail(email))!;
    const account = await authUser(id);
    assertEquals(account.email_confirmed_at ?? null, null, 'not confirmed');
-   assertEquals(account.app_metadata?.pending_company?.company?.display_name, 'HTTP Inv Signup New');
-   assertEquals(account.user_metadata?.pending_company, undefined, 'never in user_metadata (the user could write it)');
+   assertEquals((await pendingOf(id))?.company?.display_name, 'HTTP Inv Signup New');
+   assert(!JSON.stringify(account.app_metadata ?? {}).includes('HTTP Inv'), 'nothing of it in app_metadata (the token)');
+   assert(!JSON.stringify(account.user_metadata ?? {}).includes('HTTP Inv'), 'nothing of it in user_metadata');
    assertEquals(await ownedTenants(id), [], 'no company before the inbox is proven');
    assertEquals(await tenantsNamed('HTTP Inv Signup New'), 0);
    assertEquals((await passwordSignIn(email, 'Chosen1234!')).session, false, 'no password exists');
 
-   // The same address again (unconfirmed): the same answer, the request replaced, a new mail.
+   // The same address again (an earlier sign-up): the same answer, the request replaced, a new mail.
    const again = await signup(email, { ...company, display_name: 'HTTP Inv Signup Again' });
    assertEquals([again.status, again.body], [first.status, first.body]);
    await mailedLink(email, 1);
-   assertEquals((await authUser(id)).app_metadata?.pending_company?.company?.display_name, 'HTTP Inv Signup Again');
+   assertEquals((await pendingOf(id))?.company?.display_name, 'HTTP Inv Signup Again');
    assertEquals(await authUsersWithEmail(email), 1);
 
    // A confirmed address: the same answer, and nothing happens (no mail, nothing pending).
@@ -107,26 +115,63 @@ t('sign-up takes no password, creates no company and answers alike for every add
    assertEquals([confirmed.status, confirmed.body], [first.status, first.body]);
    await settle();
    assertEquals(await mailCount(f.stranger.email), before, 'no mail to a confirmed account');
-   assertEquals((await authUser(f.stranger.id)).app_metadata?.pending_company, undefined);
+   assertEquals(await pendingOf(f.stranger.id), null);
    assertEquals(await tenantsNamed('HTTP Inv Signup Taken'), 0);
 });
 
-t('a proven inbox completes the sign-up once, on the chosen plan', async () => {
+t('M1: a sign-up never disturbs an unconfirmed provider invitee', async () => {
+   const invited = invEmail('su-invited');
+   const before = await mailCount(invited);
+   const created = await edge(f.owner.token, 'provider-invitation', {
+      headers: { 'x-tenant-id': f.provider },
+      body: { invitation: { email: invited, company_name: 'HTTP Inv Invited Co', client_code: nextClientCode(), procurement_model: 'provider' } },
+   });
+   assertEquals(created.status, 201, JSON.stringify(created.body));
+   const mailed = await mailedInvitation(invited, before);
+   const id = (await userIdByEmail(invited))!;
+
+   const r = await signup(invited, { display_name: 'HTTP Inv Hijack Co', email: invEmail('su-hijack-co') });
+   assertEquals([r.status, r.body], [202, CHECK_EMAIL]);
+   await settle();
+   assertEquals(await mailCount(invited), before + 1, 'no second mail: the invitation link was not replaced');
+   assertEquals(await pendingOf(id), null, 'no sign-up attached to the invitee');
+
+   // The provider's link still works and leads to the invitation.
+   const session = await followVerifyLink(mailed.verifyUrl);
+   const preview = await rest(session.access, 'rpc/invitation_preview', { method: 'POST', body: { token: mailed.token }, profile: 'public' });
+   assertEquals(preview.body?.company_name, 'HTTP Inv Invited Co');
+});
+
+t('a proven inbox completes the sign-up once, with the company as edited and the chosen plan', async () => {
    const email = invEmail('su-done');
-   assertEquals((await signup(email, { display_name: 'HTTP Inv Signup Done', email: invEmail('su-done-co'), city: 'Bursa' })).status, 202);
+   assertEquals((await signup(email, { display_name: 'HTTP Inv Signup Asked', email: invEmail('su-done-co'), city: 'Bursa' })).status, 202);
    const session = await followSignupMail(email, 0);
    const id = (await userIdByEmail(email))!;
    assert((await authUser(id)).email_confirmed_at, 'the link proved the inbox');
 
+   // The completion page reads what was asked for.
+   const read = await edge(session.access, 'create-account/complete', { method: 'GET' });
+   assertEquals(read.status, 200, JSON.stringify(read.body));
+   assertEquals(read.body.company, { display_name: 'HTTP Inv Signup Asked', email: invEmail('su-done-co'), city: 'Bursa' });
+
    assertEquals(await setPassword(session.access, 'Own-Pass-4821!'), 200);
-   const done = await complete(session.access, f.proPlan);
+
+   // A company e-mail that is taken: refused, nothing created, the sign-up still pending.
+   const taken = await complete(session.access, f.proPlan, { display_name: 'HTTP Inv Signup Done', email: invEmail('provider-co') });
+   assertEquals([taken.status, taken.body?.message], [409, 'company_email_exists'], JSON.stringify(taken.body));
+   assertEquals(await tenantsNamed('HTTP Inv Signup Done'), 0);
+   assert(await pendingOf(id), 'the owner can retry');
+
+   // Retried with changed details: created as edited.
+   const done = await complete(session.access, f.proPlan, { display_name: 'HTTP Inv Signup Done', email: invEmail('su-done-co2'), city: 'İzmir' });
    assertEquals(done.status, 201, JSON.stringify(done.body));
    assertEquals(done.body.tenant.display_name, 'HTTP Inv Signup Done');
 
    const owned = await ownedTenants(id);
    assertEquals(owned, [done.body.tenant.id]);
    assertEquals(await planOf(owned[0]), f.proPlan);
-   assertEquals((await authUser(id)).app_metadata?.pending_company ?? null, null, 'nothing waits any more');
+   assertEquals(await pendingOf(id), null, 'nothing waits any more');
+   assertEquals(await tenantsNamed('HTTP Inv Signup Asked'), 0, 'the asked-for name was only the default');
 
    const second = await complete(session.access, f.proPlan);
    assertEquals([second.status, second.body?.message], [409, 'signup_not_pending']);
@@ -135,8 +180,8 @@ t('a proven inbox completes the sign-up once, on the chosen plan', async () => {
    // The new owner signs in with the password they set and reads their company.
    assertEquals((await passwordSignIn(email, 'Own-Pass-4821!')).session, true);
    const access = await refreshSession(session.refresh);
-   const read = await rest(access, `tenant?id=eq.${owned[0]}&select=id,city`, { headers: { 'x-tenant-id': owned[0] } });
-   assertEquals(read.body, [{ id: owned[0], city: 'Bursa' }]);
+   const tenant = await rest(access, `tenant?id=eq.${owned[0]}&select=id,city`, { headers: { 'x-tenant-id': owned[0] } });
+   assertEquals(tenant.body, [{ id: owned[0], city: 'İzmir' }]);
 });
 
 t('completion is refused without a pending sign-up, and once signup is closed', async () => {
@@ -204,7 +249,7 @@ t('the takeover chain of task-5-review I1 is closed', async () => {
       assertEquals(attempt.status, 400);
    }
    assertEquals((await passwordSignIn(victim, 'Victim-Own-7731!')).session, true);
-   assertEquals((await authUser(victimId)).app_metadata?.pending_company ?? null, null, 'acceptance cleared the pending sign-up');
+   assertEquals(await pendingOf(victimId), null, 'acceptance dropped the pending sign-up');
    const late = await complete(session.access, null);
    assertEquals([late.status, late.body?.message], [409, 'signup_not_pending']);
    assertEquals(await ownedTenants(victimId), [accepted.body.tenant_id]);

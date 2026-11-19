@@ -39,6 +39,8 @@ const backend = (
       owns?: string[];
       /** Tenant tree, id to parent: lets a caller sit in a branch of a company. */
       parents?: Record<string, string | null>;
+      /** public.abandoned_signup's answer for the existing account (Task 11 M4). */
+      abandoned?: boolean;
    } = {}
 ) => {
    const seen: Seen[] = [];
@@ -91,6 +93,8 @@ const backend = (
          }
          case '/rest/v1/rpc/is_super_admin':
             return jsonResponse(opts.superAdmin ?? false);
+         case '/rest/v1/rpc/abandoned_signup':
+            return jsonResponse(opts.abandoned ?? false);
          case '/rest/v1/rpc/is_provider_staff':
             return jsonResponse(opts.staff ?? false);
          case '/rest/v1/rpc/can_write_user_field':
@@ -531,3 +535,37 @@ Deno.test(
       }
    }
 );
+
+// Task 11 M4: an abandoned self-signup (unconfirmed, owning and in nothing, pending for over a
+// day) no longer blocks the address: it is deleted and the person invited afresh.
+Deno.test('an abandoned self-signup is released and the address invited as new', async () => {
+   const { seen, restore } = backend({ existingUser: true, memberOf: [], abandoned: true, canWrite: true });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      assertEquals(res.status, 201);
+   } finally {
+      restore();
+   }
+   const check = seen.find((s) => s.path === '/rest/v1/rpc/abandoned_signup');
+   assertEquals(JSON.parse(check!.body), { p_user: OTHER });
+   assertEquals(
+      seen
+         .filter((s) => s.path.startsWith('/auth/v1/') || (s.method === 'POST' && s.path === '/rest/v1/tenant_user'))
+         .map((s) => `${s.method} ${s.path}`),
+      [`DELETE /auth/v1/admin/users/${OTHER}`, 'POST /auth/v1/invite', 'POST /rest/v1/tenant_user']
+   );
+});
+
+Deno.test('a younger squat is still refused with user_exists_elsewhere and kept', async () => {
+   const { seen, restore } = backend({ existingUser: true, memberOf: [], abandoned: false, canWrite: true });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      assertEquals([res.status, (await res.json()).message], [409, 'user_exists_elsewhere']);
+   } finally {
+      restore();
+   }
+   assert(!seen.some((s) => s.method === 'DELETE'));
+   assert(!seen.some((s) => s.path === '/auth/v1/invite'));
+});

@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(168);
+SELECT plan(169);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -541,6 +541,8 @@ RESET ROLE;
 SELECT results_eq($$ SELECT i.status::TEXT, (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'New Client GmbH')
    FROM public.provider_invitation i WHERE i.id = (SELECT id FROM inv_071 WHERE label = 'inv1') $$,
    $$ VALUES ('pending', 0) $$, 'the refusals leave the invitation pending and create nothing');
+-- Someone signed this address up meanwhile (070 pending_signup): acceptance does not use it, and drops it.
+INSERT INTO private.pending_signup (user_id, company) VALUES (current_setting('test.newbie')::UUID, '{"display_name": "Squatter Co"}');
 SELECT set_config('audit.transaction_id', '', TRUE);
 SET LOCAL ROLE service_role;
 
@@ -565,6 +567,9 @@ SELECT is((SELECT result FROM acc_071 WHERE label = 'inv1'),
 SELECT ok(EXISTS (SELECT 1 FROM public.tenant_owner o WHERE o.user_id = current_setting('test.newbie')::UUID AND o.tenant_id = current_setting('test.new_tenant')::UUID)
           AND EXISTS (SELECT 1 FROM public.tenant_user u WHERE u.user_id = current_setting('test.newbie')::UUID AND u.tenant_id = current_setting('test.new_tenant')::UUID),
           'the customer owns the new tenant and is its member');
+SELECT ok(NOT EXISTS (SELECT 1 FROM private.pending_signup WHERE user_id = current_setting('test.newbie')::UUID)
+          AND NOT EXISTS (SELECT 1 FROM public.tenant WHERE display_name = 'Squatter Co'),
+          'acceptance drops a pending self-signup of the account and never creates it');
 SELECT results_eq($$ SELECT code, email, country FROM public.tenant WHERE id = current_setting('test.new_tenant')::UUID $$,
    $$ VALUES ('NEW', 'new@client.test', 'Germany') $$, 'the tenant takes the client code; its e-mail defaults to the invited one');
 SELECT results_eq($$ SELECT procurement_model::TEXT, status::TEXT, client_code FROM public.provider_relationship WHERE client_tenant_id = current_setting('test.new_tenant')::UUID $$,

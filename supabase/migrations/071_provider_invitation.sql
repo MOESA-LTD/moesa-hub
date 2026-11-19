@@ -890,6 +890,10 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- A self-signup pending on this account (070, private.pending_signup) may be someone else's
+    -- request for this address: acceptance never reads it, and the account now owns this company.
+    DELETE FROM private.pending_signup p WHERE p.user_id = p_user;
+
     v_result := jsonb_build_object('tenant_id', created.id, 'skipped_staff', to_jsonb(skipped));
     END;
 

@@ -171,6 +171,29 @@ describe('invitation page', () => {
       expect(wrapper.get('[data-plan="pro"] button').attributes('aria-pressed')).toBe('true');
    });
 
+   it('M3: shows the signed-in address on every step, with a way out', async () => {
+      api.rpc.mockResolvedValue({ data: preview({ needs_password: true }), error: null });
+      const wrapper = await mountPage();
+      const shown = () => wrapper.get('[data-signed-in-as]').text();
+      expect(wrapper.find('[data-step="account"]').exists()).toBe(true);
+      expect(shown()).toContain('invitee@client.test');
+
+      const [password, confirmation] = wrapper.findAll('input');
+      await password!.setValue('Secret123!');
+      await confirmation!.setValue('Secret123!');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.find('[data-step="company"]').exists()).toBe(true);
+      expect(shown()).toContain('invitee@client.test');
+
+      await toPlanStep(wrapper);
+      expect(wrapper.find('[data-step="plan"]').exists()).toBe(true);
+      expect(shown()).toContain('invitee@client.test');
+
+      await wrapper.get('[data-signed-in-as] [data-sign-out]').trigger('click');
+      expect(api.logout).toHaveBeenCalled();
+   });
+
    it('explains that the e-mail link must be opened when there is no session', async () => {
       auth.isSignedIn = false;
       const wrapper = await mountPage();

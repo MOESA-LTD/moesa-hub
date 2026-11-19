@@ -14,6 +14,7 @@ import { appErrorHandler } from '@/lib/appErrorHandler';
 import { localeDateString } from '@/lib/dayjs';
 import { useAuthStore } from '@/store/auth';
 import { useToast } from 'primevue';
+import SignedInAs from '@/views/pages/auth/SignedInAs.vue';
 import AccountStep from './steps/AccountStep.vue';
 import CompanyStep from './steps/CompanyStep.vue';
 import PlanStep from './steps/PlanStep.vue';
@@ -243,105 +244,112 @@ const expires = computed(() =>
          />
       </div>
 
-      <div v-else-if="accepted" class="card !mb-0 flex flex-col gap-4" data-accepted>
-         <Message severity="warn" :closable="false">{{ $t('invitation.reload_needed') }}</Message>
-         <Button class="self-start" :label="$t('invitation.reload')" @click="router.go(0)" />
-      </div>
-
-      <div v-else-if="loadFailed" class="card !mb-0 flex flex-col gap-4" data-load-failed>
-         <Message severity="error" :closable="false">{{ $t('invitation.load_failed') }}</Message>
-         <Button
-            class="self-start"
-            data-retry
-            :icon="PrimeIcons.REFRESH"
-            :label="$t('invitation.retry')"
-            @click="load"
-         />
-      </div>
-
-      <div v-else-if="fatal" class="card !mb-0 flex flex-col gap-4" data-fatal>
-         <Message severity="error" :closable="false">{{ errorText(fatal) }}</Message>
-         <Button
-            v-if="fatal === 'invitation_email_mismatch'"
-            class="self-start"
-            variant="outlined"
-            data-sign-out
-            :icon="PrimeIcons.SIGN_OUT"
-            :label="$t('invitation.sign_out')"
-            @click="signOut"
-         />
-      </div>
-
-      <div v-else-if="loading || !preview" class="card !mb-0 text-muted-color">
-         {{ $t('invitation.loading') }}
-      </div>
-
       <template v-else>
-         <div class="flex flex-col gap-2">
-            <h1 class="m-0 text-2xl">
-               {{ $t('invitation.title', { provider: preview.provider_name ?? '' }) }}
-            </h1>
-            <p class="m-0 text-muted-color">
-               {{
-                  $t('invitation.intro', {
-                     provider: preview.provider_name ?? '',
-                     company: preview.company_name ?? preview.email
-                  })
-               }}
-               <span v-if="expires">{{ $t('invitation.expires', { date: expires }) }}</span>
-            </p>
+         <!-- The link signed someone in: the address stays in view on every step (Task 11 M3). -->
+         <SignedInAs :email="authStore.user?.email ?? ''" @signOut="signOut" />
+
+         <div v-if="accepted" class="card !mb-0 flex flex-col gap-4" data-accepted>
+            <Message severity="warn" :closable="false">{{
+               $t('invitation.reload_needed')
+            }}</Message>
+            <Button class="self-start" :label="$t('invitation.reload')" @click="router.go(0)" />
          </div>
 
-         <ol class="list-none p-0 m-0 flex flex-wrap gap-2">
-            <li v-for="(label, i) in steps" :key="label" class="flex-1 min-w-32">
-               <div
-                  class="flex items-center gap-2 rounded-border border px-3 py-2"
-                  :class="
-                     step === i + 1
-                        ? 'border-primary text-primary font-medium'
-                        : 'border-surface text-muted-color'
-                  "
-                  :aria-current="step === i + 1 ? 'step' : undefined"
-               >
-                  <i :class="step > i + 1 ? 'pi pi-check-circle' : 'pi pi-circle'" />
-                  {{ label }}
-               </div>
-            </li>
-         </ol>
-
-         <Message v-if="notice" severity="error" :closable="false" data-notice>
-            {{ errorText(notice) }}
-         </Message>
-
-         <div class="card !mb-0">
-            <AccountStep
-               v-if="step === 1"
-               :email="authStore.user?.email ?? preview.email"
-               :needsPassword="preview.needs_password"
-               :saving="passwordSaving"
-               @save="savePassword"
-               @next="step = 2"
-            />
-            <CompanyStep
-               v-else-if="step === 2"
-               v-model="values"
-               :errors
-               @back="step = 1"
-               @next="toPlan"
-            />
-            <PlanStep
-               v-else
-               v-model="planId"
-               :plans="preview.plans"
-               :recommendedId="preview.recommended_plan_id"
-               :seats="preview.seats"
-               :providerName="preview.provider_name"
-               :coreModules
-               :accepting
-               @back="step = 2"
-               @accept="accept"
+         <div v-else-if="loadFailed" class="card !mb-0 flex flex-col gap-4" data-load-failed>
+            <Message severity="error" :closable="false">{{ $t('invitation.load_failed') }}</Message>
+            <Button
+               class="self-start"
+               data-retry
+               :icon="PrimeIcons.REFRESH"
+               :label="$t('invitation.retry')"
+               @click="load"
             />
          </div>
+
+         <div v-else-if="fatal" class="card !mb-0 flex flex-col gap-4" data-fatal>
+            <Message severity="error" :closable="false">{{ errorText(fatal) }}</Message>
+            <Button
+               v-if="fatal === 'invitation_email_mismatch'"
+               class="self-start"
+               variant="outlined"
+               data-sign-out
+               :icon="PrimeIcons.SIGN_OUT"
+               :label="$t('invitation.sign_out')"
+               @click="signOut"
+            />
+         </div>
+
+         <div v-else-if="loading || !preview" class="card !mb-0 text-muted-color">
+            {{ $t('invitation.loading') }}
+         </div>
+
+         <template v-else>
+            <div class="flex flex-col gap-2">
+               <h1 class="m-0 text-2xl">
+                  {{ $t('invitation.title', { provider: preview.provider_name ?? '' }) }}
+               </h1>
+               <p class="m-0 text-muted-color">
+                  {{
+                     $t('invitation.intro', {
+                        provider: preview.provider_name ?? '',
+                        company: preview.company_name ?? preview.email
+                     })
+                  }}
+                  <span v-if="expires">{{ $t('invitation.expires', { date: expires }) }}</span>
+               </p>
+            </div>
+
+            <ol class="list-none p-0 m-0 flex flex-wrap gap-2">
+               <li v-for="(label, i) in steps" :key="label" class="flex-1 min-w-32">
+                  <div
+                     class="flex items-center gap-2 rounded-border border px-3 py-2"
+                     :class="
+                        step === i + 1
+                           ? 'border-primary text-primary font-medium'
+                           : 'border-surface text-muted-color'
+                     "
+                     :aria-current="step === i + 1 ? 'step' : undefined"
+                  >
+                     <i :class="step > i + 1 ? 'pi pi-check-circle' : 'pi pi-circle'" />
+                     {{ label }}
+                  </div>
+               </li>
+            </ol>
+
+            <Message v-if="notice" severity="error" :closable="false" data-notice>
+               {{ errorText(notice) }}
+            </Message>
+
+            <div class="card !mb-0">
+               <AccountStep
+                  v-if="step === 1"
+                  :email="authStore.user?.email ?? preview.email"
+                  :needsPassword="preview.needs_password"
+                  :saving="passwordSaving"
+                  @save="savePassword"
+                  @next="step = 2"
+               />
+               <CompanyStep
+                  v-else-if="step === 2"
+                  v-model="values"
+                  :errors
+                  @back="step = 1"
+                  @next="toPlan"
+               />
+               <PlanStep
+                  v-else
+                  v-model="planId"
+                  :plans="preview.plans"
+                  :recommendedId="preview.recommended_plan_id"
+                  :seats="preview.seats"
+                  :providerName="preview.provider_name"
+                  :coreModules
+                  :accepting
+                  @back="step = 2"
+                  @accept="accept"
+               />
+            </div>
+         </template>
       </template>
    </div>
 </template>

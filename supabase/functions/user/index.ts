@@ -1,3 +1,4 @@
+import { releaseAbandonedSignup } from '../_shared/abandonedSignup.ts';
 import { type AuthContext, withAuthorization } from '../_shared/auth.ts';
 import {
    accountReach,
@@ -123,9 +124,16 @@ export const createUser = (req: Request) =>
             companyTenants(tenantId)
          ]);
          if (!belongsToCompany(reach, company) && !(await isProviderStaff(tenantId, user.id))) {
-            throw new HttpError(409, 'user_exists_elsewhere');
+            // An abandoned self-signup squatting the address (Task 11 M4) is released, and the
+            // person invited as new; any other account stays refused.
+            if (!(await releaseAbandonedSignup(service, user.id))) {
+               throw new HttpError(409, 'user_exists_elsewhere');
+            }
+            user = null;
          }
-      } else {
+      }
+
+      if (!user) {
          // The invitation writes the new account's e-mail and metadata (admin API).
          await assertFieldWrite(req, null, written);
          const { data, error } = await service.auth.admin.inviteUserByEmail(email, {

@@ -479,7 +479,9 @@
       "shipment_scope_missing": "Sevkiyat kod alamadı: şirketin ya da müşterinin kodu yok.",
       "shipment_po_link_immutable": "Sevkiyattaki sipariş değiştirilemez: çıkarıp diğerini ekleyin.",
       "incident_scope_missing": "Olay kod alamadı: şirketin kodu yok.",
-      "change_request_scope_missing": "Değişiklik talebi kod alamadı: şirketin kodu yok."
+      "change_request_scope_missing": "Değişiklik talebi kod alamadı: şirketin kodu yok.",
+      "signup_payload_invalid": "Bazı bilgiler kabul edilmedi. Formu kontrol edip tekrar deneyin.",
+      "signup_not_pending": "Bu hesap için bekleyen bir kayıt yok."
    },
    "account": {
       "logout": "Çıkış yap",
@@ -879,7 +881,6 @@
       },
       "already_reverted": "Zaten iptal edildi",
       "attempt_to_revert": "İptal işlemi denendi",
-      "masked": "değişti",
       "added": "Eklendi",
       "updated": "Güncellendi",
       "deleted": "Silindi",
@@ -3438,6 +3439,7 @@
          "to_dashboard": "Panele git",
          "steps": {
             "account": "Şifre",
+            "company": "Firma",
             "plan": "Plan"
          },
          "plan_title": "Bir plan seçin",
@@ -3447,7 +3449,9 @@
          "action": "Firmamı oluştur",
          "loading": "Planlar yükleniyor...",
          "reload_needed": "Firmanız oluşturuldu ancak henüz listede görünmüyor. Açmak için sayfayı yenileyin.",
-         "reload": "Yenile"
+         "reload": "Yenile",
+         "link_expired": "Bu bağlantının süresi doldu — yeni bir bağlantı için yeniden kaydolun.",
+         "sign_up_again": "Yeniden kaydol"
       },
       "error": {
          "signup_closed": "Kayıt şu anda kapalı. Hizmet sağlayıcınızdan davet isteyin.",
@@ -3455,11 +3459,12 @@
          "signup_payload_invalid": "Bazı bilgiler kabul edilmedi. Formu kontrol edip tekrar deneyin.",
          "signup_unconfirmed": "E-posta adresiniz henüz doğrulanmadı. Size gönderdiğimiz bağlantıyı açın.",
          "signup_not_pending": "Bu hesap için bekleyen bir kayıt yok.",
-         "company_email_exists": "Bu e-postayla kayıtlı bir firma zaten var. Başka bir firma e-postasıyla yeniden kaydolun.",
-         "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir firma zaten var. Başka bir numarayla yeniden kaydolun.",
+         "company_email_exists": "Bu e-postayla kayıtlı bir firma zaten var. Firma e-postasını değiştirip tekrar deneyin.",
+         "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir firma zaten var. Telefon numarasını değiştirip tekrar deneyin.",
          "plan_inactive": "Bu plan artık sunulmuyor. Başka bir plan seçin.",
          "generic": "Kayıt tamamlanamadı. Tekrar deneyin."
-      }
+      },
+      "company_text": "Bu bilgilerle paneldeki firmanız oluşturulur. Yalnızca siz ve eklediğiniz kişiler görebilir."
    },
    "invitation": {
       "title": "{provider} ile birlikte çalışın",
@@ -3536,5 +3541,9 @@
       "load_failed": "Davet yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
       "reload_needed": "Şirketiniz oluşturuldu, ancak henüz listenizde görünmüyor. Devam etmek için sayfayı yenileyin.",
       "reload": "Yenile"
+   },
+   "signed_in": {
+      "as": "{email} olarak giriş yaptınız.",
+      "not_you": "Siz değil misiniz? Çıkış yapın"
    }
 }

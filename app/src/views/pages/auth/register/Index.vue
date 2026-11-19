@@ -167,6 +167,7 @@ const errorText = (code: string) =>
 
          <div v-else class="flex flex-col gap-4">
             <CompanyStep
+               :text="$t('signup.company_text')"
                v-model="values.company"
                :errors="companyErrors"
                @back="step = 'email'"

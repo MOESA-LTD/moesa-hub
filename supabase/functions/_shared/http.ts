@@ -47,7 +47,9 @@ export const NAMED_ERROR_STATUS: Record<string, number> = {
    company_payload_invalid: 400,
    signup_closed: 403,
    signup_unconfirmed: 403,
-   signup_completed: 409
+   signup_completed: 409,
+   signup_not_pending: 409,
+   signup_payload_invalid: 400
 };
 
 /** An error for a refusal the database returned as `{"error": key}`, named by its key alone. */

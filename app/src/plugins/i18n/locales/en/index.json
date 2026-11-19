@@ -625,7 +625,9 @@
       "shipment_scope_missing": "The shipment cannot get a code: the company or the client has none.",
       "shipment_po_link_immutable": "An order on a shipment cannot be swapped: take it off and add the other one.",
       "incident_scope_missing": "The incident cannot get a code: the company has none.",
-      "change_request_scope_missing": "The change request cannot get a code: the company has none."
+      "change_request_scope_missing": "The change request cannot get a code: the company has none.",
+      "signup_payload_invalid": "Some details were not accepted. Check the form and try again.",
+      "signup_not_pending": "There is no sign-up waiting for this account."
    },
    "account": {
       "logout": "Log out",
@@ -933,7 +935,6 @@
       },
       "already_reverted": "Already Reverted",
       "attempt_to_revert": "Attempt to Revert",
-      "masked": "changed",
       "added": "Added",
       "updated": "Updated",
       "deleted": "Deleted",
@@ -3438,6 +3439,7 @@
          "to_dashboard": "Go to the panel",
          "steps": {
             "account": "Password",
+            "company": "Company",
             "plan": "Plan"
          },
          "plan_title": "Choose a plan",
@@ -3447,7 +3449,9 @@
          "action": "Create my company",
          "loading": "Loading the plans...",
          "reload_needed": "Your company was created, but it is not listed yet. Reload the page to open it.",
-         "reload": "Reload"
+         "reload": "Reload",
+         "link_expired": "This link has expired — sign up again to get a new one.",
+         "sign_up_again": "Sign up again"
       },
       "error": {
          "signup_closed": "Sign-up is closed at the moment. Ask your provider for an invitation.",
@@ -3455,11 +3459,12 @@
          "signup_payload_invalid": "Some details were not accepted. Check the form and try again.",
          "signup_unconfirmed": "Your e-mail address is not confirmed yet. Open the link we e-mailed you.",
          "signup_not_pending": "There is no sign-up waiting for this account.",
-         "company_email_exists": "A company with this e-mail is already registered. Sign up again with another company e-mail.",
-         "company_phone_exists": "A company with this phone number is already registered. Sign up again with another phone number.",
+         "company_email_exists": "A company with this e-mail is already registered. Change the company e-mail and try again.",
+         "company_phone_exists": "A company with this phone number is already registered. Change the phone number and try again.",
          "plan_inactive": "This plan is no longer offered. Choose another one.",
          "generic": "The sign-up could not be completed. Try again."
-      }
+      },
+      "company_text": "These details create your company in the panel. Only you and the people you add can see them."
    },
    "invitation": {
       "title": "Join {provider}",
@@ -3536,5 +3541,9 @@
       "load_failed": "The invitation could not be loaded. Check your connection and try again.",
       "reload_needed": "Your company was created, but it is not in your list yet. Reload the page to continue.",
       "reload": "Reload"
+   },
+   "signed_in": {
+      "as": "Signed in as {email}.",
+      "not_you": "Not you? Sign out"
    }
 }

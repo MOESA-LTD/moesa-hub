@@ -43,8 +43,8 @@ type Opts = {
    undoFails?: boolean;
    /** The invitation is not in the caller's active tenant (the scoped read finds nothing). */
    invitationMissing?: boolean;
-   /** Clearing the accepter's pending self-signup (app_metadata) fails. */
-   clearFails?: boolean;
+   /** public.abandoned_signup's answer for the existing account (Task 11 M4); 'fails' errors. */
+   abandoned?: boolean | 'fails';
 };
 
 /** Answers what the provider-invitation function reads and writes. */
@@ -92,9 +92,9 @@ const backend = (opts: Opts = {}) => {
             return jsonResponse(
                url.pathname === '/auth/v1/otp' ? {} : { id: EXISTING, email: 'new@client.test' }
             );
-         case `/auth/v1/admin/users/${CALLER}`:
-            if (opts.clearFails) return jsonResponse({ code: 'unexpected_failure', msg: 'down' }, 500);
-            return jsonResponse({ id: CALLER });
+         case '/rest/v1/rpc/abandoned_signup':
+            if (opts.abandoned === 'fails') return jsonResponse({ code: '57014', message: 'canceling statement' }, 500);
+            return jsonResponse(opts.abandoned === true);
          case `/auth/v1/admin/users/${EXISTING}`:
             return jsonResponse({
                id: EXISTING,
@@ -470,46 +470,61 @@ Deno.test('accept needs no tenant right: a signed-in non-member is served', asyn
    assert(seen.some((s) => s.path === '/rest/v1/rpc/accept_provider_invitation'));
 });
 
-// Task 11: a pending self-signup (app_metadata.pending_company, maybe someone else's request for
-// this address) plays no part in acceptance and is forgotten once the invitation is accepted.
-const clears = (seen: { method: string; path: string; body: string }[]) =>
-   seen.filter((s) => s.path === `/auth/v1/admin/users/${CALLER}` && s.method === 'PUT').map((s) => JSON.parse(s.body));
-
-Deno.test('accept clears a pending self-signup of the accepter', async () => {
+// Task 11: acceptance never reads or writes the account; the database drops a pending self-signup.
+Deno.test('accept leaves the Auth account alone', async () => {
    const { seen, restore } = backend();
    try {
       assertEquals((await handler(request('/provider-invitation/accept', acceptBody))).status, 200);
    } finally {
       restore();
    }
-   assertEquals(clears(seen), [{ app_metadata: { pending_company: null } }]);
-   // Acceptance itself never reads it.
-   assert(!seen.some((s) => s.path === `/auth/v1/admin/users/${CALLER}` && s.method === 'GET'));
+   assert(!seen.some((s) => s.path.startsWith('/auth/v1/admin/')), 'no Auth admin call');
 });
 
-Deno.test('a refused accept leaves the account alone; a failed clear does not fail the accept', async () => {
-   {
-      const { seen, restore } = backend({ accept: { error: 'invitation_invalid' } });
-      try {
-         assertEquals((await respond(handler(request('/provider-invitation/accept', acceptBody)))).status, 404);
-      } finally {
-         restore();
-      }
-      assertEquals(clears(seen), []);
+// Task 11 M4: an abandoned self-signup squatting the address is released before the invitation.
+const adminCalls = (seen: { method: string; path: string }[]) =>
+   seen.filter((s) => s.path.startsWith('/auth/v1/admin/users/') || s.path === '/auth/v1/invite').map((s) => `${s.method} ${s.path}`);
+
+Deno.test('an abandoned self-signup is deleted, then the address is invited afresh', async () => {
+   const { seen, restore } = backend({ existingUser: true, unconfirmed: true, abandoned: true });
+   try {
+      assertEquals((await handler(request('/provider-invitation', createBody, [INSERT]))).status, 201);
+   } finally {
+      restore();
    }
-   const { restore } = backend({ clearFails: true });
-   let res!: Response;
-   const logs = await captureLogs(async () => {
+   const release = seen.find((s) => s.path === '/rest/v1/rpc/abandoned_signup')!;
+   assertEquals(JSON.parse(release.body), { p_user: EXISTING });
+   assertEquals(adminCalls(seen), [
+      `GET /auth/v1/admin/users/${EXISTING}`,
+      `DELETE /auth/v1/admin/users/${EXISTING}`,
+      'POST /auth/v1/invite'
+   ]);
+});
+
+Deno.test('a younger unconfirmed account is re-invited, not deleted; a failed check changes nothing', async () => {
+   for (const abandoned of [false, 'fails'] as const) {
+      const { seen, restore } = backend({ existingUser: true, unconfirmed: true, abandoned });
       try {
-         res = await handler(request('/provider-invitation/accept', acceptBody));
+         const logs = await captureLogs(async () => {
+            assertEquals((await handler(request('/provider-invitation', createBody, [INSERT]))).status, 201);
+         });
+         assert(!logs.includes(SECRET));
       } finally {
          restore();
       }
-   });
-   assertEquals(res.status, 200);
-   assertEquals(await res.json(), { tenant_id: 'NEW-TENANT' });
-   assert(logs.includes('pending'), 'the failure is logged');
-   assert(!logs.includes(SECRET));
+      assertEquals(adminCalls(seen), [`GET /auth/v1/admin/users/${EXISTING}`, 'POST /auth/v1/invite'], String(abandoned));
+   }
+});
+
+Deno.test('a confirmed account is never checked for release', async () => {
+   const { seen, restore } = backend({ existingUser: true });
+   try {
+      assertEquals((await handler(request('/provider-invitation', createBody, [INSERT]))).status, 201);
+   } finally {
+      restore();
+   }
+   assert(!seen.some((s) => s.path === '/rest/v1/rpc/abandoned_signup'));
+   assert(!seen.some((s) => s.method === 'DELETE'));
 });
 
 // ------------------------------------------------------------------------------------------

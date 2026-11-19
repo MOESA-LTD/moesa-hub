@@ -3,13 +3,14 @@
 //   POST /provider-invitation              { invitation, staff }   insert right   -> 201 { id }
 //   POST /provider-invitation/:id/resend   {}                      update right   -> 200 { id }
 //   POST /provider-invitation/accept       { token, company, plan_id }  signed in -> 200 { tenant_id }
-//                                          (clears a pending self-signup of the account, Task 11)
+//                                          (drops a pending self-signup of the account, Task 11)
 //
 // The token is the invitation's only credential: it is minted by the database, mailed as a link
 // through Supabase Auth and then forgotten. It is never returned, logged or passed to an error.
 // Create and resend act for the caller (p_actor = the caller, the audit actor too, F27). Accept
 // serves a customer who is not a member of any tenant yet: no tenant or right is checked, but the
 // user is the verified token's, never the body's (F1).
+import { releaseAbandonedSignup } from '../_shared/abandonedSignup.ts';
 import { authenticate, withAuthorization } from '../_shared/auth.ts';
 import { z } from '../_shared/deps.ts';
 import { HttpError, json, namedRefusal, serve } from '../_shared/http.ts';
@@ -84,7 +85,18 @@ const invitationService = (actorId: string) => {
 
       const { data, error } = await db.auth.admin.getUserById(account.id);
       if (error) throw error;
-      return !!data.user?.email_confirmed_at;
+      if (data.user?.email_confirmed_at) return true;
+
+      // An abandoned self-signup squatting the address (Task 11 M4) is released first, so the
+      // invitation creates the account afresh; a younger one is simply re-invited (its pending
+      // sign-up is dropped on acceptance). A failed release changes nothing: the re-invite works.
+      try {
+         await releaseAbandonedSignup(db, account.id);
+      } catch (release) {
+         const { status, code } = (release ?? {}) as { status?: number; code?: string };
+         console.error('provider-invitation: releasing an abandoned sign-up failed', status, code);
+      }
+      return false;
    };
 
    /**
@@ -207,15 +219,6 @@ export const acceptInvitation = async (req: Request) => {
    // Neither a refusal nor a tenant: the function broke its contract. A plain 500 (errorResponse
    // logs this message, which names no input).
    if (!result.tenant_id) throw new Error('accept_provider_invitation returned no tenant');
-
-   // A self-signup pending on this account (app_metadata.pending_company, create-account, Task 11)
-   // may be someone else's request for this address; acceptance never reads it, and once the
-   // account owns this company it is forgotten. A failure is only logged: completion refuses an
-   // account that owns a company anyway (complete_signup).
-   const { error: clear } = await db.auth.admin.updateUserById(userId, {
-      app_metadata: { pending_company: null }
-   });
-   if (clear) console.error('provider-invitation: clearing a pending sign-up failed', clear.status, clear.code);
 
    return json({ tenant_id: result.tenant_id });
 };

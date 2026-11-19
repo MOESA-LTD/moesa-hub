@@ -722,7 +722,9 @@
       "tenant_has_provider_relationship": "This company is the client of a provider relationship. The provider must end the relationship first.",
       "signup_closed": "Sign-up is closed. New companies join through an invitation from their provider.",
       "signup_unconfirmed": "Your e-mail address is not confirmed yet. Open the link we e-mailed you.",
-      "signup_completed": "This account has already created its company."
+      "signup_completed": "This account has already created its company.",
+      "signup_payload_invalid": "Some details were not accepted. Check the form and try again.",
+      "signup_not_pending": "There is no sign-up waiting for this account."
    },
    "route": {
       "label": {
@@ -3513,7 +3515,8 @@
          "to_dashboard": "Go to the panel",
          "steps": {
             "account": "Password",
-            "plan": "Plan"
+            "plan": "Plan",
+            "company": "Company"
          },
          "plan_title": "Choose a plan",
          "plan_text": "Compare what each plan includes. You can change the plan later.",
@@ -3522,7 +3525,9 @@
          "action": "Create my company",
          "loading": "Loading the plans...",
          "reload_needed": "Your company was created, but it is not listed yet. Reload the page to open it.",
-         "reload": "Reload"
+         "reload": "Reload",
+         "link_expired": "This link has expired — sign up again to get a new one.",
+         "sign_up_again": "Sign up again"
       },
       "error": {
          "signup_closed": "Sign-up is closed at the moment. Ask your provider for an invitation.",
@@ -3534,6 +3539,11 @@
          "company_phone_exists": "A company with this phone number is already registered. Sign up again with another phone number.",
          "plan_inactive": "This plan is no longer offered. Choose another one.",
          "generic": "The sign-up could not be completed. Try again."
-      }
+      },
+      "company_text": "These details create your company in the panel. Only you and the people you add can see them."
+   },
+   "signed_in": {
+      "as": "Signed in as {email}.",
+      "not_you": "Not you? Sign out"
    }
 }

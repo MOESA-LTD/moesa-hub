@@ -387,7 +387,9 @@
       "logo_size": "",
       "signup_closed": "",
       "signup_unconfirmed": "",
-      "signup_completed": ""
+      "signup_completed": "",
+      "signup_payload_invalid": "",
+      "signup_not_pending": ""
    },
    "route": {
       "label": {
@@ -694,6 +696,7 @@
          "to_dashboard": "",
          "steps": {
             "account": "",
+            "company": "",
             "plan": ""
          },
          "plan_title": "",
@@ -703,7 +706,9 @@
          "action": "",
          "loading": "",
          "reload_needed": "",
-         "reload": ""
+         "reload": "",
+         "link_expired": "",
+         "sign_up_again": ""
       },
       "error": {
          "signup_closed": "",
@@ -715,6 +720,11 @@
          "company_phone_exists": "",
          "plan_inactive": "",
          "generic": ""
-      }
+      },
+      "company_text": ""
+   },
+   "signed_in": {
+      "as": "",
+      "not_you": ""
    }
 }

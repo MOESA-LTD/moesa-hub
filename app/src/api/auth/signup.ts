@@ -4,7 +4,8 @@ import { supabase } from '@/lib/supabase';
 
 // Verify-first self-signup (supabase/functions/create-account, Task 11). The register page sends
 // the e-mail and the company; the mailed link opens /register/complete signed in, where the new
-// owner sets a password, chooses a plan and completes: only then is the company created.
+// owner sets a password, confirms or edits the company, chooses a plan and completes: only then is
+// the company created. The sign-up waits server side (private.pending_signup), never in the token.
 
 /** A refusal of create-account named by its code (signup_closed, signup_throttled, ...). */
 export class SignupError extends Error {
@@ -20,31 +21,33 @@ export const named = async (error: unknown) => {
    return refusal ? new SignupError(refusal.code) : error;
 };
 
-/** What waits in the account's app_metadata until the sign-up is completed. */
+/** What the sign-up asked for: the completion page's defaults. */
 export type PendingSignup = {
    company: Record<string, string>;
-   plan_id?: string | null;
+   plan_id: string | null;
 };
 
 /**
- * The company the account asked for at sign-up, from app_metadata (which only the server writes),
- * never from user_metadata; null when nothing waits.
+ * The company and plan waiting for the signed-in account. Refusals (signup_not_pending,
+ * signup_unconfirmed, signup_closed) are thrown as a SignupError.
  */
-export function pendingSignup(
-   user:
-      | { app_metadata?: Record<string, unknown> | null; user_metadata?: unknown }
-      | null
-      | undefined
-): PendingSignup | null {
-   const pending = user?.app_metadata?.pending_company as PendingSignup | null | undefined;
-   return pending && typeof pending === 'object' && pending.company ? pending : null;
+export async function fetchPendingSignup(): Promise<PendingSignup> {
+   const { data, error } = await supabase.functions.invoke<PendingSignup>(
+      'create-account/complete',
+      { method: 'GET' }
+   );
+   if (error) throw await named(error);
+   return { company: data?.company ?? {}, plan_id: data?.plan_id ?? null };
 }
 
-/** Creates the company that waits for the signed-in account, on `planId` (null: the default). */
-export async function completeSignup(planId: string | null) {
+/**
+ * Creates the company waiting for the signed-in account, as the owner confirmed or edited it
+ * (`company`, the allowlisted keys), on `planId` (null: the default plan).
+ */
+export async function completeSignup(planId: string | null, company: Record<string, string>) {
    const { data, error } = await supabase.functions.invoke<{
       tenant: { id: string; display_name: string };
-   }>('create-account/complete', { method: 'POST', body: { plan_id: planId } });
+   }>('create-account/complete', { method: 'POST', body: { company, plan_id: planId } });
    if (error) throw await named(error);
    return data as { tenant: { id: string; display_name: string } };
 }
