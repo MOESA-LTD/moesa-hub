@@ -1,0 +1,17 @@
+{
+   "about": "Over-budget reads of pnpm perf:fields that are accepted: the script prints them and exits 0. Any other over-budget read still fails it. Match: actor and query exactly as the result table names them. Remove an entry when its read is back within budget or no longer accepted.",
+   "exceptions": [
+      {
+         "actor": "internal",
+         "query": "Q3 count",
+         "reason": "A full-table aggregate: count(*) over api.product evaluates the masking for every row of the table, a fixed per-row cost no index avoids. Internal staff do not page through unfiltered counts on the hot path.",
+         "accepted": "Plan 3 Task 17 perf run (R10): within budget on the run, kept as an accepted exception because it sits at the edge (+12.9%)."
+      },
+      {
+         "actor": "internal",
+         "query": "Q4 sum(price) per tenant",
+         "reason": "A full-table aggregate: sum(purchase_price) per tenant over api.sourcing pays the masking on every row it sums, a fixed per-row cost no index avoids.",
+         "accepted": "Plan 3 Task 17 perf run (R10): the only OVER row (+16.1% / +10.9 ms against max(+15%, +5 ms)), accepted as an internal full-table aggregate."
+      }
+   ]
+}

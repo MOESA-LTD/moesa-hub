@@ -2,13 +2,16 @@
 // supabase/perf/field_security_perf.sql (with field_security_perf_load.sql inlined at its \ir
 // line) to psql in the local database container, as seed-story.mjs does, and prints the table.
 // The script runs inside BEGIN … ROLLBACK and raises 'budget: …' when a ratio is over budget, so
-// the exit code is the verdict. Local only: it refuses any container but the local stack's.
+// the exit code is the verdict, but for the reads on supabase/perf/accepted_exceptions.json: those
+// are printed and pass (perf-exceptions.mjs); any other over-budget read still fails the run.
+// Local only: it refuses any container but the local stack's.
 //
 // Run from app/: pnpm perf:fields
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readExceptions, verdict } from './perf-exceptions.mjs';
 
 const CONTAINER = 'supabase_db_moesa-panel';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,4 +39,14 @@ if (result.error) throw result.error;
 process.stdout.write(result.stdout);
 if (result.stderr.trim()) process.stderr.write(result.stderr);
 console.log(`(${((Date.now() - started) / 1000).toFixed(1)} s)`);
-process.exit(result.status ?? 1);
+const { code, accepted, failing } = verdict(
+   result.status,
+   `${result.stdout}
+${result.stderr}`,
+   readExceptions(path.join(PERF_DIR, 'accepted_exceptions.json'))
+);
+for (const r of accepted) {
+   console.log(`accepted exception: ${r.actor} ${r.query} (${r.api_ms} ms vs ${r.base_ms} ms): ${r.reason}`);
+}
+for (const r of failing) console.error(`over budget: ${r.actor} ${r.query} (${r.api_ms} ms vs ${r.base_ms} ms)`);
+process.exit(code);
