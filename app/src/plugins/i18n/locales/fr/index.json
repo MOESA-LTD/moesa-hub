@@ -49,12 +49,12 @@
          "title": "Bienvenue",
          "text": "Bienvenue dans le panneau de gestion",
          "headline": "Du fabricant au rayon, dans un seul panneau",
-         "lead": "Fournisseurs, contrôles qualité, expéditions et annonces Amazon se retrouvent dans les mêmes fiches.",
+         "lead": "Fournisseurs, contrôles qualité, expéditions et annonces sur les marketplaces se retrouvent dans les mêmes fiches.",
          "route": {
             "label": "Parcours du produit du fabricant à la marketplace",
             "gate": "Contrôle qualité",
             "shipment": "Expédition",
-            "marketplace": "Amazon EU"
+            "marketplace": "Marketplaces"
          },
          "no_account": "Pas encore de compte ?",
          "have_account": "Vous avez déjà un compte ?"

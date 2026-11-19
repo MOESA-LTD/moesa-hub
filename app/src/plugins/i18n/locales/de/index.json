@@ -49,12 +49,12 @@
          "title": "Willkommen",
          "text": "Willkommen im Verwaltungsbereich",
          "headline": "Vom Hersteller ins Regal, in einem Panel",
-         "lead": "Lieferanten, Qualitätsschranken, Sendungen und Amazon-Listings treffen sich in denselben Datensätzen.",
+         "lead": "Lieferanten, Qualitätsschranken, Sendungen und Marktplatz-Listings treffen sich in denselben Datensätzen.",
          "route": {
             "label": "Produktweg vom Hersteller zum Marktplatz",
             "gate": "Qualitätsschranke",
             "shipment": "Sendung",
-            "marketplace": "Amazon EU"
+            "marketplace": "Marktplätze"
          },
          "no_account": "Noch kein Konto?",
          "have_account": "Schon ein Konto?"

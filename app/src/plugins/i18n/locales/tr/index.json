@@ -935,12 +935,12 @@
          "title": "Hoş geldiniz",
          "text": "Yönetim paneline hoş geldiniz",
          "headline": "Üreticiden rafa, tek panelde",
-         "lead": "Tedarikçiler, kalite kapıları, sevkiyatlar ve Amazon listelemeleri aynı kayıtlarda buluşur.",
+         "lead": "Tedarikçiler, kalite kapıları, sevkiyatlar ve pazaryeri listelemeleri aynı kayıtlarda buluşur.",
          "route": {
             "label": "Ürünün üreticiden pazaryerine yolu",
             "gate": "Kalite kapısı",
             "shipment": "Sevkiyat",
-            "marketplace": "Amazon EU"
+            "marketplace": "Pazaryerleri"
          },
          "no_account": "Hesabınız yok mu?",
          "have_account": "Zaten hesabınız var mı?"

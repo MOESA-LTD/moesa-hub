@@ -3,6 +3,10 @@ import { useSignupOpen } from '@/api/platformSetting';
 
 // The sign-in page offers sign-up only while the platform has it open (decision 17).
 const { open: signupOpen } = useSignupOpen();
+const route = useRoute();
+const isLoginOrRegister = computed(() =>
+   ['auth-login', 'auth-register'].includes(String(route.name))
+);
 
 // The route the panel serves: makers in three countries, one quality gate, shipment, the shelf.
 const makers = [
@@ -37,13 +41,6 @@ const stops = [
                role="img"
                :aria-label="$t('auth.welcome.route.label')"
             >
-               <defs>
-                  <radialGradient id="auth-shelf-glow">
-                     <stop offset="0" class="auth__glow-core" />
-                     <stop offset="1" class="auth__glow-edge" />
-                  </radialGradient>
-               </defs>
-               <circle cx="620" cy="140" r="150" fill="url(#auth-shelf-glow)" />
                <g class="auth__lines" fill="none">
                   <path
                      v-for="(maker, i) in makers"
@@ -83,44 +80,10 @@ const stops = [
                   />
                </g>
             </svg>
-
-            <RouterLink
-               v-if="$route.name != 'auth-login' || signupOpen"
-               custom
-               :to="{
-                  name: $route.name == 'auth-login' ? 'auth-register' : 'auth-login',
-                  replace: true
-               }"
-               v-slot="{ href, navigate }"
-            >
-               <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <span
-                     class="auth__lead"
-                     v-text="
-                        $route.name == 'auth-login'
-                           ? $t('auth.welcome.no_account')
-                           : $t('auth.welcome.have_account')
-                     "
-                  />
-                  <Button
-                     as="a"
-                     :data-signup-link="$route.name == 'auth-login' ? '' : undefined"
-                     :href="href"
-                     @click="navigate"
-                     :label="
-                        $route.name == 'auth-login'
-                           ? $t('route.label.register')
-                           : $t('route.label.login')
-                     "
-                     variant="outlined"
-                     class="auth__switch"
-                  />
-               </div>
-            </RouterLink>
          </section>
 
          <section class="auth__form flex items-start md:items-center justify-center p-8 md:p-12">
-            <div class="w-full max-w-[26rem] flex">
+            <div class="w-full max-w-[26rem] flex flex-col gap-6">
                <CustomRouteView
                   :transitionProps="{
                      class: 'transition-[opacity,transform] duration-[calc(var(--transition-duration))]',
@@ -128,6 +91,43 @@ const stops = [
                      leaveToClass: 'opacity-0 -translate-y-2'
                   }"
                />
+
+               <!-- Sign in ⇄ sign up, under the form. Only while sign-up is open: when it is
+                    closed the register page offers its own way back to sign-in. -->
+               <RouterLink
+                  v-if="signupOpen && isLoginOrRegister"
+                  custom
+                  :to="{
+                     name: $route.name == 'auth-login' ? 'auth-register' : 'auth-login',
+                     replace: true
+                  }"
+                  v-slot="{ href, navigate }"
+               >
+                  <p
+                     class="m-0 flex flex-wrap items-center justify-center gap-x-1 text-muted-color"
+                  >
+                     <span
+                        v-text="
+                           $route.name == 'auth-login'
+                              ? $t('auth.welcome.no_account')
+                              : $t('auth.welcome.have_account')
+                        "
+                     />
+                     <Button
+                        as="a"
+                        variant="link"
+                        class="!px-1"
+                        :data-signup-link="$route.name == 'auth-login' ? '' : undefined"
+                        :href="href"
+                        @click="navigate"
+                        :label="
+                           $route.name == 'auth-login'
+                              ? $t('route.label.register')
+                              : $t('route.label.login')
+                        "
+                     />
+                  </p>
+               </RouterLink>
             </div>
          </section>
       </div>
@@ -142,14 +142,16 @@ const stops = [
    border: 1px solid var(--p-content-border-color);
 }
 
-// Map panel in the theme's primary: a pale chart by day, a night map in dark mode; a faint dot
-// grid, and the route's end glows.
+// Map panel in the theme's primary (by default MOESA's): pale blue by day, navy in dark mode, a
+// faint dot grid. The makers' lines are the lighter tone (the mark's cyan), the trunk the
+// stronger one (its blue). No glow: the MOESA design system has none.
 .auth__welcome {
    --ink: var(--p-primary-50);
-   --line: var(--p-primary-600);
-   --text: var(--p-primary-950);
-   --dot: color-mix(in srgb, var(--p-primary-400) 35%, transparent);
-   --glow: 0.22;
+   --branch: var(--p-primary-400);
+   --line: var(--p-primary-500);
+   --end: var(--p-primary-500);
+   --text: var(--p-primary-900);
+   --dot: color-mix(in srgb, var(--p-primary-400) 30%, transparent);
 
    overflow: hidden;
    color: var(--text);
@@ -160,21 +162,12 @@ const stops = [
 
 // (Not `:global(.dark) …`: in a scoped block that compiles to a bare `.dark` rule.)
 .auth__welcome:where(.dark *) {
-   --ink: var(--p-primary-950);
-   --line: var(--p-primary-400);
+   --ink: var(--p-primary-900);
+   --branch: var(--p-primary-400);
+   --line: var(--p-primary-300);
+   --end: var(--p-surface-0);
    --text: var(--p-surface-0);
-   --dot: color-mix(in srgb, var(--p-primary-200) 16%, transparent);
-   --glow: 0.35;
-}
-
-.auth__glow-core {
-   stop-color: var(--p-primary-500);
-   stop-opacity: var(--glow);
-}
-
-.auth__glow-edge {
-   stop-color: var(--p-primary-500);
-   stop-opacity: 0;
+   --dot: color-mix(in srgb, var(--p-primary-200) 14%, transparent);
 }
 
 .auth__headline {
@@ -191,15 +184,6 @@ const stops = [
    max-width: 32em;
 }
 
-.auth__switch {
-   color: var(--text);
-   border-color: color-mix(in srgb, var(--text) 45%, transparent);
-
-   &:hover {
-      background: color-mix(in srgb, var(--text) 10%, transparent);
-   }
-}
-
 .auth__route {
    overflow: visible;
 
@@ -210,20 +194,20 @@ const stops = [
 }
 
 .auth__lines path {
-   stroke: color-mix(in srgb, var(--line) 70%, transparent);
-   stroke-width: 2;
+   stroke: var(--branch);
+   stroke-width: 2.5;
    stroke-dasharray: 1;
    stroke-dashoffset: 0;
 }
 
 .auth__lines .auth__trunk {
    stroke: var(--line);
-   stroke-width: 3;
+   stroke-width: 4;
 }
 
 .auth__origin {
    fill: var(--ink);
-   stroke: var(--line);
+   stroke: var(--branch);
    stroke-width: 2;
 }
 
@@ -239,7 +223,7 @@ const stops = [
 }
 
 .auth__stop--end {
-   fill: var(--text);
+   fill: var(--end);
    stroke: var(--line);
 }
 
