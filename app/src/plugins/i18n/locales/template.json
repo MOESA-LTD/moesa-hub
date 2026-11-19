@@ -252,6 +252,7 @@
       "audit_already_reverted": "",
       "transfer_report_stale": "",
       "transfer_move_would_lose_data": "",
+      "transfer_target_plan_lacks_module": "",
       "audit_conflict": "",
       "access_denied": "",
       "confirmation_required": "",

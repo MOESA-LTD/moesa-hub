@@ -315,6 +315,7 @@
       "transfer_package_invalid": "The transfer could not be prepared. Please contact support.",
       "transfer_report_stale": "The products changed since the preview. Review the transfer again.",
       "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "The target company's plan does not include a module these products carry (for example, the market matrix). Upgrade its plan, or transfer products without such data.",
       "avatar_type": "The photo must be a PNG, JPEG or WebP image.",
       "avatar_size": "The photo must be at most 1 MB.",
       "access_denied": "Access denied",

@@ -157,6 +157,7 @@
       "transfer_package_invalid": "Aktarım hazırlanamadı. Lütfen destekle iletişime geçin.",
       "transfer_report_stale": "Ürünler önizlemeden sonra değişti. Aktarımı yeniden gözden geçirin.",
       "transfer_move_would_lose_data": "Müşterinize taşıma, tedarikçi belgelerini, kısıtlı dosyaları veya iç notları dışarıda bırakırdı. Bunun yerine kopyalayın: kaynak her şeyi korur.",
+      "transfer_target_plan_lacks_module": "Hedef şirketin planı, bu ürünlerin taşıdığı bir modülü içermiyor (örneğin pazar matrisi). Planını yükseltin ya da bu verisi olmayan ürünleri aktarın.",
       "avatar_type": "Fotoğraf PNG, JPEG ya da WebP olmalı.",
       "avatar_size": "Fotoğraf en fazla 1 MB olmalı.",
       "access_denied": "Erişim reddedildi",

@@ -27,7 +27,9 @@
 --                         left between the two are valid whenever the old and the new set are.
 --
 -- Downgrading keeps the data: a module outside the plan is read-locked by RLS (entitlements, 013)
--- and its pages show as locked; moving back up shows it again.
+-- and its pages show as locked; moving back up shows it again. A transfer does not put data where
+-- it would be locked: public.transfer_products (073) refuses a package with rows of a module the
+-- target's plan lacks (transfer_target_plan_lacks_module), in the rehearsal and in the run.
 
 -- 1. Requirements.
 ALTER TABLE public.module

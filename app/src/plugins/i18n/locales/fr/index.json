@@ -661,7 +661,8 @@
       "transfer_products_invalid": "Select products of one company in the source.",
       "transfer_not_found": "Transfer not found.",
       "signup_unconfigured": "Sign-up is not set up on this server yet.",
-      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything."
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "La formule de l'entreprise cible n'inclut pas un module dont ces produits portent des données (par exemple, la matrice des marchés). Passez-la à une formule supérieure ou transférez des produits sans ces données."
    },
    "account": {
       "profile": {
