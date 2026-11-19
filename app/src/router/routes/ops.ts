@@ -350,8 +350,37 @@ const routes: RouteRecordRaw[] = [
                ]
             },
             component: CustomRouteView,
-            redirect: { name: 'ops-client-invitations' },
+            redirect: { name: 'ops-client-list' },
             children: [
+               {
+                  path: 'list',
+                  name: 'ops-client-list',
+                  meta: {
+                     label: 'route.label.ops_client_list',
+                     icon: PrimeIcons.LIST,
+                     requiredPermissions: [{ action: 'select', subject: 'provider_relationship' }]
+                  },
+                  components: {
+                     default: () => import('@/views/pages/ops/client/Index.vue'),
+                     skeleton: () => import('@/views/pages/ops/client/Index.vue')
+                  }
+               },
+               {
+                  // One relationship, from either side; the page decides what each side may edit.
+                  path: ':id/manage',
+                  name: 'ops-client-manage',
+                  props: true,
+                  meta: {
+                     label: 'route.label.ops_client_manage',
+                     icon: PrimeIcons.USERS,
+                     visible: false,
+                     requiredPermissions: [{ action: 'select', subject: 'provider_relationship' }]
+                  },
+                  components: {
+                     default: () => import('@/views/pages/ops/client/Manage.vue'),
+                     skeleton: () => import('@/views/pages/ops/client/Manage.vue')
+                  }
+               },
                {
                   path: 'invitations',
                   name: 'ops-client-invitations',

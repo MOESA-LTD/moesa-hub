@@ -1,12 +1,15 @@
-import { defineResource } from '@/api/defineResource';
+import { defineResource, type ResourceInput } from '@/api/defineResource';
 import { useFormTenant } from '@/api/formTenant';
-import { queryKeys } from '@/api/queryKeys';
+import { invalidateTables, queryKeys } from '@/api/queryKeys';
 import { useLookup } from '@/api/useLookup';
 import { useTenantKey } from '@/api/useTenantKey';
+import { dateOnly, optional, parseDateOnly, website } from '@/lib/form/fields';
 import { publicSchema, supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
-import { useQuery } from '@tanstack/vue-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
+import * as z from 'zod';
+import { COMMERCIAL_MODELS, CONTRACT_STATUSES, PACKAGES } from './constants';
 
 export * from './constants';
 
@@ -203,3 +206,79 @@ export function useProviderNames() {
       enabled: computed(() => !!tenantKey.value)
    });
 }
+
+/** Which side of a relationship the active tenant is: the provider owns the row, else it is the client. */
+export const relationshipSide = (
+   row: Pick<RelationshipRow, 'tenant_id'>,
+   activeTenantId: string | null | undefined
+): 'provider' | 'client' => (row.tenant_id === activeTenantId ? 'provider' : 'client');
+
+/**
+ * The procurement models a relationship may be set to. Only an invitation starts a relationship as
+ * provider-procured: the database refuses client to provider (procurement_model_widen_forbidden),
+ * so a client-procured one offers its own value alone.
+ */
+export const procurementModelChoices = (current: ProcurementModel): ProcurementModel[] =>
+   current === 'provider' ? ['provider', 'client'] : ['client'];
+
+/**
+ * Ends a relationship, for good: no new shared orders or shipments; everything shared before stays
+ * and no membership changes. The provider side or the client's owner may end it (the database
+ * decides: relationship_end_forbidden).
+ */
+export const endRelationship = async (id: string) => {
+   await publicSchema.rpc('end_provider_relationship', { relationship_id: id }).throwOnError();
+};
+
+export function useEndRelationship() {
+   const queryClient = useQueryClient();
+   return useMutation({
+      mutationFn: endRelationship,
+      onSuccess: () => invalidateTables(queryClient, ['provider_relationship'])
+   });
+}
+
+const text = () => optional(z.string().trim());
+
+/** What the provider side edits of a relationship: its contract terms, procurement model and notes. */
+export const relationshipSchema = z.object({
+   id: z.string().optional(),
+   procurement_model: z.enum(['client', 'provider']),
+   commercial_model: z.enum(COMMERCIAL_MODELS).nullable(),
+   packages: z.array(z.enum(PACKAGES)),
+   contract_status: z.enum(CONTRACT_STATUSES),
+   start_on: optional(dateOnly()),
+   deposit_rate: z.number().min(0).max(100).nullable(),
+   extra_cost_rule: text(),
+   eu_responsible_person: text(),
+   notes: text(),
+   restricted_drive_url: optional(website())
+});
+
+export type RelationshipFormValues = z.input<typeof relationshipSchema>;
+
+export const toRelationshipFormValues = (
+   row?: Partial<RelationshipRow> | null
+): RelationshipFormValues => ({
+   id: row?.id ?? undefined,
+   procurement_model: row?.procurement_model ?? 'client',
+   commercial_model: row?.commercial_model ?? null,
+   packages: (row?.packages ?? []) as (typeof PACKAGES)[number][],
+   contract_status: row?.contract_status ?? 'onboarding',
+   start_on: parseDateOnly(row?.start_on),
+   deposit_rate: row?.deposit_rate ?? null,
+   extra_cost_rule: row?.extra_cost_rule ?? '',
+   eu_responsible_person: row?.eu_responsible_person ?? '',
+   notes: row?.notes ?? '',
+   restricted_drive_url: row?.restricted_drive_url ?? ''
+});
+
+/** The row to save; empty fields as null. The companies, code and status are never sent. */
+export const toRelationshipPayload = ({
+   id,
+   ...terms
+}: z.output<typeof relationshipSchema>): ResourceInput<'provider_relationship'> =>
+   ({
+      ...(id ? { id } : {}),
+      ...Object.fromEntries(Object.entries(terms).map(([key, value]) => [key, value ?? null]))
+   }) as ResourceInput<'provider_relationship'>;
