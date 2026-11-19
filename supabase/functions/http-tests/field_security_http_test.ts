@@ -287,14 +287,22 @@ t('user Edge Function refuses another user\'s personal-data write', async () => 
       console.log(`SKIP: the user Edge Function is not served (${probe.status}); run supabase functions serve`);
       return;
    }
-   const r = await fetch(`${API_URL}/functions/v1/user/${f.koordinatorUserId}`, {
-      method: 'PUT',
-      headers: { apikey: ANON_KEY, Authorization: `Bearer ${f.restricted}`, 'x-tenant-id': f.moesa, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_metadata: { display_name: 'pwned' } }),
-   });
-   const body = await r.json().catch(() => null);
-   assertEquals(r.status, 403, JSON.stringify(body));
-   assertEquals(body?.error ?? body?.code ?? body?.message, 'field_write_forbidden', JSON.stringify(body));
+   const put = async (id: string) => {
+      const r = await fetch(`${API_URL}/functions/v1/user/${id}`, {
+         method: 'PUT',
+         headers: { apikey: ANON_KEY, Authorization: `Bearer ${f.restricted}`, 'x-tenant-id': f.moesa, 'Content-Type': 'application/json' },
+         body: JSON.stringify({ user_metadata: { display_name: 'pwned' } }),
+      });
+      const body = await r.json().catch(() => null);
+      return { status: r.status, key: body?.error ?? body?.code ?? body?.message, text: JSON.stringify(body) };
+   };
+   // An account of MOESA LTD's company alone: the field write right decides.
+   const own = await put(f.mixedUserId);
+   assertEquals([own.status, own.key], [403, 'field_write_forbidden'], own.text);
+   // koordinator is also a member of the client THO: a profile another company relies on is
+   // refused before any right is checked (Plan 3, Task 6).
+   const shared = await put(f.koordinatorUserId);
+   assertEquals([shared.status, shared.key], [403, 'user_profile_shared'], shared.text);
 });
 
 t('teardown', async () => {

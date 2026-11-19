@@ -132,6 +132,8 @@ export type Fixture = {
    poId: string;
    lineId: string;
    restrictedUserId: string;
+   /** http-mixed: MOESA LTD and its branch MOESA Europe only, so no other company shares the account. */
+   mixedUserId: string;
    koordinatorUserId: string;
    piObject: string;
    /** A MOESA LTD supplier (TR1 by code order). */
@@ -502,6 +504,7 @@ export async function adminSetup(): Promise<Fixture> {
       poId,
       lineId,
       restrictedUserId,
+      mixedUserId,
       koordinatorUserId,
       piObject,
       supplierId,
@@ -783,6 +786,234 @@ async function sharedSetup(x: {
 
 export async function adminTeardown(_f: Fixture | undefined): Promise<void> {
    await cleanup();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Invitation onboarding (Plan 3, Task 7). A provider tenant of its own per run (the 50-a-day
+// invitation cap is per provider tenant, and a run must not starve the next one), its owner and
+// staff, and invitees created per test (the accept throttle is per user). Everything is named
+// http-inv-* / HTTP Inv * and removed by name.
+
+/** The local mail catcher (Inbucket), where Supabase Auth delivers the invitation mails. */
+export const INBUCKET_URL = (Deno.env.get('INBUCKET_URL') ?? 'http://127.0.0.1:54324').replace(/\/$/, '');
+if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(INBUCKET_URL)) throw new Error('INBUCKET_URL must be local');
+
+const INV_PREFIX = 'http-inv-';
+const INV_DOMAIN = '@moesa-panel.test';
+const INV_TENANT_PREFIX = 'HTTP Inv ';
+export const invEmail = (tag: string) => `${INV_PREFIX}${tag}${INV_DOMAIN}`;
+
+/** A request to an Edge Function as the bearer of `token` (the anon key when null). */
+export async function edge(
+   token: string | null,
+   path: string,
+   init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<RestResult> {
+   const r = await fetch(`${API_URL}/functions/v1/${path}`, {
+      method: init.method ?? 'POST',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${token ?? ANON_KEY}`, 'Content-Type': 'application/json', ...init.headers },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+   });
+   return { status: r.status, body: await readBody(r), headers: r.headers };
+}
+
+const inbucket = (path: string, init: RequestInit = {}) => fetch(`${INBUCKET_URL}/api/v1/mailbox/${path}`, init);
+const mailbox = (email: string) => encodeURIComponent(email.split('@')[0]);
+
+/** The number of mails in the address's mailbox. */
+export async function mailCount(email: string): Promise<number> {
+   const r = await inbucket(mailbox(email));
+   const list = r.ok ? ((await r.json()) as unknown[]) : (await r.body?.cancel(), []);
+   return list.length;
+}
+
+/**
+ * The newest mail to `email` once there are more than `after`: its Auth verify link and the
+ * invitation token carried in its redirect_to (SITE_URL/invitation/<token>). Polls up to 10 s.
+ */
+export async function mailedInvitation(email: string, after = 0): Promise<{ verifyUrl: string; token: string }> {
+   for (let i = 0; i < 50; i++) {
+      const r = await inbucket(mailbox(email));
+      const list = r.ok ? ((await r.json()) as { id: string; date: string }[]) : (await r.body?.cancel(), []);
+      if (list.length > after) {
+         const newest = list.sort((a, b) => Date.parse(b.date) - Date.parse(a.date))[0];
+         const m = await (await inbucket(`${mailbox(email)}/${newest.id}`)).json();
+         const text = `${m.body?.html ?? ''}\n${m.body?.text ?? ''}`.replaceAll('&amp;', '&');
+         const link = text.match(/https?:\/\/[^\s"'<>]+\/auth\/v1\/verify\?[^\s"'<>]+/)?.[0];
+         if (!link) throw new Error(`the mail to ${email} carries no verify link`);
+         const redirect = new URL(link).searchParams.get('redirect_to') ?? '';
+         const match = redirect.match(/\/invitation\/([^/?#]+)$/);
+         if (!match) throw new Error(`the mail to ${email} does not link to an invitation (is /invitation/** an Auth redirect URL? restart the stack)`);
+         return { verifyUrl: link, token: decodeURIComponent(match[1]) };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+   }
+   throw new Error(`no mail reached ${email}`);
+}
+
+/** Follows the mailed Auth link as the browser would: the session it signs the user in with. */
+export async function followVerifyLink(verifyUrl: string): Promise<{ access: string; refresh: string }> {
+   const r = await fetch(verifyUrl, { redirect: 'manual' });
+   await r.body?.cancel();
+   const location = r.headers.get('location') ?? '';
+   const params = new URLSearchParams(location.split('#')[1] ?? '');
+   const access = params.get('access_token');
+   const refresh = params.get('refresh_token');
+   if (!access || !refresh) throw new Error(`the verify link signed nobody in (${r.status}, ${params.get('error_code') ?? 'no session'})`);
+   return { access, refresh };
+}
+
+/** A fresh access token for the session (its claims read the memberships anew). */
+export async function refreshSession(refresh: string): Promise<string> {
+   const r = await fetch(`${API_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+   });
+   const body = await r.json();
+   if (!r.ok || !body.access_token) throw new Error(`refresh failed: ${r.status}`);
+   return body.access_token;
+}
+
+/** Every account in GoTrue with this e-mail (admin API). */
+export async function authUsersWithEmail(email: string): Promise<number> {
+   let found = 0;
+   for (let page = 1; ; page++) {
+      const r = await authAdmin(`users?page=${page}&per_page=500`, 'GET');
+      if (r.status >= 400) throw new Error(`listing auth users: ${r.status}`);
+      const users = (r.body?.users ?? []) as { email?: string }[];
+      found += users.filter((u) => u.email?.toLowerCase() === email.toLowerCase()).length;
+      if (users.length < 500) return found;
+   }
+}
+
+/** An account's user_metadata, from GoTrue. */
+export async function authUserMetadata(id: string): Promise<Record<string, unknown>> {
+   const r = await authAdmin(`users/${id}`, 'GET');
+   if (r.status >= 400) throw new Error(`reading user ${id}: ${r.status}`);
+   return r.body.user_metadata ?? {};
+}
+
+async function invitationCleanup(): Promise<void> {
+   const tenants = (await admin(`tenant?display_name=like.${encodeURIComponent(INV_TENANT_PREFIX)}*&select=id,display_name`)).body as {
+      id: string;
+      display_name: string;
+   }[];
+   const users = (await admin(`user?email=like.${INV_PREFIX}*&select=id,email`)).body as { id: string; email: string }[];
+   for (const { id } of users) {
+      await admin(`user_role?user_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`tenant_owner?user_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`tenant_user?user_id=eq.${id}`, { method: 'DELETE' });
+   }
+   // Clients first: a tenant a relationship names as client is kept (F14) until it ends.
+   for (const { id } of tenants) await admin(`provider_relationship?client_tenant_id=eq.${id}`, { method: 'DELETE' });
+   for (const { id } of tenants) {
+      await admin(`provider_invitation?tenant_id=eq.${id}`, { method: 'DELETE' });
+      await admin(`tenant?id=eq.${id}`, { method: 'DELETE' });
+   }
+   for (const { id, email } of users) {
+      const r = await authAdmin(`users/${id}`, 'DELETE');
+      if (r.status >= 400 && r.status !== 404) throw new Error(`deleting user ${id}: ${r.status}`);
+      const m = await inbucket(mailbox(email), { method: 'DELETE' });
+      await m.body?.cancel();
+   }
+}
+
+export type InvitationFixture = {
+   provider: string;
+   providerName: string;
+   /** The provider tenant's owner (every right, insert/update on provider_invitation included). */
+   owner: { id: string; email: string; token: string };
+   /** Provider staff named on invitations (management, coordinator), and one who is not. */
+   staff: { id: string; email: string }[];
+   extraStaff: { id: string; email: string };
+   /** An account with no membership anywhere. */
+   stranger: { id: string; email: string; token: string };
+   proPlan: string;
+};
+
+/** A confirmed account with the demo password, signed in. */
+export async function invitee(tag: string): Promise<{ id: string; email: string; token: string }> {
+   const email = invEmail(tag);
+   const id = await createUser(email);
+   return { id, email, token: await signIn(email) };
+}
+
+let codeSeq = 0;
+/** A client code no earlier call of this run used (Q + two letters). */
+export const nextClientCode = () => {
+   const n = codeSeq++;
+   return `Q${String.fromCharCode(65 + Math.floor(n / 26) % 26)}${String.fromCharCode(65 + (n % 26))}`;
+};
+
+/**
+ * Creates an invitation the way the Edge Function does, with the service role: the only way a test
+ * holds a plaintext token without the mail (create_provider_invitation is service-role only).
+ */
+export async function issueInvitation(
+   f: InvitationFixture,
+   email: string,
+   invitation: Record<string, unknown> = {},
+   staff: { user_id: string; role_name: string }[] = [],
+): Promise<{ id: string; token: string; clientCode: string }> {
+   const clientCode = nextClientCode();
+   const r = await admin('rpc/create_provider_invitation', {
+      method: 'POST',
+      headers: { 'x-audit-role': 'provider-invitation', 'x-audit-actor': f.owner.id },
+      body: {
+         p_tenant: f.provider,
+         p_actor: f.owner.id,
+         p_invitation: { email, company_name: 'HTTP Inv Company', client_code: clientCode, procurement_model: 'provider', ...invitation },
+         p_staff: staff,
+      },
+   });
+   const row = (Array.isArray(r.body) ? r.body[0] : r.body) as { id: string; token: string };
+   if (!row?.id || !row?.token) throw new Error('create_provider_invitation returned no invitation');
+   return { id: row.id, token: row.token, clientCode };
+}
+
+/** The provider tenant (register_tenant, service role), its owner, two staff and an outsider. */
+export async function invitationSetup(): Promise<InvitationFixture> {
+   await invitationCleanup();
+   codeSeq = 0;
+
+   const ownerId = await createUser(invEmail('owner'));
+   const providerName = `${INV_TENANT_PREFIX}Provider`;
+   const registered = await admin('rpc/register_tenant', {
+      method: 'POST',
+      body: { owner_id: ownerId, company: { display_name: providerName, email: invEmail('provider-co') } },
+   });
+   const provider = (registered.body as { id: string }).id;
+   if (!provider) throw new Error('register_tenant returned no tenant');
+
+   const coordinator = one<{ id: string }>(
+      await admin(`role?tenant_id=eq.${provider}&display_name=eq.coordinator&select=id`),
+      'provider coordinator role',
+   ).id;
+   const staff: { id: string; email: string }[] = [];
+   for (const tag of ['staff-mgmt', 'staff-coord', 'staff-extra']) {
+      const email = invEmail(tag);
+      staff.push({ id: await createUser(email), email });
+   }
+   await admin('tenant_user', { method: 'POST', body: staff.map((s) => ({ tenant_id: provider, user_id: s.id })) });
+   await admin('user_role', { method: 'POST', body: staff.map((s) => ({ user_id: s.id, role_id: coordinator })) });
+
+   const proPlan = one<{ id: string }>(await admin('plan?display_name=eq.Pro&is_active=is.true&select=id'), 'Pro plan').id;
+   const stranger = await invitee('stranger');
+
+   return {
+      provider,
+      providerName,
+      owner: { id: ownerId, email: invEmail('owner'), token: await signIn(invEmail('owner')) },
+      staff: staff.slice(0, 2),
+      extraStaff: staff[2],
+      stranger,
+      proPlan,
+   };
+}
+
+export async function invitationTeardown(): Promise<void> {
+   await invitationCleanup();
 }
 
 /**
