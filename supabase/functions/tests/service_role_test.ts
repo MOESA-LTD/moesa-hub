@@ -14,7 +14,8 @@ const sources = async (dir = ROOT, prefix = ''): Promise<Map<string, string>> =>
          for (const [p, text] of await sources(new URL(`${entry.name}/`, dir), `${path}/`))
             files.set(p, text);
       } else if (entry.name.endsWith('.ts') && entry.name !== 'database.types.ts') {
-         files.set(path, await Deno.readTextFile(new URL(entry.name, dir)));
+         // A Windows checkout (core.autocrlf) has CRLF; the checks are line-based on LF.
+         files.set(path, (await Deno.readTextFile(new URL(entry.name, dir))).replace(/\r\n/g, '\n'));
       }
    }
    return files;
