@@ -126,6 +126,14 @@ INSERT INTO public.incident_log (id, tenant_id, incident_id, note, cost_amount, 
 -- The sentinels, column by column. 'provider': every column of a table that is never shared, every
 -- column of a shared table that is not client_visible; 'guarded': the provider-guarded fields
 -- (field_class.rights_column).
+-- A provider invitation (...69fb) and its staff row (071): never shared, so the client reads neither;
+-- the staff row has no id column, its invitation_id carries the provider-only id sentinel.
+INSERT INTO public.provider_invitation (id, tenant_id, email, company_name, client_code, procurement_model, created_by) VALUES
+   ('00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, 'leak@invite.test', 'Leak invite', 'LKI', 'provider',
+    current_setting('test.koordinator')::UUID);
+INSERT INTO public.provider_invitation_staff (invitation_id, tenant_id, user_id, role_name) VALUES
+   ('00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'viewer');
+
 CREATE TEMP TABLE leak_target (tbl TEXT, id UUID, mode TEXT) ON COMMIT DROP;
 INSERT INTO leak_target VALUES
    ('provider_relationship', current_setting('test.rel')::UUID, 'provider'),
@@ -144,6 +152,7 @@ INSERT INTO leak_target VALUES
    ('document', '00000000-0000-4000-8000-0000000069f7', 'provider'),
    ('document', '00000000-0000-4000-8000-0000000069f8', 'provider'),
    ('media', '00000000-0000-4000-8000-0000000069f9', 'provider'),
+   ('provider_invitation', '00000000-0000-4000-8000-0000000069fb', 'provider'),
    ('change_request', '00000000-0000-4000-8000-000000006992', 'guarded'),
    ('incident_log', '00000000-0000-4000-8000-0000000069a1', 'guarded');
 
@@ -207,7 +216,8 @@ SELECT is_empty($$
                        'provider_relationship.restricted_drive_url', 'shipment.forwarder', 'shipment.free_days_port',
                        'shipment_event.note', 'shipment_event.channel', 'supplier.display_name', 'supplier.product_groups',
                        'supplier_contact.email', 'purchase_order_payment.amount', 'purchase_order_update.note',
-                       'document.file_name', 'media.file_name', 'change_request.cost_impact', 'incident_log.cost_amount'])
+                       'document.file_name', 'media.file_name', 'change_request.cost_impact', 'incident_log.cost_amount',
+                       'provider_invitation.company_name', 'provider_invitation.extra_cost_rule'])
    EXCEPT SELECT tbl || '.' || col FROM leak_held $$,
    'a sentinel sits in every provider-only column the scan relies on');
 SELECT diag('not seeded: ' || string_agg(tbl || '.' || col || ' (' || error || ')', '; ' ORDER BY tbl, col))
@@ -362,7 +372,8 @@ SELECT is_empty($$
    SELECT unnest(ARRAY['api.purchase_order', 'api.purchase_order_line', 'api.sourcing', 'api.shipment', 'api.shipment_event',
                        'api.provider_relationship', 'api.supplier', 'api.supplier_contact', 'api.purchase_order_payment',
                        'api.purchase_order_update', 'api.document', 'api.user_role', 'api.pi_document(api.purchase_order)',
-                       'api.supplier(api.sourcing)', 'api.spec_document(api.purchase_order_line)'])
+                       'api.supplier(api.sourcing)', 'api.spec_document(api.purchase_order_line)',
+                       'api.provider_invitation', 'api.provider_invitation_staff'])
    EXCEPT SELECT relation FROM leak_run WHERE actor = 'provider' AND kind = 'hit' $$,
    'the provider''s own scan finds its sentinels through api (they reach the layer the client reads)');
 SELECT is_empty($$ SELECT actor || ': ' || relation FROM leak_role_seen $$, 'no client run sees LEAK-ROLE through role, user_role or role_permission');

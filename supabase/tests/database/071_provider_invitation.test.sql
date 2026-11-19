@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Sections: the invitation, its token, create / rotate / revoke (Task 3).
 BEGIN;
 
-SELECT plan(50);
+SELECT plan(60);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -24,6 +24,10 @@ INSERT INTO public.role_permission (role_id, permission_id)
 SELECT '00000000-0000-4000-8000-000000071102', p.id FROM public.permission p
 WHERE p.resource_name IN ('public.provider_invitation', 'public.provider_invitation_staff') AND p.command = 'select';
 INSERT INTO public.user_role (user_id, role_id) VALUES ('00000000-0000-4000-8000-000000071101', '00000000-0000-4000-8000-000000071102');
+-- A retired plan, the default (active) plan, and a client tenant for relationship fixtures (Atlas).
+INSERT INTO public.plan (id, display_name, is_active) VALUES ('00000000-0000-4000-8000-000000071103', 'Retired 071', FALSE);
+SELECT set_config('test.plan', (SELECT id::TEXT FROM public.plan WHERE is_active ORDER BY position LIMIT 1), TRUE);
+SELECT set_config('test.atlas', (SELECT id::TEXT FROM public.tenant WHERE display_name = 'Atlas Danışmanlık'), TRUE);
 
 -- Every token issued here, so the audit and hash checks can look for each one.
 CREATE TEMP TABLE inv_071 (label TEXT, id UUID, token TEXT) ON COMMIT DROP;
@@ -71,7 +75,8 @@ SET LOCAL ROLE service_role;
 
 SELECT lives_ok($$ INSERT INTO inv_071 SELECT 'new', i.id, i.token FROM public.create_provider_invitation(
    current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
-   '{"email": "new@client.test", "company_name": "New Client", "client_code": "NEW", "procurement_model": "provider", "deposit_rate": 30}',
+   jsonb_build_object('email', 'new@client.test', 'company_name', 'New Client', 'client_code', 'NEW', 'procurement_model', 'provider',
+                      'deposit_rate', 30, 'recommended_plan_id', current_setting('test.plan')),
    jsonb_build_array(jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i $$,
    'the owner invites');
 SELECT set_config('test.tx_create', current_setting('audit.transaction_id', TRUE), TRUE);
@@ -107,6 +112,24 @@ SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_sett
 SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "new@client.test", "company_name": "New Again", "client_code": "NEA", "procurement_model": "provider"}', '[]') $$,
    '23505', 'invitation_pending_exists', 'one pending invitation per e-mail');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "p@client.test", "company_name": "P Ltd", "client_code": "PPA", "procurement_model": "provider",
+     "recommended_plan_id": "00000000-0000-4000-8000-000000071103"}', '[]') $$,
+   '23514', 'plan_inactive', 'a retired plan cannot be recommended');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   jsonb_build_object('email', 'l@client.test', 'company_name', repeat('x', 201), 'client_code', 'LLA', 'procurement_model', 'provider'), '[]') $$,
+   '23514', 'invitation_payload_invalid', 'a company name is at most 200 characters');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   jsonb_build_object('email', repeat('a', 310) || '@client.test', 'company_name', 'L Ltd', 'client_code', 'LLA', 'procurement_model', 'provider'), '[]') $$,
+   '23514', 'invitation_payload_invalid', 'an e-mail is at most 320 characters');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   jsonb_build_object('email', 'l@client.test', 'company_name', 'L Ltd', 'client_code', 'LLA', 'procurement_model', 'provider',
+                      'extra_cost_rule', repeat('x', 2001)), '[]') $$,
+   '23514', 'invitation_payload_invalid', 'an extra-cost rule is at most 2000 characters');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   jsonb_build_object('email', 'l@client.test', 'company_name', 'L Ltd', 'client_code', 'LLA', 'procurement_model', 'provider',
+                      'eu_responsible_person', repeat('x', 501)), '[]') $$,
+   '23514', 'invitation_payload_invalid', 'an EU responsible person is at most 500 characters');
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '', TRUE);
@@ -154,6 +177,19 @@ SELECT is((SELECT count(*)::INT FROM api.provider_invitation) + (SELECT count(*)
           'nor with a forged scope naming the provider');
 RESET ROLE;
 SELECT private.unimpersonate();
+
+SELECT is((SELECT recommended_plan_id FROM public.provider_invitation WHERE email = 'new@client.test'), current_setting('test.plan')::UUID,
+          'an active plan is recommended');
+
+-- The pending invitation holds its code on the relationship side too (F15).
+SELECT throws_ok($$ INSERT INTO public.provider_relationship (tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model)
+   VALUES (current_setting('test.p')::UUID, current_setting('test.atlas')::UUID, 'NEW', 'Atlas', 'x', 'client') $$,
+   '23505', 'client_code_taken', 'a relationship cannot take a pending invitation''s code');
+SELECT lives_ok($$ INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model)
+   VALUES ('00000000-0000-4000-8000-000000071104', current_setting('test.p')::UUID, current_setting('test.atlas')::UUID, 'ZZQ', 'Atlas', 'x', 'client') $$,
+   'a free code is taken as before');
+SELECT throws_ok($$ UPDATE public.provider_relationship SET client_code = 'NEW' WHERE id = '00000000-0000-4000-8000-000000071104' $$,
+   '23505', 'client_code_taken', 'nor can a relationship be renamed to it');
 
 -- Rotation (the resend): the update right, a new token and hash, the expiry and counter reset.
 UPDATE public.provider_invitation SET expires_at = now() - interval '1 day', failed_attempts = 4 WHERE email = 'new@client.test';
@@ -240,6 +276,8 @@ SELECT throws_ok($$ SELECT public.rotate_provider_invitation_token((SELECT id FR
    'P0001', 'invitation_invalid', 'a revoked invitation cannot be resent');
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '', TRUE);
+SELECT lives_ok($$ UPDATE public.provider_relationship SET client_code = 'NEW' WHERE id = '00000000-0000-4000-8000-000000071104' $$,
+   'a revoked invitation releases its code');
 
 SELECT * FROM finish();
 ROLLBACK;

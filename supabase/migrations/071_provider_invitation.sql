@@ -27,8 +27,8 @@ CREATE TABLE public.provider_invitation (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    -- The provider.
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   email TEXT NOT NULL CHECK (email = lower(email) AND email ~ '^[^@\s]+@[^@\s]+$'),
-   company_name TEXT NOT NULL CHECK (length(company_name) >= 3),
+   email TEXT NOT NULL CHECK (email = lower(email) AND email ~ '^[^@\s]+@[^@\s]+$' AND length(email) <= 320),
+   company_name TEXT NOT NULL CHECK (length(company_name) BETWEEN 3 AND 200),
    client_code TEXT NOT NULL CHECK (client_code ~ '^[A-Z]{3}$'),
    procurement_model public.procurement_model NOT NULL,
    -- The contract terms the relationship starts with (as on provider_relationship).
@@ -37,8 +37,8 @@ CREATE TABLE public.provider_invitation (
    contract_status public.contract_status NOT NULL DEFAULT 'onboarding',
    start_on DATE,
    deposit_rate NUMERIC(5, 2) CHECK (deposit_rate BETWEEN 0 AND 100),
-   extra_cost_rule TEXT,
-   eu_responsible_person TEXT,
+   extra_cost_rule TEXT CHECK (length(extra_cost_rule) <= 2000),
+   eu_responsible_person TEXT CHECK (length(eu_responsible_person) <= 500),
    recommended_plan_id UUID REFERENCES public.plan (id) ON DELETE SET NULL,
    -- Expired is expires_at <= now(), not a status.
    expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '14 days',
@@ -273,6 +273,44 @@ $$;
 
 REVOKE ALL ON FUNCTION private.invitation_issue (UUID, UUID) FROM PUBLIC, anon, authenticated, service_role;
 
+-- One lock per (tenant, client code), taken by invitation creation and by a relationship taking a
+-- code, so a pending invitation and a relationship never end up with the same code.
+CREATE OR REPLACE FUNCTION private.client_code_lock (p_tenant UUID, p_code TEXT) RETURNS VOID LANGUAGE sql
+SET
+   search_path = '' AS $$
+    SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('client_code:' || p_tenant::TEXT || ':' || lower(coalesce(p_code, '')), 0));
+$$;
+
+REVOKE ALL ON FUNCTION private.client_code_lock (UUID, TEXT) FROM PUBLIC, anon, authenticated, service_role;
+
+-- A pending invitation holds its client code (F15): no relationship of the tenant may take it, on
+-- insert or by a rename. Only pending invitations count, so acceptance (Task 4) marks the invitation
+-- accepted before it inserts the relationship under the same code. SECURITY DEFINER: the inserting
+-- caller need not read invitations. Named to fire after provider_relationship_guard (client code
+-- immutability) and before relationship_contract_guard.
+CREATE OR REPLACE FUNCTION private.provider_relationship_reserved_code () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.client_code IS NOT DISTINCT FROM OLD.client_code THEN
+        RETURN NEW;
+    END IF;
+    PERFORM private.client_code_lock(NEW.tenant_id, NEW.client_code);
+    IF EXISTS (SELECT 1 FROM public.provider_invitation i
+               WHERE i.tenant_id = NEW.tenant_id AND i.client_code = NEW.client_code AND i.status = 'pending') THEN
+        RAISE EXCEPTION 'client_code_taken' USING ERRCODE = 'unique_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.provider_relationship_reserved_code () FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE TRIGGER provider_relationship_reserved_code BEFORE INSERT
+OR
+UPDATE OF client_code ON public.provider_relationship FOR EACH ROW
+EXECUTE FUNCTION private.provider_relationship_reserved_code ();
+
 -- Creates an invitation for the provider tenant p_tenant in the name of p_actor, who must hold the
 -- insert right on invitations there. Returns the token once; only its hash is kept.
 CREATE OR REPLACE FUNCTION public.create_provider_invitation (p_tenant UUID, p_actor UUID, p_invitation JSONB, p_staff JSONB DEFAULT '[]') RETURNS TABLE (id UUID, token TEXT) LANGUAGE plpgsql SECURITY DEFINER
@@ -314,8 +352,18 @@ BEGIN
     END IF;
 
     v_code := p_invitation ->> 'client_code';
+    -- The same lock as a relationship taking a code (provider_relationship_reserved_code), so the two
+    -- cannot both pass their checks.
+    PERFORM private.client_code_lock(p_tenant, v_code);
     IF EXISTS (SELECT 1 FROM public.provider_relationship r WHERE r.tenant_id = p_tenant AND r.client_code = v_code) THEN
         RAISE EXCEPTION 'client_code_taken' USING ERRCODE = 'unique_violation';
+    END IF;
+
+    -- A recommended plan must be one the customer can pick: active (the plan step lists active plans).
+    IF p_invitation ? 'recommended_plan_id' AND p_invitation ->> 'recommended_plan_id' IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.plan pl
+                       WHERE pl.id::TEXT = lower(p_invitation ->> 'recommended_plan_id') AND pl.is_active) THEN
+        RAISE EXCEPTION 'plan_inactive' USING ERRCODE = 'check_violation';
     END IF;
 
     BEGIN
@@ -415,24 +463,31 @@ CREATE OR REPLACE FUNCTION public.revoke_provider_invitation (invitation_id UUID
 SET
    search_path = '' AS $$
 DECLARE
-    inv public.provider_invitation;
+    v_tenant UUID;
+    v_status public.invitation_status;
 BEGIN
-    SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = revoke_provider_invitation.invitation_id FOR UPDATE;
+    -- Authorise on an unlocked read: a caller without the right never locks another tenant's row.
+    SELECT i.tenant_id INTO v_tenant FROM public.provider_invitation i WHERE i.id = revoke_provider_invitation.invitation_id;
 
-    IF inv.id IS NULL OR auth.uid() IS NULL
-       OR coalesce(cardinality(private.tenants_permitting(auth.uid(), ARRAY[inv.tenant_id], 'public.provider_invitation', 'update')), 0) = 0 THEN
+    IF v_tenant IS NULL OR auth.uid() IS NULL
+       OR coalesce(cardinality(private.tenants_permitting(auth.uid(), ARRAY[v_tenant], 'public.provider_invitation', 'update')), 0) = 0 THEN
         RAISE EXCEPTION 'invitation_forbidden' USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    IF inv.status <> 'pending' THEN
+    -- Then lock and re-read the status (a concurrent accept or revoke may have moved it).
+    SELECT i.status INTO v_status FROM public.provider_invitation i
+    WHERE i.id = revoke_provider_invitation.invitation_id AND i.tenant_id = v_tenant
+    FOR UPDATE;
+
+    IF v_status IS DISTINCT FROM 'pending' THEN
         RAISE EXCEPTION 'invitation_invalid';
     END IF;
 
     UPDATE public.provider_invitation i
     SET status = 'revoked', revoked_at = now()
-    WHERE i.id = inv.id;
+    WHERE i.id = revoke_provider_invitation.invitation_id;
 
-    DELETE FROM private.provider_invitation_token t WHERE t.invitation_id = inv.id;
+    DELETE FROM private.provider_invitation_token t WHERE t.invitation_id = revoke_provider_invitation.invitation_id;
 END;
 $$;
 
