@@ -51,6 +51,19 @@ Scale today: `customer_id` sits on 32 tables and views (local DB). The customer 
 20. **A client does not see drafts.** A client sees a provider's purchase order, and the lines, shipments, incidents and change requests linked through it, only once the order has left draft. The sharing policy (`client_select`) of the order and of every row naming an order excludes drafts, a client cannot cite a draft in an incident or a change request, and the client status `pending` now means sent only.
 21. **A plan names whom it is offered to.** `plan.target` is `client`, `provider` or `all` (the default); `audience` stays the description shown with it. An invitation's preview and self-signup offer only active plans for `client` or `all`, acceptance and signup completion accept only those, and a provider may recommend only those (`plan_not_for_clients`). The admin plan editor sets the target.
 
+## Owner decision 22 (2026-11-19): the open rulings stand
+
+The owner left the open questions to the builder, choosing the safe side ("güvenli olacak şekilde kararları sen ver"). Each earlier ruling already took the more restrictive option where the two differed, so all of them stand as built:
+
+- **Client status (Q1).** A client sees only the derived `client_status` of a shared order; the raw status, which shows supplier-payment progress, stays with the provider.
+- **Contract file (Q2).** The signed contract file and `contract_document_id` stay provider-only; the contract terms stay client-visible.
+- **Manufacturer article number (Q3).** `sourcing.manufacturer_art_no` stays client-visible. It is published on Amazon as the model/part number, so hiding it in the panel would protect nothing.
+- **Incidents after an end (Q4).** A client may still open incidents on orders already shared with it; it can link nothing new.
+- **Transfer into a client (Q-T1).** Suppliers, supplier contacts and sourcing never travel into a client tenant of the source, whichever side procures; the report lists them as left behind.
+- **Three-tenant hop (M1).** A transfer needs the rights in both tenants, so whoever runs one could already read the source and write the target by hand. Nothing more is enforced.
+- **Accept and sign up at once (L2).** A person who accepts an invitation and completes a signup at the same moment may own two companies. That gives them nothing over anyone else, so it is allowed.
+- **No notice when an account is linked (M4).** It stays as before, because a link only gives the linked person access and exposes nothing of theirs. A notice waits for a general mailer; Auth e-mails are the only mail today.
+
 ## Goals
 
 - `public.customer` and every `customer_id` column are gone. A record belongs to the tenant it lives in.
