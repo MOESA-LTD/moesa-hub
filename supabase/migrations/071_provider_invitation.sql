@@ -949,7 +949,7 @@ BEGIN
     EXCEPTION
         WHEN unique_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'tenant_email_key' THEN
+            IF v_constraint = 'tenant_email_lower_key' THEN
                 RAISE EXCEPTION 'company_email_exists' USING ERRCODE = 'unique_violation';
             ELSIF v_constraint = 'tenant_phone_key' THEN
                 RAISE EXCEPTION 'company_phone_exists' USING ERRCODE = 'unique_violation';

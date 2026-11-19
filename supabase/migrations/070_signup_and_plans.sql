@@ -6,6 +6,11 @@
 --   public.set_platform_setting   changes an existing key, super admin only (platform_setting_unknown).
 --   public.open_signup_enabled()  the create-account Edge Function asks (service role only).
 --   public.plan.audience          editable in the admin plan editor; save_plan carries it.
+--   public.tenant email           unique whatever its case (cleanup concern 1): 003's exact key
+--                                 tenant_email_key gives way to the unique index
+--                                 tenant_email_lower_key on lower(email); NULLs may repeat, as
+--                                 before. Its violation is still company_email_exists to the
+--                                 callers (create-account, acceptance, the app), by the new name.
 --   public.plan.target            whom the plan is offered to (decision 21): client, provider or
 --                                 all (the default). Invitations and self-signup offer and accept
 --                                 only active plans for client or all (plan_not_for_clients);
@@ -71,6 +76,11 @@ REVOKE ALL ON FUNCTION public.open_signup_enabled () FROM PUBLIC, anon, authenti
 GRANT EXECUTE ON FUNCTION public.platform_settings () TO authenticated;
 GRANT EXECUTE ON FUNCTION public.set_platform_setting (TEXT, JSONB) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.open_signup_enabled () TO service_role;
+
+-- Cleanup concern 1: a case variant of a registered company e-mail is the same address.
+ALTER TABLE public.tenant DROP CONSTRAINT tenant_email_key;
+
+CREATE UNIQUE INDEX tenant_email_lower_key ON public.tenant (lower(email));
 
 -- Plan audience, and the plan's target (decision 21).
 CREATE TYPE public.plan_target AS ENUM ('client', 'provider', 'all');

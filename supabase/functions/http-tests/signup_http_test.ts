@@ -167,6 +167,10 @@ t('a proven inbox completes the sign-up once, with the company as edited and the
    const taken = await complete(session.access, f.proPlan, { display_name: 'HTTP Inv Signup Done', email: invEmail('provider-co') });
    assertEquals([taken.status, taken.body?.message], [409, 'company_email_exists'], JSON.stringify(taken.body));
    assertEquals(await tenantsNamed('HTTP Inv Signup Done'), 0);
+   // Cleanup concern 1: so is a case variant of it (the unique index on lower(email)).
+   const variant = await complete(session.access, f.proPlan, { display_name: 'HTTP Inv Signup Done', email: invEmail('provider-co').toUpperCase() });
+   assertEquals([variant.status, variant.body?.message], [409, 'company_email_exists'], JSON.stringify(variant.body));
+   assertEquals(await tenantsNamed('HTTP Inv Signup Done'), 0);
    assert(await pendingOf(id), 'the owner can retry');
 
    // Retried with changed details: created as edited.

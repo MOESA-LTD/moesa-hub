@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- verify-first self-signup: complete_signup and signup_throttle (Task 11, task-5-review I1).
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(60);
 
 SELECT is((SELECT value FROM private.platform_setting WHERE key = 'open_signup'), 'false'::JSONB, 'open signup is off by default');
 
@@ -53,6 +53,18 @@ SELECT public.save_plan(jsonb_build_object('id', (SELECT id FROM plan_070), 'dis
 SELECT is((SELECT target::TEXT FROM api.plan WHERE id = (SELECT id FROM plan_070)), 'client', 'and changes it when given');
 RESET ROLE;
 SELECT private.unimpersonate();
+
+-- Cleanup concern 1: a company e-mail is unique whatever its case (lower(email)); NULLs repeat.
+SELECT is_empty($$ SELECT 1 FROM pg_constraint WHERE conrelid = 'public.tenant'::REGCLASS AND conname = 'tenant_email_key' $$,
+                'the exact e-mail key is gone');
+SELECT ok(EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'tenant' AND indexname = 'tenant_email_lower_key'
+                  AND indexdef LIKE 'CREATE UNIQUE INDEX%(lower(email))'),
+          'a unique index on lower(email) replaces it');
+SELECT throws_ok($$ INSERT INTO public.tenant (display_name, email) VALUES ('Case 070', 'INFO@Atlas.test') $$,
+                 '23505', 'duplicate key value violates unique constraint "tenant_email_lower_key"',
+                 'a case variant of a company e-mail is refused');
+SELECT lives_ok($$ INSERT INTO public.tenant (display_name) VALUES ('No mail 070 a'), ('No mail 070 b') $$,
+                'companies without an e-mail may be many');
 
 -- Section 2: one company-creation path (private.create_company) with the standard roles.
 -- Fixtures: an inactive plan and a company owned by ayse, created by the service-only path.
@@ -170,6 +182,11 @@ SELECT throws_ok(
     $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Provider plan 070 co"}',
                                      '00000000-0000-4000-8000-000000070202') $$,
     'P0001', 'plan_not_for_clients', 'and offered to clients (decision 21)');
+
+SELECT throws_ok(
+    $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Case 070 co", "email": "Info@ATLAS.test"}', NULL) $$,
+    '23505', 'duplicate key value violates unique constraint "tenant_email_lower_key"',
+    'a case variant of a registered company e-mail is refused at completion (create-account names it company_email_exists)');
 
 SELECT throws_ok(
     $$ SELECT public.complete_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Injected 070", "tenant_id": "x"}', NULL) $$,

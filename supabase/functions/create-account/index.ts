@@ -83,8 +83,9 @@ const completeSchema = z
 /** What public.pending_signup returns. */
 type Pending = { company: Record<string, string>; plan_id: string | null };
 
+/** The company's unique keys: the e-mail's is an index on lower(email) (cleanup concern 1). */
 const COMPANY_CONFLICTS: Record<string, string> = {
-   tenant_email_key: 'company_email_exists',
+   tenant_email_lower_key: 'company_email_exists',
    tenant_phone_key: 'company_phone_exists'
 };
 

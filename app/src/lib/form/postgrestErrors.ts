@@ -22,6 +22,14 @@ const constraintColumns = (message: string | undefined, fields: string[]) => {
  * field, and appErrorHandler shows `errors.<name>`.
  */
 export const NAMED_ERRORS: { code: string; name: string; field?: string; message: string }[] = [
+   // A company's e-mail is unique whatever its case: the key is an index on lower(email), whose
+   // details name the expression rather than the column (cleanup concern 1).
+   {
+      code: '23505',
+      name: 'tenant_email_lower_key',
+      field: 'email',
+      message: 'errors.company_email_exists'
+   },
    {
       code: '23505',
       name: 'unique_document_version',

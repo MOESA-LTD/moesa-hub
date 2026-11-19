@@ -16,6 +16,21 @@ describe('mapPostgrestError', () => {
       ).toEqual({ national_id: i18n.t('form.already_exists') });
    });
 
+   // Cleanup concern 1: the company e-mail's key is an index on lower(email), whose details name
+   // the expression, not the column.
+   it('maps a taken company e-mail, whatever its case, to the e-mail field', () => {
+      expect(
+         mapPostgrestError(
+            {
+               code: '23505',
+               message: 'duplicate key value violates unique constraint "tenant_email_lower_key"',
+               details: 'Key (lower(email))=(info@atlas.test) already exists.'
+            },
+            FIELDS
+         )
+      ).toEqual({ email: i18n.t('errors.company_email_exists') });
+   });
+
    it('falls back to the constraint name when details are hidden', () => {
       expect(
          mapPostgrestError(
