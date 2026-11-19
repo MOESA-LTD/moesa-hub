@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TransferMode } from '@/api/transfer';
+import PendingTransfers from '@/components/service-components/transfer/PendingTransfers.vue';
 import type { TransferWizard } from './useTransferWizard';
 
 // The first step: where to, and whether the source keeps its rows. A refused target (read-only,
@@ -31,6 +32,12 @@ const targetGroups = computed(() => {
       }))
       .filter(({ items }) => items.length > 0);
 });
+
+// A target blocked by an earlier transfer into it whose files are not all copied: those transfers
+// are listed here, each with a way to finish the copy.
+const pendingTargets = computed(() =>
+   (options.value?.targets ?? []).filter(({ refusal }) => refusal === 'transfer_files_pending')
+);
 
 const MODES: TransferMode[] = ['copy', 'move'];
 const modeOptions = computed(() =>
@@ -77,6 +84,10 @@ const modeOptions = computed(() =>
          >
             {{ $t('ops.transfer.target.none') }}
          </small>
+      </div>
+
+      <div v-for="pending in pendingTargets" :key="pending.id" data-pending-target>
+         <PendingTransfers :tenants="[pending.id]" :title="pending.display_name" />
       </div>
 
       <div class="flex flex-col gap-2">

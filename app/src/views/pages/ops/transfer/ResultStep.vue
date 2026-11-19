@@ -22,7 +22,7 @@ const props = defineProps<{
    copying: boolean;
 }>();
 
-const { data: current } = useTransfer(
+const { data: current, isFetching } = useTransfer(
    () => props.transfer.id,
    () => props.report.source_tenant,
    () => props.report.target_tenant
@@ -81,6 +81,7 @@ const downloadIdMap = () => {
             :showValue="false"
          />
       </div>
+      <ProgressSpinner v-else-if="isFetching" style="width: 1.5rem; height: 1.5rem" data-loading />
       <TransferFilesNotice v-else :transfer="row" />
    </div>
 </template>

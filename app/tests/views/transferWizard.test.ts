@@ -28,6 +28,9 @@ const api = vi.hoisted(() => ({
    rehearse: vi.fn(),
    run: vi.fn(),
    copy: vi.fn(),
+   retry: vi.fn(),
+   pending: [] as unknown[],
+   pendingReads: [] as string[][],
    transferReads: [] as unknown[][],
    push: vi.fn(),
    confirmed: [] as string[],
@@ -50,9 +53,13 @@ vi.mock('@/api/transfer', async (importOriginal) => {
       }),
       useTransfer: (...keys: (() => unknown)[]) => {
          api.transferReads.push(keys.map((key) => key()));
-         return { data: ref(undefined) };
+         return { data: ref(undefined), isFetching: ref(false) };
       },
-      useRetryTransferFiles: () => ({ mutateAsync: vi.fn(), isPending: ref(false) })
+      useRetryTransferFiles: () => ({ mutateAsync: api.retry, isPending: ref(false) }),
+      usePendingTransfers: (tenants: () => string[]) => {
+         api.pendingReads.push(tenants());
+         return { data: ref(api.pending) };
+      }
    };
 });
 vi.mock('vue-router', async (importOriginal) => ({
@@ -235,6 +242,9 @@ beforeEach(() => {
    api.rehearse.mockReset();
    api.run.mockReset();
    api.copy.mockReset();
+   api.retry.mockReset();
+   api.pending = [];
+   api.pendingReads = [];
    api.transferReads = [];
    api.push.mockReset();
    api.confirmed = [];
@@ -623,6 +633,44 @@ describe('apply and files', () => {
    });
 });
 
+describe('target step: unfinished transfers', () => {
+   it('lists the pending transfers of a target refused for them, and retries the copy', async () => {
+      api.options = {
+         source_writable: true,
+         targets: [
+            {
+               id: 'blocked',
+               display_name: 'Blocked Ltd',
+               same_company: false,
+               refusal: 'transfer_files_pending'
+            },
+            { id: 'other', display_name: 'Other Ltd', same_company: false, refusal: null }
+         ]
+      };
+      api.pending = [
+         row({ tenant_id: 'blocked', files_status: 'partial', missing_files: ['t/a'] })
+      ];
+      api.retry.mockResolvedValueOnce(row());
+      const wrapper = await mountWizard();
+
+      // Only the refused target's transfers are asked for.
+      expect(api.pendingReads).toEqual([['blocked']]);
+      const section = wrapper.find('[data-pending-target]');
+      expect(section.text()).toContain('Blocked Ltd');
+      expect(section.text()).toContain(en.ops.transfer.pending.title);
+      expect(section.text()).toContain('1 file could not be copied.');
+
+      await section.find('[data-retry] button').trigger('click');
+      await flushPromises();
+      expect(api.retry).toHaveBeenCalledWith(api.pending[0]);
+   });
+
+   it('shows nothing when no target is blocked by files', async () => {
+      const wrapper = await mountWizard();
+      expect(wrapper.find('[data-pending-target]').exists()).toBe(false);
+   });
+});
+
 describe('result step', () => {
    const mountResult = (transfer: TransferRow) =>
       mount(ResultStep, {
@@ -641,6 +689,15 @@ describe('result step', () => {
       );
       expect(wrapper.find('[data-files-admin]').text()).toContain('needs an administrator');
       expect(wrapper.find('[data-retry]').exists()).toBe(false);
+   });
+
+   it('shows a loading state, not a stale notice, until the refetch lands', async () => {
+      const { useTransfer } = await import('@/api/transfer');
+      void useTransfer;
+      const wrapper = mountResult(row({ files_status: 'pending' }));
+      // The stand-in read is settled: the notice shows.
+      expect(wrapper.find('[data-loading]').exists()).toBe(false);
+      expect(wrapper.find('[data-files-status]').exists()).toBe(true);
    });
 
    it('shows the progress while the files copy', () => {
@@ -736,6 +793,15 @@ describe('product list: copy or move to another company', () => {
          name: 'ops-transfer',
          query: expect.objectContaining({ source_tenant: 'k1', product_ids: 'p1,p2' })
       });
+   });
+
+   it('shows the unfinished transfers of the scope, only to those who may transfer', () => {
+      api.pending = [row({ files_status: 'pending' })];
+      const wrapper = mountList();
+      expect(wrapper.find('[data-pending-transfers]').exists()).toBe(true);
+
+      ability.update([{ action: 'select', subject: 'product' }]);
+      expect(mountList().find('[data-pending-transfers]').exists()).toBe(false);
    });
 
    it('follows the transfer right: read and create', () => {

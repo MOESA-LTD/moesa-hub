@@ -736,7 +736,7 @@
       "transfer_permissions_required": "You lack a right the copy needs in the target (to create the records or to link their files). Ask an administrator.",
       "transfer_field_rights_required": "This transfer carries every field of the copied records, internal notes included. You need the right to see and change all of them in both the source and the target.",
       "transfer_source_read_only": "The source is read-only: its records can be copied but not moved.",
-      "transfer_files_pending": "The files of an earlier transfer into the source are not all copied yet. Finish that transfer first.",
+      "transfer_files_pending": "An earlier transfer into the target has files that are not all copied yet. Finish copying them first.",
       "transfer_decision_required": "Every conflict needs a decision.",
       "transfer_decision_invalid": "A decision does not fit its conflict. Check the action and the record it points to.",
       "transfer_code_invalid": "The new code or suffix has the wrong format or is already used in the target.",
@@ -2600,8 +2600,11 @@
             "partial": "{count} file could not be copied. | {count} files could not be copied.",
             "needs_admin": "{count} file needs an administrator: the copy in the target differs from the original. | {count} files need an administrator: the copies in the target differ from the originals.",
             "masked": "The file list is hidden from you. A user with the transfer rights in both companies can finish the copy.",
-            "retry": "Retry file copy",
+            "retry": "Finish copying files",
             "notice": "Files of an earlier transfer into this company are missing."
+         },
+         "pending": {
+            "title": "Transfers with files still to copy"
          }
       }
    },

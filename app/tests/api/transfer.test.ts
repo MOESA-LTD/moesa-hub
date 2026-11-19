@@ -9,6 +9,7 @@ import {
    runTransfer,
    transferErrorText,
    transferFilesState,
+   usePendingTransfers,
    useRunTransfer,
    useTransfer,
    type TransferArgs,
@@ -28,6 +29,8 @@ const mock = vi.hoisted(() => ({
    // The table reads, as the builder calls each makes: [method, ...args].
    calls: [] as unknown[][],
    tableResult: null as unknown,
+   // Results handed out first, one per read.
+   queue: [] as unknown[],
    copy: vi.fn(),
    remove: vi.fn(),
    bucket: vi.fn()
@@ -51,7 +54,10 @@ vi.mock('@/lib/supabase', () => {
             {
                get: (_target, method: string) =>
                   method === 'throwOnError'
-                     ? () => Promise.resolve({ data: mock.tableResult })
+                     ? () =>
+                          Promise.resolve({
+                             data: mock.queue.length ? mock.queue.shift() : mock.tableResult
+                          })
                      : method === 'then'
                        ? undefined
                        : (...rest: unknown[]) => {
@@ -183,6 +189,7 @@ beforeEach(() => {
    mock.rpcErrors = {};
    mock.calls = [];
    mock.tableResult = null;
+   mock.queue = [];
    mock.copy.mockReset().mockResolvedValue({ data: {}, error: null });
    mock.remove.mockReset().mockResolvedValue({ data: [], error: null });
    mock.bucket.mockReset();
@@ -199,7 +206,7 @@ describe('fetchTransferOptions', () => {
 });
 
 describe('rehearseTransfer and runTransfer', () => {
-   it('transferProducts sends source, target, product ids and mode only', async () => {
+   it('transferProducts sends source, target, product ids, mode, decisions and the rehearse flag only', async () => {
       mock.rpcResults.transfer_products = report;
 
       await rehearseTransfer(args);
@@ -426,6 +433,45 @@ describe('transfer reads', () => {
    it('waits for the target tenant', () => {
       const query = mountHook(() => useTransfer('tr', 's', null));
       expect(query.isFetching.value).toBe(false);
+      expect(mock.calls).toEqual([]);
+   });
+});
+
+describe('usePendingTransfers', () => {
+   it('reads each masked row again with its source and target in scope', async () => {
+      const masked = row({ files: null as never, source_tenant_id: 'src', tenant_id: 'tgt' });
+      const full = row({ source_tenant_id: 'src', tenant_id: 'tgt' });
+      mock.queue = [[masked], full];
+      const query = mountHook(() => usePendingTransfers(['tgt']));
+
+      await vi.waitFor(() => expect(query.data.value).toEqual([full]));
+      expect(mock.calls).toEqual([
+         ['from', 'transfer'],
+         ['select', '*'],
+         ['neq', 'files_status', 'done'],
+         ['or', 'tenant_id.in.(tgt),source_tenant_id.in.(tgt)'],
+         ['order', 'created_at', { ascending: false }],
+         ['abortSignal'],
+         ['setHeader', 'x-tenant-id', 'tgt'],
+         ['setHeader', 'x-tenant-ids', 'tgt'],
+         ['from', 'transfer'],
+         ['select', '*'],
+         ['eq', 'id', 'tr'],
+         ['abortSignal'],
+         ['setHeader', 'x-tenant-id', 'tgt'],
+         ['setHeader', 'x-tenant-ids', 'src,tgt'],
+         ['maybeSingle']
+      ]);
+   });
+
+   it('does not read a row again when its files are readable, and waits for tenants', async () => {
+      mock.queue = [[row()]];
+      const query = mountHook(() => usePendingTransfers(['t']));
+      await vi.waitFor(() => expect(query.data.value).toEqual([row()]));
+      expect(mock.calls.filter(([m]) => m === 'from')).toHaveLength(1);
+
+      mock.calls = [];
+      mountHook(() => usePendingTransfers([]));
       expect(mock.calls).toEqual([]);
    });
 });

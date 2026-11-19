@@ -402,23 +402,44 @@ export function useTransfer(
    });
 }
 
-/** The transfers into `tenant` whose files are not all copied yet, newest first. */
-export function usePendingTransfers(tenant: MaybeRefOrGetter<string | null>) {
+/**
+ * The transfers whose files are not all copied yet, into or out of any of `tenants`, newest first.
+ * The list is read in `tenants`; a row whose files come back masked (the source is not in that
+ * scope) is read again with its source and target both in `x-tenant-ids`, which unmasks it for a
+ * caller with the rights, so the copy can be retried from where the transfer blocks.
+ */
+export function usePendingTransfers(tenants: MaybeRefOrGetter<readonly string[]>) {
    return useQuery({
-      queryKey: computed(() => queryKeys.list(toValue(tenant), 'transfer', { view: 'pending' })),
+      queryKey: computed(() =>
+         queryKeys.list(toValue(tenants).join(',') || null, 'transfer', { view: 'pending' })
+      ),
       queryFn: async ({ signal }) => {
+         const scope = [...toValue(tenants)];
+         const list = scope.join(',');
          const { data } = await forTransferScope(
             supabase
                .from('transfer')
                .select('*')
                .neq('files_status', 'done')
+               .or(`tenant_id.in.(${list}),source_tenant_id.in.(${list})`)
                .order('created_at', { ascending: false })
                .abortSignal(signal),
-            [toValue(tenant)!]
+            scope
          ).throwOnError();
-         return data;
+         return Promise.all(
+            data.map(async (row): Promise<TransferRow> => {
+               if (Array.isArray(row.files)) return row;
+               const { data: full } = await forTransferScope(
+                  supabase.from('transfer').select('*').eq('id', row.id).abortSignal(signal),
+                  [row.source_tenant_id, row.tenant_id]
+               )
+                  .maybeSingle()
+                  .throwOnError();
+               return full ?? row;
+            })
+         );
       },
-      enabled: computed(() => !!toValue(tenant))
+      enabled: computed(() => toValue(tenants).length > 0)
    });
 }
 

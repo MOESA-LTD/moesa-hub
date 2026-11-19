@@ -492,7 +492,7 @@
       "transfer_permissions_required": "Kopyalamanın hedefte ihtiyaç duyduğu bir yetkiniz yok (kayıtları oluşturma ya da dosyalarını bağlama). Yöneticiye başvurun.",
       "transfer_field_rights_required": "Bu aktarım, kopyalanan kayıtların iç notlar dahil tüm alanlarını taşır. Kaynak ve hedefte bu alanların hepsini görme ve değiştirme yetkiniz olmalı.",
       "transfer_source_read_only": "Kaynak salt okunur: kayıtları kopyalanabilir, taşınamaz.",
-      "transfer_files_pending": "Kaynağa yapılan önceki bir aktarımın dosyaları henüz tamamen kopyalanmadı. Önce o aktarımı tamamlayın.",
+      "transfer_files_pending": "Hedefe yapılan önceki bir aktarımın dosyaları henüz tamamen kopyalanmadı. Önce onları tamamlayın.",
       "transfer_decision_required": "Her çakışma için bir karar gerekir.",
       "transfer_decision_invalid": "Bir karar çakışmasına uymuyor: işlemi ve bağlandığı kaydı kontrol edin.",
       "transfer_code_invalid": "Yeni kodun ya da ekin biçimi hatalı ya da hedefte kullanılıyor.",
@@ -2600,8 +2600,11 @@
             "partial": "{count} dosya kopyalanamadı. | {count} dosya kopyalanamadı.",
             "needs_admin": "{count} dosya için yönetici gerekiyor: hedefteki kopya aslından farklı. | {count} dosya için yönetici gerekiyor: hedefteki kopyalar asıllarından farklı.",
             "masked": "Dosya listesi sizden gizli. İki şirkette de aktarma yetkisi olan bir kullanıcı kopyayı tamamlayabilir.",
-            "retry": "Dosyaları yeniden kopyala",
+            "retry": "Dosyaların kopyalanmasını tamamla",
             "notice": "Bu şirkete yapılan önceki bir aktarımın dosyaları eksik."
+         },
+         "pending": {
+            "title": "Dosyaları kopyalanacak aktarımlar"
          }
       }
    },

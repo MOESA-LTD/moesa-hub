@@ -36,7 +36,8 @@ const onRun = () =>
       message: t(`ops.transfer.confirm.${mode.value}`, params.value),
       acceptLabel: t('ops.transfer.run'),
       accept: async () => {
-         await run();
+         // The wizard shows the failure (and offers a new rehearsal when it is stale).
+         await run().catch(() => {});
       }
    });
 </script>

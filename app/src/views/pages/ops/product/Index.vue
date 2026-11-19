@@ -13,10 +13,12 @@ import { DIALOG_POSITIONS } from '@/constants/router';
 import { toS10Csv, withSourcing } from '@/api/product/csv';
 import { CLIENT_RELATIONSHIP_SELECT, type ClientRelationship } from '@/api/relationship';
 import { SOURCING_SELECT, type SourcingCard } from '@/api/sourcing';
+import { useTenantKey } from '@/api/useTenantKey';
 import { useAuthStore } from '@/store/auth';
 import { supabase } from '@/lib/supabase';
 import dayjs from 'dayjs';
 import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
+import PendingTransfers from '@/components/service-components/transfer/PendingTransfers.vue';
 import AmazonBulkPublish from './AmazonBulkPublish.vue';
 import {
    PRODUCT_STATUSES,
@@ -239,9 +241,19 @@ const openTransfer = () => {
    });
 };
 
+// Transfers into or out of the tenants in scope whose files are not all copied: they block later
+// transfers into their target, so they can be finished from here.
+const tenantKey = useTenantKey();
+const scopeIds = computed(() => tenantKey.value?.split(',').filter(Boolean) ?? []);
+
 const dialogRef = useDialogRef();
 </script>
 <template>
+   <PendingTransfers
+      v-if="$can('select', 'transfer') && $can('create', 'transfer')"
+      :tenants="scopeIds"
+      class="mb-4"
+   />
    <ResourceTable
       v-bind="attrs"
       stateKey="product"
