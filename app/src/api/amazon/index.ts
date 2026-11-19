@@ -6,7 +6,7 @@ import { allValues } from '@/lib/enumValues';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
 import { languageTag, MARKETPLACE_IDS, type AmazonSchema } from '@edge-shared/listingCompleteness';
-import i18n from '@plugins/i18n';
+import i18n, { locale } from '@plugins/i18n';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 import * as z from 'zod';
@@ -77,6 +77,28 @@ export const AMAZON_LANGUAGE_TAGS = [
    'fr_BE',
    'en_GB'
 ] as const;
+
+/**
+ * A listing language named in the app's language: `de_DE` → "German (Germany)" in English,
+ * "Almanca (Almanya)" in Turkish. The tag itself when the runtime cannot name it.
+ */
+export const amazonLanguageLabel = (
+   tag: string,
+   appLocale: string = String(toValue(locale))
+): string => {
+   try {
+      return (
+         new Intl.DisplayNames([appLocale, 'en'], { type: 'language' }).of(tag.replace('_', '-')) ??
+         tag
+      );
+   } catch {
+      return tag;
+   }
+};
+
+/** The listing languages as select options: the tag as the value, its name as the label. */
+export const amazonLanguageOptions = (appLocale?: string) =>
+   AMAZON_LANGUAGE_TAGS.map((tag) => ({ tag, label: amazonLanguageLabel(tag, appLocale) }));
 
 /**
  * The marketplace id of a country, or null for one Amazon is not published to. The ids come from

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-   AMAZON_LANGUAGE_TAGS,
+   amazonLanguageOptions,
    amazonSchemaOf,
    type AmazonIssue,
    type Definition
@@ -77,7 +77,7 @@ const percent = computed(() =>
 
 /** Each language with the count of required fields still missing in it. */
 const languages = computed(() =>
-   AMAZON_LANGUAGE_TAGS.map((tag) => ({ tag, missing: missingFor(tag).length }))
+   amazonLanguageOptions().map((option) => ({ ...option, missing: missingFor(option.tag).length }))
 );
 
 const selectedGroup = ref(
@@ -169,15 +169,18 @@ const ISSUE_SEVERITY = {
             <Select
                :modelValue="languageTag"
                :options="languages"
-               optionLabel="tag"
+               optionLabel="label"
                optionValue="tag"
-               class="min-w-40"
+               class="min-w-48"
                data-language
                @update:modelValue="emit('update:languageTag', $event)"
             >
                <template #option="{ option }">
                   <span class="flex w-full items-center justify-between gap-2">
-                     <span v-text="option.tag" />
+                     <span>
+                        <span v-text="option.label" />
+                        <span class="ms-2 text-xs text-muted-color" v-text="option.tag" />
+                     </span>
                      <Badge
                         v-if="option.missing"
                         :data-language-missing="option.tag"
