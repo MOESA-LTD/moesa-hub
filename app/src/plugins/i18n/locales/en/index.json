@@ -293,6 +293,9 @@
       "invite": "Invite"
    },
    "errors": {
+      "signup_closed": "Sign-up is closed. New companies join through an invitation from their provider.",
+      "signup_unconfirmed": "Your e-mail address is not confirmed yet. Open the link we e-mailed you.",
+      "signup_completed": "This account has already created its company.",
       "audit_already_reverted": "This change has already been reverted.",
       "audit_conflict": "This change cannot be reverted: the record was changed afterwards. Revert the later changes first.",
       "audit_revert_field_forbidden": "This change cannot be reverted: it touches a field you are not allowed to change.",
@@ -716,6 +719,8 @@
          "admin_subscription_manage": "Manage Subscription",
          "admin_plans": "Plans",
          "admin_plan_list": "Plan List",
+         "register_complete": "Complete sign-up",
+         "admin_platform": "Platform",
          "ops": "Operations",
          "ops_setting": "Settings",
          "ops_document_add": "Add document",
@@ -1037,6 +1042,12 @@
          "offer": "Offering",
          "active_hint": "Offered (an inactive plan stays with the companies on it)",
          "default_hint": "Default plan of new companies (with the trial days)"
+      },
+      "platform": {
+         "title": "Platform settings",
+         "open_signup": "Open sign-up",
+         "open_signup_hint": "Anyone can create a company from the sign-up page. The address is confirmed by e-mail before the company is created. When off, companies join only through a provider's invitation.",
+         "saved": "The setting was saved."
       },
       "subscription": {
          "company": "Company",
@@ -3404,6 +3415,50 @@
       "variation_theme": {
          "short": "How the children of a parent product differ, for example by size or colour.",
          "long": "Set on the parent product of a variation family. Every child must then carry the matching attributes (such as size or colour) and the parent link, or Amazon refuses the listing. The panel marks them as missing in the Amazon tab."
+      }
+   },
+   "signup": {
+      "loading": "Loading...",
+      "closed_title": "Sign-up is by invitation",
+      "closed_text": "New companies join the panel through an invitation from their provider. If you were invited, open the link in that e-mail.",
+      "to_login": "Back to sign in",
+      "email_text": "We will e-mail you a link to confirm the address. You set your password after opening it.",
+      "next": "Next",
+      "sending": "Sending...",
+      "check_title": "Check your e-mail",
+      "check_text": "If {email} can be used for a new account, a link is on its way. Open it to set your password, choose a plan and create your company.",
+      "check_existing": "Already have an account with this address? Sign in instead: no e-mail is sent for it.",
+      "complete": {
+         "title": "Finish creating {company}",
+         "intro": "Set your password and choose a plan: your company is created right after.",
+         "no_session_title": "Open the link from your e-mail",
+         "no_session_text": "This page needs the link we e-mailed you after you signed up. Open that e-mail and follow the link in it.",
+         "sign_in": "Sign in",
+         "nothing_pending": "There is no sign-up waiting for this account.",
+         "to_dashboard": "Go to the panel",
+         "steps": {
+            "account": "Password",
+            "plan": "Plan"
+         },
+         "plan_title": "Choose a plan",
+         "plan_text": "Compare what each plan includes. You can change the plan later.",
+         "plans_none": "No plan is offered at the moment. Try again later.",
+         "back": "Back",
+         "action": "Create my company",
+         "loading": "Loading the plans...",
+         "reload_needed": "Your company was created, but it is not listed yet. Reload the page to open it.",
+         "reload": "Reload"
+      },
+      "error": {
+         "signup_closed": "Sign-up is closed at the moment. Ask your provider for an invitation.",
+         "signup_throttled": "Too many sign-ups for this address. Try again in an hour.",
+         "signup_payload_invalid": "Some details were not accepted. Check the form and try again.",
+         "signup_unconfirmed": "Your e-mail address is not confirmed yet. Open the link we e-mailed you.",
+         "signup_not_pending": "There is no sign-up waiting for this account.",
+         "company_email_exists": "A company with this e-mail is already registered. Sign up again with another company e-mail.",
+         "company_phone_exists": "A company with this phone number is already registered. Sign up again with another phone number.",
+         "plan_inactive": "This plan is no longer offered. Choose another one.",
+         "generic": "The sign-up could not be completed. Try again."
       }
    },
    "invitation": {

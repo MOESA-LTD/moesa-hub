@@ -2,7 +2,7 @@ import type { RouteRecordRaw } from 'vue-router';
 import CustomRouteView from '@/components/layout/CustomRouteView.vue';
 import { DIALOG_POSITIONS } from '@/constants/router';
 
-// The super admin's panel: the companies' subscriptions and the plans.
+// The super admin's panel: the companies' subscriptions, the plans and the platform settings.
 const routes: RouteRecordRaw[] = [
    {
       path: 'admin',
@@ -123,6 +123,20 @@ const routes: RouteRecordRaw[] = [
                   }
                }
             ]
+         },
+         {
+            // Platform switches, e.g. whether self-signup is open (decision 17, off by default).
+            path: 'platform',
+            name: 'admin-platform',
+            meta: {
+               label: 'route.label.admin_platform',
+               icon: PrimeIcons.COG,
+               index: 3
+            },
+            components: {
+               default: () => import('@/views/pages/admin/platform/Index.vue'),
+               skeleton: () => import('@/views/pages/admin/platform/Index.vue')
+            }
          }
       ]
    }

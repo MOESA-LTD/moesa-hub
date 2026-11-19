@@ -1,4 +1,9 @@
 <script setup>
+import { useSignupOpen } from '@/api/platformSetting';
+
+// The sign-in page offers sign-up only while the platform has it open (decision 17).
+const { open: signupOpen } = useSignupOpen();
+
 const lightX = ref(`center`);
 const lightY = ref(`center`);
 
@@ -22,6 +27,7 @@ const onMouseMove = _throttle((e) => {
                <span id="auth-banner-button" class="contents" />
                <Teleport defer to="#auth-banner-button">
                   <RouterLink
+                     v-if="$route.name != 'auth-login' || signupOpen"
                      custom
                      :to="{
                         name: $route.name == 'auth-login' ? 'auth-register' : 'auth-login',
@@ -31,6 +37,7 @@ const onMouseMove = _throttle((e) => {
                   >
                      <Button
                         as="a"
+                        :data-signup-link="$route.name == 'auth-login' ? '' : undefined"
                         :href="href"
                         @click="navigate"
                         :label="

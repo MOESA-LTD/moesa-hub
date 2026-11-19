@@ -1,16 +1,9 @@
-import { email, optional, phone, requiredText } from '@/lib/form/fields';
+import { named } from '@/api/auth/signup';
+import { companySchema, toCompany } from '@/api/invitation/accept';
+import { email, requiredText } from '@/lib/form/fields';
 import { supabase } from '@/lib/supabase';
-import i18n from '@plugins/i18n';
-import { FunctionsHttpError, type VerifyOtpParams } from '@supabase/supabase-js';
+import type { VerifyOtpParams } from '@supabase/supabase-js';
 import * as z from 'zod';
-
-const passwordsMatch = ({
-   password,
-   password_confirmation
-}: {
-   password: string;
-   password_confirmation: string;
-}) => password === password_confirmation;
 
 export const loginSchema = z.object({
    email: email(),
@@ -25,57 +18,27 @@ export const otpSchema = z.object({
    code: z.string().length(6)
 });
 
+/**
+ * Self-signup: the owner's e-mail and the company, no password (supabase/functions/create-account
+ * is verify-first: the password is set after the mailed link has proven the inbox).
+ */
 export const registerSchema = z.object({
-   account: z
-      .object({
-         email: email(),
-         password: z.string().min(8),
-         password_confirmation: requiredText()
-      })
-      .refine(passwordsMatch, {
-         path: ['password_confirmation'],
-         error: () => i18n.t('form.passwords_do_not_match')
-      }),
-   company: z.object({
-      display_name: z.string().trim().min(3),
-      email: email(),
-      phone: optional(phone())
-   })
+   account: z.object({ email: email() }),
+   company: companySchema
 });
 
 export type RegisterFormValues = z.input<typeof registerSchema>;
 
-/** Values that are already registered, by the error the create-account function returns. */
-const REGISTRATION_CONFLICTS: Record<string, { field: string; message: string }> = {
-   email_exists: { field: 'account.email', message: 'errors.user_already_registered' },
-   user_already_exists: { field: 'account.email', message: 'errors.user_already_registered' },
-   company_email_exists: { field: 'company.email', message: 'form.already_exists' },
-   company_phone_exists: { field: 'company.phone', message: 'form.already_exists' }
-};
-
-/** Creates the owner account and its tenant (supabase/functions/create-account). */
+/**
+ * Asks for an account: create-account mails a link to the address and answers the same whether or
+ * not it is known (202 check_email). Refusals (signup_closed, signup_throttled,
+ * signup_payload_invalid) are thrown as a SignupError.
+ */
 export async function createAccount({ account, company }: z.output<typeof registerSchema>) {
    const { error } = await supabase.functions.invoke('create-account', {
-      body: { account: { email: account.email, password: account.password }, company }
+      body: { account: { email: account.email }, company: toCompany(company) }
    });
-   if (!error) return;
-
-   // Show "already registered" on the field concerned instead of a generic toast.
-   if (error instanceof FunctionsHttpError) {
-      const body = await error.context
-         .clone()
-         .json()
-         .catch(() => null);
-      // Auth errors carry `code`; the function's own errors carry it as `message`.
-      const reason: string | undefined = body?.code ?? body?.message;
-      const conflict = reason ? REGISTRATION_CONFLICTS[reason] : undefined;
-      if (conflict) {
-         throw Object.assign(new Error(reason), {
-            fieldErrors: { [conflict.field]: i18n.t(conflict.message) }
-         });
-      }
-   }
-   throw error;
+   if (error) throw await named(error);
 }
 
 export async function verifyOtp(email: string, code: string, type: VerifyOtpParams['type']) {

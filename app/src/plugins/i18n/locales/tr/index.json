@@ -147,6 +147,9 @@
       "invite": "Davet Et"
    },
    "errors": {
+      "signup_closed": "Kayıt kapalı. Yeni firmalar hizmet sağlayıcılarının davetiyle katılır.",
+      "signup_unconfirmed": "E-posta adresiniz henüz doğrulanmadı. Size gönderdiğimiz bağlantıyı açın.",
+      "signup_completed": "Bu hesap firmasını zaten oluşturdu.",
       "audit_already_reverted": "Bu değişiklik zaten geri alınmış.",
       "audit_conflict": "Bu değişiklik geri alınamıyor: kayıt sonradan değiştirildi. Önce sonraki değişiklikleri geri alın.",
       "audit_revert_field_forbidden": "Bu değişiklik geri alınamaz: değiştirme yetkiniz olmayan bir alanı içeriyor.",
@@ -570,6 +573,8 @@
          "admin_subscription_manage": "Aboneliği Yönet",
          "admin_plans": "Planlar",
          "admin_plan_list": "Plan Listesi",
+         "register_complete": "Kaydı tamamla",
+         "admin_platform": "Platform",
          "ops": "Operasyon",
          "ops_setting": "Ayarlar",
          "ops_document_add": "Belge ekle",
@@ -1037,6 +1042,12 @@
          "offer": "Sunum",
          "active_hint": "Sunuluyor (pasif plan, üzerindeki firmalarda kalmaya devam eder)",
          "default_hint": "Yeni firmaların varsayılan planı (deneme günleriyle)"
+      },
+      "platform": {
+         "title": "Platform ayarları",
+         "open_signup": "Açık kayıt",
+         "open_signup_hint": "Herkes kayıt sayfasından firma oluşturabilir. Firma oluşturulmadan önce adres e-postayla doğrulanır. Kapalıyken firmalar yalnızca bir hizmet sağlayıcının davetiyle katılır.",
+         "saved": "Ayar kaydedildi."
       },
       "subscription": {
          "company": "Firma",
@@ -3404,6 +3415,50 @@
       "variation_theme": {
          "short": "Bir ana ürünün alt ürünlerinin birbirinden nasıl ayrıldığı, örneğin beden veya renk.",
          "long": "Varyasyon ailesinin ana ürününde belirlenir. Her alt ürün buna uyan alanları (beden, renk gibi) ve ana ürün bağlantısını taşımalıdır; yoksa Amazon listing'i reddeder. Panel bunları Amazon sekmesinde eksik olarak işaretler."
+      }
+   },
+   "signup": {
+      "loading": "Yükleniyor...",
+      "closed_title": "Kayıt davetle yapılır",
+      "closed_text": "Yeni firmalar panele hizmet sağlayıcılarının davetiyle katılır. Davet aldıysanız o e-postadaki bağlantıyı açın.",
+      "to_login": "Girişe dön",
+      "email_text": "Adresi doğrulamak için size bir bağlantı göndereceğiz. Şifrenizi bağlantıyı açtıktan sonra belirlersiniz.",
+      "next": "İleri",
+      "sending": "Gönderiliyor...",
+      "check_title": "E-postanızı kontrol edin",
+      "check_text": "{email} yeni bir hesap için kullanılabiliyorsa bir bağlantı yolda. Şifrenizi belirlemek, plan seçmek ve firmanızı oluşturmak için bağlantıyı açın.",
+      "check_existing": "Bu adresle zaten hesabınız var mı? Giriş yapın: bu durumda e-posta gönderilmez.",
+      "complete": {
+         "title": "{company} oluşturmayı tamamlayın",
+         "intro": "Şifrenizi belirleyin ve bir plan seçin: firmanız hemen ardından oluşturulur.",
+         "no_session_title": "E-postanızdaki bağlantıyı açın",
+         "no_session_text": "Bu sayfa, kayıttan sonra size e-postayla gönderdiğimiz bağlantıyla açılır. O e-postayı açıp içindeki bağlantıya tıklayın.",
+         "sign_in": "Giriş yap",
+         "nothing_pending": "Bu hesap için bekleyen bir kayıt yok.",
+         "to_dashboard": "Panele git",
+         "steps": {
+            "account": "Şifre",
+            "plan": "Plan"
+         },
+         "plan_title": "Bir plan seçin",
+         "plan_text": "Her planın neleri içerdiğini karşılaştırın. Planı daha sonra değiştirebilirsiniz.",
+         "plans_none": "Şu anda sunulan bir plan yok. Daha sonra tekrar deneyin.",
+         "back": "Geri",
+         "action": "Firmamı oluştur",
+         "loading": "Planlar yükleniyor...",
+         "reload_needed": "Firmanız oluşturuldu ancak henüz listede görünmüyor. Açmak için sayfayı yenileyin.",
+         "reload": "Yenile"
+      },
+      "error": {
+         "signup_closed": "Kayıt şu anda kapalı. Hizmet sağlayıcınızdan davet isteyin.",
+         "signup_throttled": "Bu adres için çok fazla kayıt denemesi yapıldı. Bir saat sonra tekrar deneyin.",
+         "signup_payload_invalid": "Bazı bilgiler kabul edilmedi. Formu kontrol edip tekrar deneyin.",
+         "signup_unconfirmed": "E-posta adresiniz henüz doğrulanmadı. Size gönderdiğimiz bağlantıyı açın.",
+         "signup_not_pending": "Bu hesap için bekleyen bir kayıt yok.",
+         "company_email_exists": "Bu e-postayla kayıtlı bir firma zaten var. Başka bir firma e-postasıyla yeniden kaydolun.",
+         "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir firma zaten var. Başka bir numarayla yeniden kaydolun.",
+         "plan_inactive": "Bu plan artık sunulmuyor. Başka bir plan seçin.",
+         "generic": "Kayıt tamamlanamadı. Tekrar deneyin."
       }
    },
    "invitation": {

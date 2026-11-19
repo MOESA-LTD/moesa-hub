@@ -14,6 +14,7 @@ const { t } = useI18n();
 
 const columns = computed<Props['columns']>(() => [
    { field: 'display_name', sortable: true, header: t('fields.name') },
+   { field: 'audience', header: t('admin.plan.audience') },
    { field: 'price', sortable: true, header: t('admin.plan.price') },
    { field: 'trial_days', sortable: true, header: t('admin.plan.trial_days') },
    { field: 'plan_module', header: t('subscription.modules') },

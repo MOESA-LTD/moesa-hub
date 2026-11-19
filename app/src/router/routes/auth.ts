@@ -70,6 +70,23 @@ const routes: RouteRecordRaw[] = [
       }
    },
    {
+      // The link of the self-signup e-mail (create-account, verify-first): it signs the new owner in
+      // (the before-each middleware sets the session, invite links only), who sets a password,
+      // chooses a plan and creates the company here. Public: it explains itself without a session.
+      path: 'register/complete',
+      name: 'auth-register-complete',
+      meta: {
+         layout: 'dashboard',
+         requiresAuth: false,
+         label: 'route.label.register_complete',
+         visible: false
+      },
+      components: {
+         default: () => import('@/views/pages/auth/register/Complete.vue'),
+         'layout-topbar': () => import('@/layouts/dashboard/Topbar.vue')
+      }
+   },
+   {
       path: 'access-denied',
       name: 'access-denied',
       meta: {

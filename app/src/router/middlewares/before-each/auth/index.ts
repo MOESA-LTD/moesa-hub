@@ -3,19 +3,26 @@ import { AuthSessionMissingError, CustomAuthError } from '@supabase/supabase-js'
 import { useToast } from 'primevue';
 import type { NavigationGuardWithThis } from 'vue-router';
 
+/** The pages an e-mail link signs in to that set the password themselves, and the link types each accepts. */
+const LINK_PAGES: Record<string, string[]> = {
+   'auth-invitation': ['invite', 'magiclink', 'signup'],
+   'auth-register-complete': ['invite']
+};
+
 export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => {
    // Invite and recovery links sign the user in through tokens in the URL hash.
    const params = new URLSearchParams(window.location.hash?.substring(1));
    const access_token = params.get('access_token');
    const refresh_token = params.get('refresh_token');
 
-   // A link of the invitation page signs in only with the types the invitation mails use: any
-   // other tokens in the address are not the invitee's and are ignored (no login fixation).
+   // The pages that set the password themselves sign in only with the link types their mails use:
+   // any other tokens in the address are not the recipient's and are ignored (no login fixation).
+   // The invitation mails an invite or a magic link; self-signup only ever an invite.
    const linkType = params.get('type');
-   const invitationLink = to.name === 'auth-invitation';
-   const accepted = !invitationLink || ['invite', 'magiclink', 'signup'].includes(linkType ?? '');
+   const linkTypes = LINK_PAGES[String(to.name)];
+   const accepted = !linkTypes || linkTypes.includes(linkType ?? '');
 
-   if (invitationLink && !accepted && access_token) {
+   if (linkTypes && !accepted && access_token) {
       window.history.replaceState({}, document.title, to.path);
    }
 
@@ -25,9 +32,9 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
 
       window.history.replaceState({}, document.title, to.path);
 
-      // The invitation page sets the password itself, in its first step: it stays where it is,
-      // signed in, and goes on to the checks below.
-      if (to.name !== 'auth-invitation') {
+      // The invitation and sign-up pages set the password themselves, in their first step: they
+      // stay where they are, signed in, and go on to the checks below.
+      if (!linkTypes) {
          // Guards run in the app's injection context (vue-router >= 4.2), so the toast works here.
          useToast().add({
             life: 0,

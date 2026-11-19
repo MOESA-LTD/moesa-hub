@@ -384,7 +384,10 @@
       "invalid_website": "",
       "invalid_tax_number": "",
       "logo_type": "",
-      "logo_size": ""
+      "logo_size": "",
+      "signup_closed": "",
+      "signup_unconfirmed": "",
+      "signup_completed": ""
    },
    "route": {
       "label": {
@@ -423,7 +426,9 @@
          "admin_subscription_list": "",
          "admin_subscription_manage": "",
          "admin_plans": "",
-         "admin_plan_list": ""
+         "admin_plan_list": "",
+         "register_complete": "",
+         "admin_platform": ""
       }
    },
    "account": {
@@ -572,6 +577,12 @@
          "history": "",
          "ends_after_start": "",
          "replaced": ""
+      },
+      "platform": {
+         "title": "",
+         "open_signup": "",
+         "open_signup_hint": "",
+         "saved": ""
       }
    },
    "branch_profile": {
@@ -661,5 +672,49 @@
       "load_failed": "",
       "reload_needed": "",
       "reload": ""
+   },
+   "signup": {
+      "loading": "",
+      "closed_title": "",
+      "closed_text": "",
+      "to_login": "",
+      "email_text": "",
+      "next": "",
+      "sending": "",
+      "check_title": "",
+      "check_text": "",
+      "check_existing": "",
+      "complete": {
+         "title": "",
+         "intro": "",
+         "no_session_title": "",
+         "no_session_text": "",
+         "sign_in": "",
+         "nothing_pending": "",
+         "to_dashboard": "",
+         "steps": {
+            "account": "",
+            "plan": ""
+         },
+         "plan_title": "",
+         "plan_text": "",
+         "plans_none": "",
+         "back": "",
+         "action": "",
+         "loading": "",
+         "reload_needed": "",
+         "reload": ""
+      },
+      "error": {
+         "signup_closed": "",
+         "signup_throttled": "",
+         "signup_payload_invalid": "",
+         "signup_unconfirmed": "",
+         "signup_not_pending": "",
+         "company_email_exists": "",
+         "company_phone_exists": "",
+         "plan_inactive": "",
+         "generic": ""
+      }
    }
 }

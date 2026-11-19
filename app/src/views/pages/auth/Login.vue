@@ -61,12 +61,12 @@ const submit = login.handleSubmit(async (credentials) => {
    removeStorage('remember-me');
    if (rememberMe.value) writeStorage('remember-me', credentials.email);
 
-   // Back to the page that sent the user here (an invitation link): only such a path, never
-   // another site.
+   // Back to the page that sent the user here (an invitation link, the sign-up completion): only
+   // such a path, never another site.
    const redirect = route.query.redirect;
    if (
       typeof redirect === 'string' &&
-      /^(\/[a-z]{2}(-[a-z]+)?)?\/invitation\/[^/?#]+$/i.test(redirect)
+      /^(\/[a-z]{2}(-[a-z]+)?)?\/(invitation\/[^/?#]+|register\/complete)$/i.test(redirect)
    ) {
       await router.replace(redirect);
    }

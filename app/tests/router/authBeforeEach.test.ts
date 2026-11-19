@@ -64,4 +64,24 @@ describe('authBeforeEach with the tokens of an e-mail link', () => {
          expect(window.location.hash).toBe('');
       }
    );
+
+   it('keeps the sign-up completion page: it sets the password itself', async () => {
+      const to = { name: 'auth-register-complete', path: '/register/complete' };
+      expect(await run(to)).toBeUndefined();
+      expect(api.setSession).toHaveBeenCalledWith({ access_token: 'a', refresh_token: 'r' });
+      expect(api.toast).not.toHaveBeenCalled();
+      expect(window.location.hash).toBe('');
+   });
+
+   it.each(['magiclink', 'signup', 'recovery', 'email_change', null])(
+      'ignores tokens of type %s on the sign-up completion page (it mails invite links only)',
+      async (type) => {
+         window.location.hash = `#access_token=a&refresh_token=r${type ? `&type=${type}` : ''}`;
+         expect(
+            await run({ name: 'auth-register-complete', path: '/register/complete' })
+         ).toBeUndefined();
+         expect(api.setSession).not.toHaveBeenCalled();
+         expect(window.location.hash).toBe('');
+      }
+   );
 });
