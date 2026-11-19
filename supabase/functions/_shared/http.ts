@@ -42,7 +42,12 @@ export const NAMED_ERROR_STATUS: Record<string, number> = {
    company_email_exists: 409,
    company_phone_exists: 409,
    client_code_taken: 409,
-   invitation_pending_exists: 409
+   invitation_pending_exists: 409,
+   // Self-signup's completion (complete_signup, Task 11).
+   company_payload_invalid: 400,
+   signup_closed: 403,
+   signup_unconfirmed: 403,
+   signup_completed: 409
 };
 
 /** An error for a refusal the database returned as `{"error": key}`, named by its key alone. */

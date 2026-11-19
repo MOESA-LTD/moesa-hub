@@ -312,3 +312,65 @@ $$;
 REVOKE ALL ON FUNCTION public.register_tenant (UUID, JSONB) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.register_tenant (UUID, JSONB) TO service_role;
+
+-- Section 3: verify-first self-signup (Task 11, task-5-review I1). An open sign-up no longer
+-- creates a confirmed account with the caller's password: create-account invites the address
+-- (GoTrue mails a link; no password exists), keeps the company it asked for in the account's
+-- app_metadata.pending_company and creates no tenant. Only once the inbox is proven (the link was
+-- followed, email_confirmed_at) does create-account/complete create the company through this
+-- function. So nobody can pre-register someone else's address with a password they know.
+--
+--   public.complete_signup(user, company, plan)  the company of a proven account: refused while
+--                                                signup is closed (signup_closed, also for a signup
+--                                                started while it was open), for an unproven or
+--                                                unknown account (signup_unconfirmed), and once the
+--                                                account owns a company (signup_completed): at most
+--                                                one completion per account, serialised per user.
+--   public.signup_throttle(email, ip)            five sign-ups an hour per address and thirty per
+--                                                client address, so the endpoint cannot be used to
+--                                                mail-bomb an inbox or drain the project's mail
+--                                                quota. The counter is 071's private.invitation_throttle
+--                                                (resolved when called; the migrations are applied
+--                                                together).
+-- Both are granted to the service role alone (not in the 064 allowlist).
+CREATE OR REPLACE FUNCTION public.complete_signup (p_user UUID, p_company JSONB, p_plan_id UUID) RETURNS public.tenant LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    IF NOT public.open_signup_enabled() THEN
+        RAISE EXCEPTION 'signup_closed';
+    END IF;
+
+    IF p_user IS NULL
+       OR NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_user AND u.email_confirmed_at IS NOT NULL) THEN
+        RAISE EXCEPTION 'signup_unconfirmed';
+    END IF;
+
+    -- Two completions of one account at once: the second waits here, then finds the company.
+    PERFORM pg_advisory_xact_lock(hashtextextended('complete_signup:' || p_user::TEXT, 0));
+    IF EXISTS (SELECT 1 FROM public.tenant_owner o WHERE o.user_id = p_user) THEN
+        RAISE EXCEPTION 'signup_completed';
+    END IF;
+
+    RETURN private.create_company(p_user, p_company, p_plan_id);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.signup_throttle (p_email TEXT, p_ip TEXT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    by_email BOOLEAN := private.invitation_throttle('signup:email:' || lower(trim(coalesce(p_email, ''))), 5, INTERVAL '1 hour');
+    by_ip BOOLEAN := private.invitation_throttle('signup:ip:' || coalesce(nullif(trim(p_ip), ''), 'unknown'), 30, INTERVAL '1 hour');
+BEGIN
+    RETURN by_email AND by_ip;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.complete_signup (UUID, JSONB, UUID) FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.signup_throttle (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.complete_signup (UUID, JSONB, UUID) TO service_role;
+
+GRANT EXECUTE ON FUNCTION public.signup_throttle (TEXT, TEXT) TO service_role;

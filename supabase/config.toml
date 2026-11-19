@@ -104,8 +104,10 @@ site_url = "http://localhost:6161"
 #   falls back to site_url: the mail goes out (201) but its link carries no token.
 # - The invitation token travels as the path of `redirect_to`, so it lands in GoTrue's request
 #   logs (/verify) as well as in the mail. Restrict who reads the Auth logs accordingly.
+# Open self-signup (create-account, Task 11) is verify-first: it invites the address with a link to
+# the panel's `/register/complete`, which must be in the allow-list too (hosted: the production URL).
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:6161", "http://localhost:6161/invitation/**"]
+additional_redirect_urls = ["http://localhost:6161", "http://localhost:6161/invitation/**", "http://localhost:6161/register/complete"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # If disabled, the refresh token will never expire.

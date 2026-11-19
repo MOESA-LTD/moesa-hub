@@ -9454,6 +9454,31 @@ export type Database = {
           status: Database["public"]["Enums"]["relationship_status"]
         }[]
       }
+      complete_signup: {
+        Args: {
+          p_user: string
+          p_company: Json
+          p_plan_id: string
+        }
+        Returns: {
+          address: string | null
+          city: string | null
+          code: string
+          country: string | null
+          created_at: string | null
+          display_name: string
+          district: string | null
+          email: string | null
+          id: string
+          legal_name: string | null
+          logo_path: string | null
+          parent_id: string | null
+          phone: string | null
+          tax_number: string | null
+          tax_office: string | null
+          website: string | null
+        }
+      }
       create_branch: {
         Args: {
           parent_id: string
@@ -9892,6 +9917,13 @@ export type Database = {
           role_ids?: string[]
         }
         Returns: undefined
+      }
+      signup_throttle: {
+        Args: {
+          p_email: string
+          p_ip: string
+        }
+        Returns: boolean
       }
       status: {
         Args: {

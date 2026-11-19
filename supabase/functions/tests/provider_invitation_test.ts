@@ -43,6 +43,8 @@ type Opts = {
    undoFails?: boolean;
    /** The invitation is not in the caller's active tenant (the scoped read finds nothing). */
    invitationMissing?: boolean;
+   /** Clearing the accepter's pending self-signup (app_metadata) fails. */
+   clearFails?: boolean;
 };
 
 /** Answers what the provider-invitation function reads and writes. */
@@ -90,6 +92,9 @@ const backend = (opts: Opts = {}) => {
             return jsonResponse(
                url.pathname === '/auth/v1/otp' ? {} : { id: EXISTING, email: 'new@client.test' }
             );
+         case `/auth/v1/admin/users/${CALLER}`:
+            if (opts.clearFails) return jsonResponse({ code: 'unexpected_failure', msg: 'down' }, 500);
+            return jsonResponse({ id: CALLER });
          case `/auth/v1/admin/users/${EXISTING}`:
             return jsonResponse({
                id: EXISTING,
@@ -463,6 +468,48 @@ Deno.test('accept needs no tenant right: a signed-in non-member is served', asyn
       restore();
    }
    assert(seen.some((s) => s.path === '/rest/v1/rpc/accept_provider_invitation'));
+});
+
+// Task 11: a pending self-signup (app_metadata.pending_company, maybe someone else's request for
+// this address) plays no part in acceptance and is forgotten once the invitation is accepted.
+const clears = (seen: { method: string; path: string; body: string }[]) =>
+   seen.filter((s) => s.path === `/auth/v1/admin/users/${CALLER}` && s.method === 'PUT').map((s) => JSON.parse(s.body));
+
+Deno.test('accept clears a pending self-signup of the accepter', async () => {
+   const { seen, restore } = backend();
+   try {
+      assertEquals((await handler(request('/provider-invitation/accept', acceptBody))).status, 200);
+   } finally {
+      restore();
+   }
+   assertEquals(clears(seen), [{ app_metadata: { pending_company: null } }]);
+   // Acceptance itself never reads it.
+   assert(!seen.some((s) => s.path === `/auth/v1/admin/users/${CALLER}` && s.method === 'GET'));
+});
+
+Deno.test('a refused accept leaves the account alone; a failed clear does not fail the accept', async () => {
+   {
+      const { seen, restore } = backend({ accept: { error: 'invitation_invalid' } });
+      try {
+         assertEquals((await respond(handler(request('/provider-invitation/accept', acceptBody)))).status, 404);
+      } finally {
+         restore();
+      }
+      assertEquals(clears(seen), []);
+   }
+   const { restore } = backend({ clearFails: true });
+   let res!: Response;
+   const logs = await captureLogs(async () => {
+      try {
+         res = await handler(request('/provider-invitation/accept', acceptBody));
+      } finally {
+         restore();
+      }
+   });
+   assertEquals(res.status, 200);
+   assertEquals(await res.json(), { tenant_id: 'NEW-TENANT' });
+   assert(logs.includes('pending'), 'the failure is logged');
+   assert(!logs.includes(SECRET));
 });
 
 // ------------------------------------------------------------------------------------------

@@ -894,6 +894,75 @@ export async function authUserMetadata(id: string): Promise<Record<string, unkno
    return r.body.user_metadata ?? {};
 }
 
+/** An account as GoTrue's admin API returns it (app_metadata, user_metadata, email_confirmed_at). */
+export async function authUser(id: string): Promise<Record<string, any>> {
+   const r = await authAdmin(`users/${id}`, 'GET');
+   if (r.status >= 400) throw new Error(`reading user ${id}: ${r.status}`);
+   return r.body;
+}
+
+/** The id of the account with this e-mail (public.user), or null. */
+export async function userIdByEmail(email: string): Promise<string | null> {
+   const rows = (await admin(`user?email=eq.${encodeURIComponent(email)}&select=id`)).body as { id: string }[];
+   return rows[0]?.id ?? null;
+}
+
+/**
+ * The newest mail to `email` once there are more than `after`: its Auth verify link and where the
+ * link leads (redirect_to). Polls up to 10 s.
+ */
+export async function mailedLink(email: string, after = 0): Promise<{ verifyUrl: string; redirectTo: string }> {
+   for (let i = 0; i < 50; i++) {
+      const r = await inbucket(mailbox(email));
+      const list = r.ok ? ((await r.json()) as { id: string; date: string }[]) : (await r.body?.cancel(), []);
+      if (list.length > after) {
+         const newest = list.sort((a, b) => Date.parse(b.date) - Date.parse(a.date))[0];
+         const m = await (await inbucket(`${mailbox(email)}/${newest.id}`)).json();
+         const text = `${m.body?.html ?? ''}
+${m.body?.text ?? ''}`.replaceAll('&amp;', '&');
+         const link = text.match(/https?:\/\/[^\s"'<>]+\/auth\/v1\/verify\?[^\s"'<>]+/)?.[0];
+         if (!link) throw new Error(`the mail to ${email} carries no verify link`);
+         return { verifyUrl: link, redirectTo: new URL(link).searchParams.get('redirect_to') ?? '' };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+   }
+   throw new Error(`no mail reached ${email}`);
+}
+
+/** A password sign-in: the status, and whether a session came back. Nothing else is kept. */
+export async function passwordSignIn(email: string, password: string): Promise<{ status: number; session: boolean }> {
+   const r = await fetch(`${API_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+   });
+   const body = await r.json().catch(() => ({}));
+   return { status: r.status, session: typeof body?.access_token === 'string' };
+}
+
+/** Sets the signed-in user's password as the panel does (updateUser, with the password_set mark). */
+export async function setPassword(token: string, password: string): Promise<number> {
+   const r = await fetch(`${API_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, data: { password_set: true } }),
+   });
+   await r.body?.cancel();
+   return r.status;
+}
+
+/**
+ * Opens or closes self-signup as the seeded super admin (set_platform_setting refuses everyone
+ * else, the service role included: it checks auth.uid()). Returns the setting before the change.
+ */
+export async function setOpenSignup(open: boolean): Promise<boolean> {
+   const before = (await edge(null, 'create-account', { method: 'GET' })).body?.open === true;
+   const token = await signIn('admin@moesa-panel.test');
+   const r = await rest(token, 'rpc/set_platform_setting', { method: 'POST', body: { key: 'open_signup', value: open }, profile: 'public' });
+   if (r.status !== 200) throw new Error(`set_platform_setting: ${r.status}`);
+   return before;
+}
+
 async function invitationCleanup(): Promise<void> {
    const tenants = (await admin(`tenant?display_name=like.${encodeURIComponent(INV_TENANT_PREFIX)}*&select=id,display_name`)).body as {
       id: string;
