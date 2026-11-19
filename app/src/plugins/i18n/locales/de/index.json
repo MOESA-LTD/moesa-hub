@@ -187,7 +187,8 @@
       "change_request": "Change request",
       "change_request_product": "Change request product",
       "listing": "Listing",
-      "listing_submission": "Listing submission"
+      "listing_submission": "Listing submission",
+      "transfer": "Transfer"
    },
    "input": {
       "select_or_write": "Auswählen oder eingeben"
@@ -630,7 +631,21 @@
       "signup_not_pending": "There is no sign-up waiting for this account.",
       "audit_transfer_not_revertable": "This change came with a transfer between companies. Undo it by transferring back.",
       "transfer_package_invalid": "The transfer could not be prepared. Please contact support.",
-      "transfer_report_stale": "The products changed since the preview. Review the transfer again."
+      "transfer_report_stale": "The products changed since the preview. Review the transfer again.",
+      "transfer_mode_invalid": "Choose Copy or Move.",
+      "transfer_same_tenant": "The target must differ from the source.",
+      "transfer_forbidden": "You need the right to transfer in both places: to read the records in the source and to create them in the target.",
+      "transfer_target_unavailable": "The target cannot receive products: it is read-only, its plan has no business modules, or it is not related to the source.",
+      "transfer_permissions_required": "You lack a right the copy needs in the target (to create the records or to link their files). Ask an administrator.",
+      "transfer_field_rights_required": "This transfer carries every field of the copied records, internal notes included. You need the right to see and change all of them in both the source and the target.",
+      "transfer_source_read_only": "The source is read-only: its records can be copied but not moved.",
+      "transfer_files_pending": "The files of an earlier transfer into the source are not all copied yet. Finish that transfer first.",
+      "transfer_decision_required": "Every conflict needs a decision.",
+      "transfer_decision_invalid": "A decision does not fit its conflict. Check the action and the record it points to.",
+      "transfer_code_invalid": "The new code or suffix has the wrong format or is already used in the target.",
+      "transfer_product_in_use": "Records left behind in the source use these products (a project, an order, a market cell or a change request). Copy them, or move those records too.",
+      "transfer_products_invalid": "Select products of one company in the source.",
+      "transfer_not_found": "Transfer not found."
    },
    "account": {
       "profile": {
@@ -843,7 +858,8 @@
          "ops_client_invitations": "Invitations",
          "ops_client_invitation_create": "Invite a client",
          "register_complete": "Complete sign-up",
-         "admin_platform": "Platform"
+         "admin_platform": "Platform",
+         "ops_transfer": "Copy or move products"
       }
    },
    "dashboard": {
@@ -2481,6 +2497,112 @@
          "from": "From {provider}",
          "shared": "Shared",
          "read_only": "Shared by your provider: you can view it but not change it."
+      },
+      "transfer": {
+         "title": "Copy or move {count} product | Copy or move {count} products",
+         "steps": {
+            "target": "Target",
+            "report": "Rehearsal",
+            "apply": "Apply",
+            "files": "Files"
+         },
+         "open": "Copy or move to another company",
+         "open_count": "Copy or move {count} to another company",
+         "open_disabled_empty": "Select products first.",
+         "open_disabled_mixed": "Select products of one company.",
+         "no_selection": "Select the products in the product list first.",
+         "target": {
+            "label": "Target company or branch",
+            "same_company": "Same company",
+            "other_company": "Another company",
+            "none": "No target is available."
+         },
+         "mode": {
+            "label": "Mode",
+            "copy_label": "Copy",
+            "move_label": "Move",
+            "copy": "Copy: the source stays as it is.",
+            "move": "Move: written to the target, then removed from the source.",
+            "move_read_only": "The source is read-only, so only Copy is possible."
+         },
+         "rehearse": "Rehearse",
+         "rehearse_again": "Rehearse again",
+         "next": "Continue",
+         "report": {
+            "products": "Products: {count}",
+            "counts": "Records written",
+            "conflicts": "Conflicts",
+            "no_conflicts": "No conflicts.",
+            "excluded_title": "Left out",
+            "excluded": "The target is your client, so these are not transferred: {list}. Suppliers, supplier contacts and sourcing stay with you.",
+            "left_behind": "Records in the source that use these products",
+            "left_behind_item": "{table}: {rows} through {column}",
+            "links_title": "Rows in other companies keep only a snapshot",
+            "links": "A move removes the products. These rows of other companies keep the product data they already hold but are no longer linked: {list}.",
+            "cleared": "References cleared by a copy",
+            "cleared_item": "{table}.{column}: {rows}",
+            "settings_gaps": "Missing under the target's settings",
+            "spec_sheet_required": "{label}: the target requires a signed spec sheet",
+            "files": "Files to copy: {count}"
+         },
+         "conflict_kind": {
+            "supplier_code": "Supplier code",
+            "sku": "SKU",
+            "gtin": "GTIN",
+            "unknown": "Other conflict"
+         },
+         "conflict": {
+            "supplier_code": "Supplier {label} has a code the target already uses",
+            "sku": "The target already has a product with the SKU {label}",
+            "gtin": "{label} has an active GTIN, and an active GTIN is unique across companies",
+            "unknown": "{label} conflicts with a record in the target",
+            "code_format": "The code has the wrong format.",
+            "code_taken": "This value is already used by another row.",
+            "duplicate_code": "Another supplier is given the same code.",
+            "suffix_format": "Up to 20 letters, digits, dots, hyphens or underscores."
+         },
+         "action": {
+            "map": "Use the target's supplier",
+            "new_code": "Give a new code",
+            "rename": "Rename with a suffix",
+            "clear_gtin": "Leave the GTIN empty",
+            "skip": "Skip"
+         },
+         "skip_drops": "Also drops: {list}",
+         "skip_drops_item": "{table} ({count})",
+         "decision": {
+            "target": "Supplier in the target",
+            "code": "New code",
+            "suffix": "Suffix",
+            "new_sku": "New SKU: {sku}"
+         },
+         "unresolved": "{count} conflicts need a decision.",
+         "move_blocked": "A move cannot leave records in the source that use these products. Copy instead, or move those records too.",
+         "apply": {
+            "heading": "Ready to apply",
+            "copy": "Copy {count} records to {target}.",
+            "move": "Move {count} records to {target}. They are removed from the source.",
+            "stale": "The products changed since the rehearsal. Rehearse again to review the changes."
+         },
+         "confirm": {
+            "copy": "Copy {count} records to {target}?",
+            "move": "Move {count} records to {target}? They are written there and removed from the source."
+         },
+         "run": "Apply",
+         "result": {
+            "done": "Transferred: {count} records.",
+            "id_map": "Download the ID map (CSV)"
+         },
+         "files": {
+            "pending": "Files are being copied.",
+            "progress": "Copying files: {done} of {total}",
+            "done": "All files copied.",
+            "partial": "{count} file could not be copied. | {count} files could not be copied.",
+            "needs_admin": "{count} file needs an administrator: the copy in the target differs from the original. | {count} files need an administrator: the copies in the target differ from the originals.",
+            "masked": "The file list is hidden from you. A user with the transfer rights in both companies can finish the copy.",
+            "retry": "Retry file copy",
+            "notice": "Files of an earlier transfer into this company are missing."
+         }
       }
    },
    "glossary": {

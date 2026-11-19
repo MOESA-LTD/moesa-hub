@@ -484,7 +484,21 @@
       "incident_scope_missing": "Olay kod alamadı: şirketin kodu yok.",
       "change_request_scope_missing": "Değişiklik talebi kod alamadı: şirketin kodu yok.",
       "signup_payload_invalid": "Bazı bilgiler kabul edilmedi. Formu kontrol edip tekrar deneyin.",
-      "signup_not_pending": "Bu hesap için bekleyen bir kayıt yok."
+      "signup_not_pending": "Bu hesap için bekleyen bir kayıt yok.",
+      "transfer_mode_invalid": "Kopyala ya da Taşı'yı seçin.",
+      "transfer_same_tenant": "Hedef, kaynaktan farklı olmalı.",
+      "transfer_forbidden": "Her iki yerde de aktarma yetkisi gerekir: kaynakta kayıtları okuma, hedefte oluşturma.",
+      "transfer_target_unavailable": "Hedef ürün alamaz: salt okunur, planında iş modülleri yok ya da kaynakla ilişkili değil.",
+      "transfer_permissions_required": "Kopyalamanın hedefte ihtiyaç duyduğu bir yetkiniz yok (kayıtları oluşturma ya da dosyalarını bağlama). Yöneticiye başvurun.",
+      "transfer_field_rights_required": "Bu aktarım, kopyalanan kayıtların iç notlar dahil tüm alanlarını taşır. Kaynak ve hedefte bu alanların hepsini görme ve değiştirme yetkiniz olmalı.",
+      "transfer_source_read_only": "Kaynak salt okunur: kayıtları kopyalanabilir, taşınamaz.",
+      "transfer_files_pending": "Kaynağa yapılan önceki bir aktarımın dosyaları henüz tamamen kopyalanmadı. Önce o aktarımı tamamlayın.",
+      "transfer_decision_required": "Her çakışma için bir karar gerekir.",
+      "transfer_decision_invalid": "Bir karar çakışmasına uymuyor: işlemi ve bağlandığı kaydı kontrol edin.",
+      "transfer_code_invalid": "Yeni kodun ya da ekin biçimi hatalı ya da hedefte kullanılıyor.",
+      "transfer_product_in_use": "Kaynakta geride kalan kayıtlar bu ürünleri kullanıyor (proje, sipariş, pazar hücresi ya da değişiklik talebi). Kopyalayın ya da o kayıtları da taşıyın.",
+      "transfer_products_invalid": "Kaynaktaki tek bir şirketin ürünlerini seçin.",
+      "transfer_not_found": "Aktarım bulunamadı."
    },
    "account": {
       "logout": "Çıkış yap",
@@ -697,7 +711,8 @@
          "ops_client_list": "İlişkiler",
          "ops_client_manage": "İlişki",
          "ops_client_invitations": "Davetler",
-         "ops_client_invitation_create": "Müşteri davet et"
+         "ops_client_invitation_create": "Müşteri davet et",
+         "ops_transfer": "Ürünleri kopyala ya da taşı"
       }
    },
    "fields": {
@@ -790,7 +805,8 @@
       "change_request": "Değişiklik talebi",
       "change_request_product": "Değişiklik talebi ürünü",
       "listing": "İlan",
-      "listing_submission": "İlan gönderimi"
+      "listing_submission": "İlan gönderimi",
+      "transfer": "Aktarım"
    },
    "dashboard": {
       "notifications": {
@@ -2480,6 +2496,112 @@
                "failed": "Başarısız",
                "unknown": "Bilinmiyor"
             }
+         }
+      },
+      "transfer": {
+         "title": "{count} ürünü kopyala ya da taşı | {count} ürünü kopyala ya da taşı",
+         "steps": {
+            "target": "Hedef",
+            "report": "Prova",
+            "apply": "Uygula",
+            "files": "Dosyalar"
+         },
+         "open": "Başka bir şirkete kopyala ya da taşı",
+         "open_count": "{count} ürünü başka bir şirkete kopyala ya da taşı",
+         "open_disabled_empty": "Önce ürün seçin.",
+         "open_disabled_mixed": "Tek bir şirketin ürünlerini seçin.",
+         "no_selection": "Önce ürün listesinden ürünleri seçin.",
+         "target": {
+            "label": "Hedef şirket ya da şube",
+            "same_company": "Aynı şirket",
+            "other_company": "Başka şirket",
+            "none": "Uygun hedef yok."
+         },
+         "mode": {
+            "label": "Mod",
+            "copy_label": "Kopyala",
+            "move_label": "Taşı",
+            "copy": "Kopyala: kaynak olduğu gibi kalır.",
+            "move": "Taşı: hedefe yazılır, sonra kaynaktan kaldırılır.",
+            "move_read_only": "Kaynak salt okunur; yalnız Kopyala mümkün."
+         },
+         "rehearse": "Prova yap",
+         "rehearse_again": "Provayı yinele",
+         "next": "Devam",
+         "report": {
+            "products": "Ürün: {count}",
+            "counts": "Yazılacak kayıtlar",
+            "conflicts": "Çakışmalar",
+            "no_conflicts": "Çakışma yok.",
+            "excluded_title": "Dışarıda bırakılanlar",
+            "excluded": "Hedef sizin müşteriniz olduğu için şunlar aktarılmaz: {list}. Tedarikçiler, tedarikçi kişileri ve tedarik kayıtları sizde kalır.",
+            "left_behind": "Kaynakta bu ürünleri kullanan kayıtlar",
+            "left_behind_item": "{table}: {column} üzerinden {rows}",
+            "links_title": "Diğer şirketlerdeki satırlar yalnız bir görüntü tutar",
+            "links": "Taşıma ürünleri kaldırır. Diğer şirketlerin şu satırları ellerindeki ürün verisini korur ama artık bağlı olmaz: {list}.",
+            "cleared": "Kopyayla boşaltılan bağlantılar",
+            "cleared_item": "{table}.{column}: {rows}",
+            "settings_gaps": "Hedefin ayarlarına göre eksik kalacaklar",
+            "spec_sheet_required": "{label}: hedef imzalı spec sheet istiyor",
+            "files": "Kopyalanacak dosya: {count}"
+         },
+         "conflict_kind": {
+            "supplier_code": "Tedarikçi kodu",
+            "sku": "SKU",
+            "gtin": "GTIN",
+            "unknown": "Diğer çakışma"
+         },
+         "conflict": {
+            "supplier_code": "{label} tedarikçisinin kodu hedefte zaten kullanılıyor",
+            "sku": "Hedefte {label} SKU'lu bir ürün zaten var",
+            "gtin": "{label} ürününün GTIN'i aktif; aktif GTIN şirketler arasında tekildir",
+            "unknown": "{label} hedefteki bir kayıtla çakışıyor",
+            "code_format": "Kodun biçimi hatalı.",
+            "code_taken": "Bu değeri başka bir satır kullanıyor.",
+            "duplicate_code": "Başka bir tedarikçiye de aynı kod verildi.",
+            "suffix_format": "En çok 20 harf, rakam, nokta, tire ya da alt çizgi."
+         },
+         "action": {
+            "map": "Hedefteki tedarikçiyi kullan",
+            "new_code": "Yeni kod ver",
+            "rename": "Ek ile yeniden adlandır",
+            "clear_gtin": "GTIN'i boş bırak",
+            "skip": "Atla"
+         },
+         "skip_drops": "Bununla birlikte atlananlar: {list}",
+         "skip_drops_item": "{table} ({count})",
+         "decision": {
+            "target": "Hedefteki tedarikçi",
+            "code": "Yeni kod",
+            "suffix": "Ek",
+            "new_sku": "Yeni SKU: {sku}"
+         },
+         "unresolved": "{count} çakışma karar bekliyor.",
+         "move_blocked": "Taşıma, bu ürünleri kullanan kayıtları kaynakta bırakamaz. Kopyalayın ya da o kayıtları da taşıyın.",
+         "apply": {
+            "heading": "Uygulamaya hazır",
+            "copy": "{count} kayıt {target} hedefine kopyalanacak.",
+            "move": "{count} kayıt {target} hedefine taşınacak. Kaynaktan kaldırılırlar.",
+            "stale": "Provadan bu yana ürünler değişti. Değişiklikleri görmek için provayı yineleyin."
+         },
+         "confirm": {
+            "copy": "{count} kayıt {target} hedefine kopyalansın mı?",
+            "move": "{count} kayıt {target} hedefine taşınsın mı? Oraya yazılır ve kaynaktan kaldırılırlar."
+         },
+         "run": "Uygula",
+         "result": {
+            "done": "Aktarıldı: {count} kayıt.",
+            "id_map": "Kimlik eşlemesini indir (CSV)"
+         },
+         "files": {
+            "pending": "Dosyalar kopyalanıyor.",
+            "progress": "Dosyalar kopyalanıyor: {done} / {total}",
+            "done": "Tüm dosyalar kopyalandı.",
+            "partial": "{count} dosya kopyalanamadı. | {count} dosya kopyalanamadı.",
+            "needs_admin": "{count} dosya için yönetici gerekiyor: hedefteki kopya aslından farklı. | {count} dosya için yönetici gerekiyor: hedefteki kopyalar asıllarından farklı.",
+            "masked": "Dosya listesi sizden gizli. İki şirkette de aktarma yetkisi olan bir kullanıcı kopyayı tamamlayabilir.",
+            "retry": "Dosyaları yeniden kopyala",
+            "notice": "Bu şirkete yapılan önceki bir aktarımın dosyaları eksik."
          }
       }
    },

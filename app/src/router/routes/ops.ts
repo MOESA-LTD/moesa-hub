@@ -51,6 +51,20 @@ export const changeRequestProps = (route: RouteLocationNormalized) => ({
    project_id: route.query.project_id ?? null
 });
 
+// The products to transfer come from the product list's selection: the tenant they belong to and
+// their ids (comma-separated) in the query; a route dialog renders the page outside the router.
+export const transferProps = (route: RouteLocationNormalized) => {
+   const productIds =
+      typeof route.query.product_ids === 'string'
+         ? route.query.product_ids.split(',').filter(Boolean)
+         : [];
+   return {
+      sourceTenant:
+         typeof route.query.source_tenant === 'string' ? route.query.source_tenant : null,
+      productIds
+   };
+};
+
 // The company profile of the active tenant: one tab per table, each its own route that renders
 // the profile page on that tab; a row is added and edited in a dialog route beside them.
 const COMPANY_TABS = [
@@ -1735,6 +1749,25 @@ const routes: RouteRecordRaw[] = [
             components: {
                default: () => import('@/views/pages/ops/product/Import.vue'),
                skeleton: () => import('@/views/pages/ops/product/Import.vue')
+            }
+         },
+         {
+            // Some products to another company or branch, opened from the product list.
+            path: 'transfer',
+            name: 'ops-transfer',
+            props: { default: transferProps, skeleton: transferProps },
+            meta: {
+               label: 'route.label.ops_transfer',
+               icon: PrimeIcons.ARROW_RIGHT_ARROW_LEFT,
+               visible: false,
+               requiredPermissions: [
+                  { action: 'select', subject: 'transfer' },
+                  { action: 'create', subject: 'transfer' }
+               ]
+            },
+            components: {
+               default: () => import('@/views/pages/ops/transfer/Transfer.vue'),
+               skeleton: () => import('@/views/pages/ops/transfer/Transfer.vue')
             }
          },
          {

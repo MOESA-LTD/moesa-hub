@@ -221,6 +221,24 @@ const openBulk = () => {
    selected.value = [];
 };
 
+// Copy or move to another company: the selected products, when they are all one tenant's (the
+// wizard's source). It follows the right to transfer (read and create) and the module's plan.
+const transferHint = computed(() => {
+   if (!selected.value.length) return t('ops.transfer.open_disabled_empty');
+   return bulkTenant.value ? null : t('ops.transfer.open_disabled_mixed');
+});
+const openTransfer = () => {
+   if (!bulkTenant.value) return;
+   router.push({
+      name: 'ops-transfer',
+      query: {
+         showDialog: DIALOG_POSITIONS.CENTER,
+         source_tenant: bulkTenant.value,
+         product_ids: selected.value.map(({ id }) => id).join(',')
+      }
+   });
+};
+
 const dialogRef = useDialogRef();
 </script>
 <template>
@@ -258,6 +276,23 @@ const dialogRef = useDialogRef();
                      "
                      :disabled="!bulkTenant"
                      @click="openBulk"
+                  />
+               </span>
+               <span
+                  v-if="$can('select', 'transfer') && $can('create', 'transfer')"
+                  v-tooltip.bottom="transferHint"
+                  data-transfer-open
+               >
+                  <Button
+                     variant="outlined"
+                     :icon="PrimeIcons.ARROW_RIGHT_ARROW_LEFT"
+                     :label="
+                        selected.length
+                           ? $t('ops.transfer.open_count', { count: selected.length })
+                           : $t('ops.transfer.open')
+                     "
+                     :disabled="!bulkTenant"
+                     @click="openTransfer"
                   />
                </span>
                <Button

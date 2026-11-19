@@ -124,7 +124,8 @@
       "tax_number": "",
       "address": "",
       "district": "",
-      "address_details": ""
+      "address_details": "",
+      "transfer": ""
    },
    "audit_log": {
       "no_changes_detected": "",
@@ -390,7 +391,21 @@
       "signup_unconfirmed": "",
       "signup_completed": "",
       "signup_payload_invalid": "",
-      "signup_not_pending": ""
+      "signup_not_pending": "",
+      "transfer_mode_invalid": "",
+      "transfer_same_tenant": "",
+      "transfer_forbidden": "",
+      "transfer_target_unavailable": "",
+      "transfer_permissions_required": "",
+      "transfer_field_rights_required": "",
+      "transfer_source_read_only": "",
+      "transfer_files_pending": "",
+      "transfer_decision_required": "",
+      "transfer_decision_invalid": "",
+      "transfer_code_invalid": "",
+      "transfer_product_in_use": "",
+      "transfer_products_invalid": "",
+      "transfer_not_found": ""
    },
    "route": {
       "label": {
