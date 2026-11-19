@@ -170,8 +170,8 @@ export const LEAK = 'LEAK-';
 export const SHARED_SELL_PRICE = 24.5;
 export const SECRET_UNIT_PRICE = 141093.76;
 
-const HTTP_SKUS = '(HTTP-SECRET,HTTP-EU,HTTP-NEW)';
-const HTTP_ROLES = '(http_restricted,http_no_cost,http_spy)';
+const HTTP_SKUS = '(HTTP-SECRET,HTTP-EU,HTTP-NEW,HTTP-OTHER)';
+const HTTP_ROLES = '(http_restricted,http_no_cost,http_spy,http_other_reader)';
 const HTTP_PI = 'HTTP-PI';
 const OTHER_CLIENT = 'HTTP Other Client';
 const OTHER_EMAIL = 'http-other@moesa-panel.test';
@@ -609,6 +609,44 @@ async function sharedSetup(x: {
       }),
       'other client order',
    ).id;
+   // poOther is sent (decision 20: a draft does not reach its client), with the line sending needs:
+   // the other client's product, on sale (no new SKU, so no spec sheet before the rule's date, 030).
+   // akif links it as provider staff of that client would (a member there who may read products,
+   // 018's client link), and leaves the client again once the order is sent.
+   const otherProduct = created(
+      await admin('product', {
+         method: 'POST',
+         headers: { Prefer: 'return=representation' },
+         body: { tenant_id: otherClient, sku: 'HTTP-OTHER', display_name: 'HTTP Other product', status: 'on_sale' },
+      }),
+      'other client product',
+   ).id;
+   const akifId = one<{ id: string }>(await admin('user?email=eq.akif@moesa-panel.test&select=id'), 'akif').id;
+   const reader = created(
+      await admin('role', { method: 'POST', headers: { Prefer: 'return=representation' }, body: { tenant_id: otherClient, display_name: 'http_other_reader' } }),
+      'other client product reader role',
+   ).id;
+   const productSelect = one<{ id: string }>(
+      await admin('permission?resource_name=eq.public.product&command=eq.select&select=id'),
+      'product select permission',
+   ).id;
+   await admin('role_permission', { method: 'POST', body: { role_id: reader, permission_id: productSelect } });
+   await admin('tenant_user', { method: 'POST', body: { tenant_id: otherClient, user_id: akifId } });
+   await admin('user_role', { method: 'POST', body: { user_id: akifId, role_id: reader } });
+   created(
+      await rest(akif, 'purchase_order_line', {
+         method: 'POST',
+         headers: inMoesa,
+         body: { tenant_id: moesa, purchase_order_id: poOther, product_id: otherProduct, quantity: 1, unit_price: 1 },
+      }),
+      'other client order line',
+   );
+   const sentOther = await rest(akif, `purchase_order?id=eq.${poOther}`, { method: 'PATCH', headers: inMoesa, body: { status: 'sent' } });
+   if (sentOther.status !== 200 || sentOther.body.length !== 1) {
+      throw new Error(`sending the other client order: ${sentOther.status} ${JSON.stringify(sentOther.body).slice(0, 300)}`);
+   }
+   await admin(`user_role?user_id=eq.${akifId}&role_id=eq.${reader}`, { method: 'DELETE' });
+   await admin(`tenant_user?tenant_id=eq.${otherClient}&user_id=eq.${akifId}`, { method: 'DELETE' });
    const poOwn = created(
       await rest(akif, 'purchase_order', {
          method: 'POST',

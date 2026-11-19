@@ -2700,8 +2700,8 @@
          "blocked": "Başka bir şey çözülmeden ilerleyemiyor."
       },
       "purchase_order_status": {
-         "draft": "Hazırlanıyor; tedarikçiye gönderilmedi.",
-         "sent": "Tedarikçiye gönderildi; gereken her satırda imzalı ya da onaylı spec sheet var (K3).",
+         "draft": "Hazırlanıyor; tedarikçiye gönderilmedi. Müşteri, kendisi için hazırlanan taslağı görmez.",
+         "sent": "Tedarikçiye gönderildi; gereken her satırda imzalı ya da onaylı spec sheet var (K3). Müşteri siparişi bu andan itibaren, tedarikçi onaylayana kadar Bekliyor olarak görür.",
          "pi_received": "Tedarikçinin [[PI]]'ı geldi, kontrol ediliyor ([[S09]]).",
          "pi_approved": "[[S09]]'un 30 maddesi uygun ve rakamlar tutuyor; satırlar ve şartlar sabitlendi.",
          "deposit_paid": "Depozito ödendi; üretim başlayabilir.",
@@ -2712,7 +2712,7 @@
          "cancelled": "İptal edildi; kayıt için saklanır."
       },
       "relationship_status": {
-         "active": "Yürürlükte: sağlayıcı müşteri adına tedarik yapabilir; müşteri kendisi için tedarik edilen siparişleri ve sevkiyatları görür.",
+         "active": "Yürürlükte: sağlayıcı müşteri adına tedarik yapabilir; müşteri kendisi için tedarik edilen siparişleri gönderildikleri andan itibaren ve sevkiyatlarını görür.",
          "ended": "Kalıcı olarak sona erdi: yeni ortak kayıt açılmaz; müşteri daha önce paylaşılan siparişleri ve sevkiyatları görmeye devam eder."
       },
       "payment_kind": {

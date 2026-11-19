@@ -26,7 +26,7 @@ SELECT plan(68);
 --               (role ...6833), in C change requests and the audit log without the cost (role ...6834)
 --   cr_c ...6892 C's change request on po_c (cost written by pm in the guarded section)
 --   inc_c ...6895 C's incident on po_c; its logs ...68a1 (pm's cost), ...68a2 (on C's 'Own order' incident)
---   orders: po_c ...6851 (P for C), po_d ...6852 (P for D), po_own ...6853 (P, no client),
+--   orders: po_c ...6851 (P for C, sent), po_d ...6852 (P for D, sent), po_own ...6853 (P, no client),
 --           po_del ...6854 (P for C, draft, cited by the client's change request cr_del ...6891),
 --           po_cown ...6855 (C's own order, its supplier ...6882)
 --   shipments: shp_c ...6871 (P for C), shp_own ...6872 (P, no client); warehouses ...6875 (C), ...6876 (P)
@@ -127,6 +127,11 @@ INSERT INTO public.change_request (id, tenant_id, title, source, change_kinds, c
 INSERT INTO public.incident (id, tenant_id, family, severity, title, what_happened, entity_type, entity_id, entity_tenant_id) VALUES
    ('00000000-0000-4000-8000-000000006895', '00000000-0000-4000-8000-000000006802', 'ol', 's3', 'Guarded incident', 'x',
     'purchase_order', '00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006801');
+
+-- The shared orders po_c and po_d are sent: a draft is not shared yet (decision 20). po_del stays a
+-- draft (cr_del cites it through the bypass: a client cannot cite a draft, 067's decision 20 section).
+UPDATE public.purchase_order SET status = 'sent'
+WHERE id IN ('00000000-0000-4000-8000-000000006851', '00000000-0000-4000-8000-000000006852');
 
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 

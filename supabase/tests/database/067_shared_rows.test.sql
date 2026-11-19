@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(100);
+SELECT plan(109);
 
 SELECT private.create_test_helpers();
 
@@ -190,6 +190,14 @@ INSERT INTO public.shipment_line (id, tenant_id, shipment_id, purchase_order_id,
 INSERT INTO public.shipment_event (id, tenant_id, shipment_id, step, channel, note, from_party, to_party) VALUES
    ('00000000-0000-4000-8000-000000006773', '00000000-0000-4000-8000-000000006701', '00000000-0000-4000-8000-000000006771',
     3, 'CH-SECRET', 'EV-NOTE', 'FROM-SECRET', 'TO-SECRET');
+
+-- The shared orders are sent: a draft does not reach its client (decision 20, its own section below).
+UPDATE public.purchase_order SET status = 'sent'
+WHERE id IN ('00000000-0000-4000-8000-000000006751', '00000000-0000-4000-8000-000000006752');
+-- A sent order takes a line only within the spec sheet rule (030): the provider's rule starts later
+-- and the Mop is on sale (no new SKU), so the lines the later sections add need no spec sheet.
+UPDATE public.setting SET value = '"2999-01-01"' WHERE tenant_id = '00000000-0000-4000-8000-000000006701' AND key = 'spec_sheet_required_from';
+UPDATE public.product SET status = 'on_sale' WHERE id = '00000000-0000-4000-8000-000000006741';
 
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 
@@ -505,7 +513,7 @@ GRANT EXECUTE ON FUNCTION private.field_calls_only_in_initplans (TEXT) TO authen
 SELECT results_eq(
    $$ SELECT s::TEXT, private.purchase_order_client_status('00000000-0000-4000-8000-000000006799', '00000000-0000-4000-8000-000000006701', s)::TEXT
       FROM unnest(enum_range(NULL::public.purchase_order_status)) WITH ORDINALITY AS u (s, k) ORDER BY u.k $$,
-   $$ VALUES ('draft', 'pending'), ('sent', 'pending'), ('pi_received', 'confirmed'), ('pi_approved', 'confirmed'),
+   $$ VALUES ('draft', NULL), ('sent', 'pending'), ('pi_received', 'confirmed'), ('pi_approved', 'confirmed'),
              ('deposit_paid', 'confirmed'), ('in_production', 'in_production'), ('ready', 'in_production'),
              ('balance_paid', 'in_production'), ('closed', 'delivered'), ('cancelled', 'cancelled') $$,
    'client_status: an order without shipments maps its status');
@@ -534,7 +542,7 @@ SELECT results_eq(
                    (9, 'cancelled', 'ready'), (10, 'delivered', 'cancelled'), (11, 'planned', 'draft'), (12, 'booked', 'sent'),
                    (13, 'loaded', 'draft')) AS x (k, s, o) ORDER BY x.k $$,
    $$ VALUES ('confirmed'), ('in_production'), ('shipped'), ('shipped'), ('shipped'), ('delivered'), ('delivered'), ('delivered'),
-             ('in_production'), ('cancelled'), ('pending'), ('pending'), ('shipped') $$,
+             ('in_production'), ('cancelled'), (NULL), ('pending'), (NULL) $$,
    'client_status: a loaded shipment ships the order, every live shipment arrived delivers it, a cancelled one counts for nothing');
 UPDATE public.shipment SET status = 'planned' WHERE id = '00000000-0000-4000-8000-000000006771';
 SELECT set_config('moesa.rules_bypass', '', TRUE);
@@ -670,7 +678,7 @@ SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006715', '000000
                                  ARRAY['00000000-0000-4000-8000-000000006702', '00000000-0000-4000-8000-000000006701']::UUID[]);
 SELECT results_eq($$ SELECT pi_total, (SELECT unit_price FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-000000006761'), currency::TEXT, status::TEXT
                      FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751' $$,
-                  $$ VALUES (NULL::NUMERIC, NULL::NUMERIC, 'USD', 'draft') $$,
+                  $$ VALUES (NULL::NUMERIC, NULL::NUMERIC, 'USD', 'sent') $$,
                   'client-tenant rights never unmask a provider-only field; the provider membership reads the open ones');
 RESET ROLE;
 SELECT private.impersonate_scope('00000000-0000-4000-8000-000000006716', '00000000-0000-4000-8000-000000006702',
@@ -686,9 +694,11 @@ SELECT set_eq($$ SELECT * FROM pg_temp.cells('00000000-0000-4000-8000-0000000067
                    AND (tbl, row_key) IN (SELECT b.tbl, b.row_key FROM base_cells b) $$,
               $$ SELECT * FROM base_cells WHERE tbl <> 'provider_relationship' AND tbl <> 'sourcing' $$,
               'provider coordinator reads every field of the rows it shares');
--- Task 12: the provider's dashboard keeps the raw status filter (its orders are drafts), and its
--- shipment list keeps the PSI warning.
-SELECT is((SELECT count(*)::INT FROM api.dashboard_purchase_order), 0, 'provider dashboard: draft orders are not open');
+-- Task 12: the provider's dashboard keeps the raw status filter (the sent orders are open, the draft
+-- po_own is not), and its shipment list keeps the PSI warning.
+SELECT results_eq($$ SELECT purchase_order_id FROM api.dashboard_purchase_order ORDER BY 1 $$,
+                  $$ VALUES ('00000000-0000-4000-8000-000000006751'::UUID), ('00000000-0000-4000-8000-000000006752'::UUID) $$,
+                  'provider dashboard: the sent orders are open, the draft is not');
 SELECT results_eq($$ SELECT psi_missing_po_codes FROM api.shipment_overview WHERE id = '00000000-0000-4000-8000-000000006771' $$,
                   $$ SELECT ARRAY[code] FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751' $$,
                   'provider shipment_overview: the PSI warning names the order without an approved PSI');
@@ -721,7 +731,7 @@ SELECT throws_ok($$ INSERT INTO api.purchase_order_line (tenant_id, purchase_ord
                             '00000000-0000-4000-8000-000000006741', 1, 1) $$,
                  '23503', NULL, 'a client line cannot hang under a provider order');
 RESET ROLE;
-SELECT is((SELECT status::TEXT FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751'), 'draft',
+SELECT is((SELECT status::TEXT FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751'), 'sent',
           'the shared order is unchanged');
 SELECT is((SELECT pi_total FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-000000006751'), 1234.56::NUMERIC,
           'its cost is unchanged');
@@ -950,6 +960,84 @@ SELECT is(pg_temp.cache_differential(), '0 differ, 0 unsigned, of many',
           'cached access answers equal the uncached ones, and every entry is signed');
 RESET ROLE;
 SELECT private.unimpersonate();
+
+-- ===================================================================== decision 20: drafts (2026-11-19)
+-- A client reads a provider's order, and the rows naming it, only once the order has left draft; it
+-- cannot cite a draft either. On the seed: MOESA LTD procures for THO, thomas owns THO. Fixture (ids
+-- 00000000067dN): THO's product ...67d1, MOESA's supplier ...67d2, the draft order ...67d3 for THO
+-- with its line ...67d4.
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT set_config('test.tho', (SELECT id::TEXT FROM public.tenant WHERE code = 'THO' AND parent_id IS NULL), TRUE);
+SELECT set_config('test.moesa', (SELECT tenant_id::TEXT FROM public.provider_relationship WHERE client_tenant_id = current_setting('test.tho')::UUID), TRUE);
+SELECT set_config('test.thomas', (SELECT id::TEXT FROM public.user WHERE email = 'thomas@moesa-panel.test'), TRUE);
+SELECT set_config('test.baris', (SELECT id::TEXT FROM public.user WHERE email = 'baris@moesa-panel.test'), TRUE);
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+INSERT INTO public.product (id, tenant_id, sku, display_name) VALUES
+   ('00000000-0000-4000-8000-0000000067d1', current_setting('test.tho')::UUID, 'D20-1', 'Draft product');
+INSERT INTO public.supplier (id, tenant_id, code, display_name, country, default_incoterm, deposit_rate, status) VALUES
+   ('00000000-0000-4000-8000-0000000067d2', current_setting('test.moesa')::UUID, 'DR20', 'Draft Supplier', 'Türkiye', 'EXW', 30, 'approved');
+INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, incoterm, deposit_rate) VALUES
+   ('00000000-0000-4000-8000-0000000067d3', current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID,
+    '00000000-0000-4000-8000-0000000067d2', 'USD', 'EXW', 30);
+INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, product_id, quantity, unit_price, sell_price_eur) VALUES
+   ('00000000-0000-4000-8000-0000000067d4', current_setting('test.moesa')::UUID, '00000000-0000-4000-8000-0000000067d3',
+    '00000000-0000-4000-8000-0000000067d1', 5, 1.00, 3.00);
+SELECT set_config('moesa.rules_bypass', '', TRUE);
+SELECT is((SELECT status::TEXT FROM public.purchase_order WHERE id = '00000000-0000-4000-8000-0000000067d3'), 'draft',
+          'the MOESA order for THO is a draft');
+
+-- As thomas in THO: the draft, its line and its overviews are invisible.
+SELECT private.impersonate_scope(current_setting('test.thomas')::UUID, current_setting('test.tho')::UUID, ARRAY[current_setting('test.tho')::UUID]);
+SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-0000000067d3'),
+                            (SELECT count(*)::INT FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-0000000067d4'),
+                            (SELECT count(*)::INT FROM api.purchase_order_overview WHERE id = '00000000-0000-4000-8000-0000000067d3'),
+                            (SELECT count(*)::INT FROM api.dashboard_purchase_order WHERE purchase_order_id = '00000000-0000-4000-8000-0000000067d3') $$,
+                  $$ VALUES (0, 0, 0, 0) $$, 'thomas (THO owner) reads no draft MOESA order, line or overview row');
+-- Nor cites it: a draft is not shared yet, so the link is refused as an unknown one would be.
+SELECT throws_ok($$ INSERT INTO api.change_request (tenant_id, title, source, change_kinds, current_value, requested_value, reason,
+                                                    purchase_order_id, order_tenant_id)
+                    VALUES (current_setting('test.tho')::UUID, 'D20', 'customer', '{design}', 'Red', 'Blue', 'x',
+                            '00000000-0000-4000-8000-0000000067d3', current_setting('test.moesa')::UUID) $$,
+                 '23514', 'provider_link_forbidden', 'a change request cannot cite a draft order');
+SELECT throws_ok($$ INSERT INTO api.incident (tenant_id, family, severity, title, what_happened, entity_type, entity_id, entity_tenant_id)
+                    VALUES (current_setting('test.tho')::UUID, 'ol', 's3', 'D20', 'x', 'purchase_order',
+                            '00000000-0000-4000-8000-0000000067d3', current_setting('test.moesa')::UUID) $$,
+                 '23514', 'provider_link_forbidden', 'nor can an incident');
+-- The provider reads its draft (the rule is the client's only).
+RESET ROLE;
+SELECT private.impersonate_scope(current_setting('test.baris')::UUID, current_setting('test.moesa')::UUID, ARRAY[current_setting('test.moesa')::UUID]);
+SELECT is((SELECT count(*)::INT FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-0000000067d3'), 1, 'MOESA reads its own draft');
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- Sent, it reaches thomas, as pending, with its line; and it may be cited.
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+UPDATE public.purchase_order SET status = 'sent' WHERE id = '00000000-0000-4000-8000-0000000067d3';
+SELECT set_config('moesa.rules_bypass', '', TRUE);
+SELECT private.impersonate_scope(current_setting('test.thomas')::UUID, current_setting('test.tho')::UUID, ARRAY[current_setting('test.tho')::UUID]);
+SELECT results_eq($$ SELECT (SELECT client_status::TEXT FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-0000000067d3'),
+                            (SELECT count(*)::INT FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-0000000067d4'),
+                            (SELECT count(*)::INT FROM api.purchase_order_overview WHERE id = '00000000-0000-4000-8000-0000000067d3') $$,
+                  $$ VALUES ('pending', 1, 1) $$, 'once sent, thomas reads the order (pending), its line and its overview row');
+SELECT lives_ok($$ INSERT INTO api.change_request (tenant_id, title, source, change_kinds, current_value, requested_value, reason,
+                                                   purchase_order_id, order_tenant_id)
+                   VALUES (current_setting('test.tho')::UUID, 'D20', 'customer', '{design}', 'Red', 'Blue', 'x',
+                           '00000000-0000-4000-8000-0000000067d3', current_setting('test.moesa')::UUID) $$,
+                'and a change request may cite it');
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- The client_select policies carry the term: on the order, and on each table naming an order.
+SELECT is_empty($$ SELECT p.tablename FROM pg_policies p
+                   WHERE p.schemaname = 'public' AND p.policyname = 'client_select'
+                     AND p.tablename IN ('purchase_order', 'purchase_order_line', 'shipment_purchase_order', 'shipment_line')
+                     AND p.qual !~ 'draft|purchase_order_released' $$,
+                'every client_select on an order or a row naming one excludes drafts');
+-- A shipment needs none: a draft order never joins one (031).
+SELECT throws_ok($$ INSERT INTO public.shipment_purchase_order (tenant_id, shipment_id, purchase_order_id)
+                    VALUES ('00000000-0000-4000-8000-000000006701', '00000000-0000-4000-8000-000000006772', '00000000-0000-4000-8000-000000006753') $$,
+                 '23514', 'shipment_po_not_open', 'a draft order cannot join a shipment, so no shipment is shared through one');
 
 SELECT * FROM finish();
 ROLLBACK;

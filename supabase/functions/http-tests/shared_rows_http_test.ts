@@ -131,7 +131,8 @@ t('every shared table returns only the client-visible set', async () => {
       }
    }
    const shared = rows(await asClient(f.clientOwner, 'purchase_order?select=id'), 'orders').map((x) => x.id);
-   assert(shared.includes(f.poShared) && shared.includes(f.poId), 'the owner sees the shared orders');
+   assert(shared.includes(f.poShared), 'the owner sees the shared order');
+   assert(!shared.includes(f.poId), 'the owner does not see a draft order for THO (decision 20)');
 });
 
 t('client owner sees no unshared provider row', async () => {
@@ -656,6 +657,47 @@ t('after the relationship ends the shared history stays readable, masked and rea
       body: { tenant_id: f.moesa, client_tenant_id: f.otherClient, supplier_id: f.supplierId, currency: 'USD', incoterm: 'FOB', deposit_rate: 30 },
    });
    assertEquals(fresh.body?.message, 'relationship_inactive', `a new order for an ended client: ${fresh.status} ${JSON.stringify(fresh.body)}`);
+});
+
+// Decision 20: a provider's draft order reaches its client only once sent.
+t('a draft order and its line reach the client only once the order is sent', async () => {
+   const asProvider = (path: string, init: RestInit = {}) =>
+      rest(f.providerMgmt, path, { ...init, headers: { ...h(f.moesa), ...rep, ...init.headers } });
+   const created = await asProvider('purchase_order', {
+      method: 'POST',
+      body: { tenant_id: f.moesa, client_tenant_id: f.client, supplier_id: f.supplierId, currency: 'USD', incoterm: 'FOB', deposit_rate: 30, notes: `${SECRET_NOTE} draft` },
+   });
+   assertEquals(created.status, 201, JSON.stringify(created.body));
+   const id = (created.body as { id: string }[])[0].id;
+   // The shared line's product and spec sheet: the line a sent order needs (030).
+   const [model] = (await admin(`purchase_order_line?id=eq.${f.lineShared}&select=product_id,spec_document_id,sell_price_eur`)).body;
+   const line = await asProvider('purchase_order_line', {
+      method: 'POST',
+      body: { tenant_id: f.moesa, purchase_order_id: id, quantity: 3, unit_price: 1, ...model },
+   });
+   assertEquals(line.status, 201, JSON.stringify(line.body));
+   const lineId = (line.body as { id: string }[])[0].id;
+
+   const reads = [
+      `purchase_order?id=eq.${id}&select=id,client_status`,
+      `purchase_order_line?id=eq.${lineId}&select=id`,
+      `purchase_order_overview?id=eq.${id}&select=id`,
+      `dashboard_purchase_order?purchase_order_id=eq.${id}&select=purchase_order_id`,
+   ];
+   for (const [who, token] of clients()) {
+      for (const path of reads) assertEquals(rows(await asClient(token, path), `${who} ${path}`), [], `${who} reads a draft: ${path}`);
+      // Nor in the forged scope that names the provider.
+      const forged = await asClient(token, reads[0], { headers: h(f.client, [f.client, f.moesa]) });
+      assertEquals(rows(forged, `${who} forged`), [], `${who} reads a draft in the forged scope`);
+   }
+   assertEquals(rows(await asProvider(`purchase_order?id=eq.${id}&select=id`), 'provider').length, 1, 'the provider reads its draft');
+
+   const sent = await asProvider(`purchase_order?id=eq.${id}`, { method: 'PATCH', body: { status: 'sent' } });
+   assertEquals(sent.status, 200, JSON.stringify(sent.body));
+   const [po] = rows(await asClient(f.clientOwner, reads[0]), 'owner, sent');
+   assertEquals(po, { id, client_status: 'pending' });
+   assertEquals(rows(await asClient(f.clientOwner, reads[1]), 'owner, sent line').length, 1);
+   assertEquals(rows(await asClient(f.clientOwner, reads[2]), 'owner, sent overview').length, 1);
 });
 
 t('teardown', async () => {

@@ -2700,8 +2700,8 @@
          "blocked": "Cannot go on until something else is resolved."
       },
       "purchase_order_status": {
-         "draft": "Being prepared; not sent to the supplier.",
-         "sent": "Sent to the supplier; every required line cites a signed or approved spec sheet (K3).",
+         "draft": "Being prepared; not sent to the supplier. A client does not see a draft procured for it.",
+         "sent": "Sent to the supplier; every required line cites a signed or approved spec sheet (K3). From here the client sees the order, as Pending until the supplier confirms it.",
          "pi_received": "The supplier's [[PI]] is in and is being checked ([[S09]]).",
          "pi_approved": "All 30 [[S09]] items OK and the figures add up; lines and terms are fixed.",
          "deposit_paid": "The deposit is paid; production can start.",
@@ -2712,7 +2712,7 @@
          "cancelled": "Cancelled; kept for the record."
       },
       "relationship_status": {
-         "active": "In force: the provider may procure for the client, and the client sees the orders and shipments procured for it.",
+         "active": "In force: the provider may procure for the client, and the client sees the orders procured for it once they are sent, and their shipments.",
          "ended": "Ended for good: no new shared records; the client keeps seeing the orders and shipments shared before."
       },
       "payment_kind": {

@@ -12,6 +12,14 @@
 --   restrict_selects_to_current_tenant  RESTRICTIVE: tenant_id or client_tenant_id in the scope
 --   client_select                       PERMISSIVE: client_tenant_id in the tenants of the scope where
 --                                       the user may select the table (private.permitted_tenants).
+--                                       Decision 20: an order reaches its client only once it has
+--                                       left draft, so on purchase_order the row's status is not
+--                                       draft, and on the tables that name an order
+--                                       (purchase_order_line, shipment_purchase_order,
+--                                       shipment_line) that order is not a draft
+--                                       (private.shared_released). A shipment and its events need no
+--                                       term: an order joins a shipment only from pi_approved on
+--                                       (shipment_po_not_open, 031) and never returns to draft (030).
 --                                       The permission generator (private.manage_policies) names its
 --                                       own policies <command>_public_<table>, so a permission change
 --                                       rebuilds those and keeps this one. The name sorts before
@@ -36,6 +44,40 @@
 
 -- ========================================================================================== 1. rows
 
+-- Decision 20: whether the provider's order (p_order of p_tenant) has left draft. SECURITY DEFINER:
+-- a policy's subquery runs with the reader's privileges, and no API role selects public tables
+-- directly (only through api). It reads one order by its key and answers nothing else.
+CREATE OR REPLACE FUNCTION private.purchase_order_released (p_order UUID, p_tenant UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.purchase_order o
+        WHERE o.id = p_order AND o.tenant_id = p_tenant AND o.status <> 'draft'::public.purchase_order_status
+    );
+$$;
+
+ALTER FUNCTION private.purchase_order_released (UUID, UUID) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.purchase_order_released (UUID, UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.purchase_order_released (UUID, UUID) TO authenticated;
+
+-- Decision 20: the client_select term that keeps a provider's draft order, and the rows naming it,
+-- from its client ('' on a table that names no order). It follows the sharing term, so a row the
+-- reader does not share never calls the function.
+CREATE OR REPLACE FUNCTION private.shared_released (p_table TEXT) RETURNS TEXT LANGUAGE sql STABLE
+SET
+   search_path = '' AS $$
+    SELECT CASE
+        WHEN p_table = 'purchase_order' THEN
+            ' AND status <> ''draft''::public.purchase_order_status'
+        WHEN p_table IN ('purchase_order_line', 'shipment_purchase_order', 'shipment_line') THEN
+            ' AND private.purchase_order_released(purchase_order_id, tenant_id)'
+        ELSE ''
+    END;
+$$;
+
+ALTER FUNCTION private.shared_released (TEXT) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.shared_released (TEXT) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION private.enable_shared_rows (p_table TEXT) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -56,8 +98,8 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS client_select ON public.%I', p_table);
     EXECUTE format(
         $f$CREATE POLICY client_select ON public.%I FOR SELECT TO authenticated
-           USING (client_tenant_id = ANY ((SELECT private.permitted_tenants(%L, 'select'))::UUID[]))$f$,
-        p_table, resource
+           USING (client_tenant_id = ANY ((SELECT private.permitted_tenants(%L, 'select'))::UUID[])%s)$f$,
+        p_table, resource, private.shared_released(p_table)
     );
 
     IF NOT EXISTS (
@@ -176,7 +218,8 @@ ORDER BY c.relname;
 --                   accepted or disputed
 --   shipped         a shipment loaded, in transit, at customs or arrived
 --   in_production   status in_production, ready or balance_paid
---   pending         status draft or sent (the order is not yet confirmed by the supplier)
+--   pending         status sent (the order is not yet confirmed by the supplier)
+--   NULL            status draft: the client never reads a draft (decision 20), so it has no stage
 --   confirmed       otherwise: pi_received, pi_approved, deposit_paid
 -- A planned or booked shipment changes neither pending nor confirmed.
 -- The order's live shipments are read through private.purchase_order_live_shipment, a view owned by
@@ -338,11 +381,12 @@ CREATE OR REPLACE FUNCTION private.purchase_order_client_stage (
    p_underway BIGINT
 ) RETURNS public.purchase_order_client_status LANGUAGE sql IMMUTABLE AS $$
     SELECT CASE
+        WHEN p_status = 'draft'::public.purchase_order_status THEN NULL
         WHEN p_status = 'cancelled'::public.purchase_order_status THEN 'cancelled'
         WHEN p_status = 'closed'::public.purchase_order_status OR (p_live > 0 AND p_arrived = p_live) THEN 'delivered'
         WHEN p_underway > 0 THEN 'shipped'
         WHEN p_status = ANY ('{in_production,ready,balance_paid}'::public.purchase_order_status[]) THEN 'in_production'
-        WHEN p_status = ANY ('{draft,sent}'::public.purchase_order_status[]) THEN 'pending'
+        WHEN p_status = 'sent'::public.purchase_order_status THEN 'pending'
         ELSE 'confirmed'
     END::public.purchase_order_client_status
 $$;

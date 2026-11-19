@@ -80,6 +80,8 @@ SELECT set_config('moesa.rules_bypass', '1', TRUE);
 INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, incoterm, deposit_rate, pi_document_id)
 VALUES (current_setting('test.shared_po')::UUID, current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID,
         current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3, current_setting('test.pi_doc')::UUID);
+-- Sent: a draft does not reach the client at all (decision 20).
+UPDATE public.purchase_order SET status = 'sent' WHERE id = current_setting('test.shared_po')::UUID;
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 SELECT private.impersonate_scope((SELECT id FROM public.user WHERE email = 'thomas@moesa-panel.test'), current_setting('test.tho')::UUID,
                                  ARRAY[current_setting('test.tho')::UUID, current_setting('test.moesa')::UUID]);

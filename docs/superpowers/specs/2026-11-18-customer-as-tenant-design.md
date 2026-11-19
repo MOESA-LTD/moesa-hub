@@ -48,6 +48,7 @@ Scale today: `customer_id` sits on 32 tables and views (local DB). The customer 
 ## Owner decisions 19–21 (2026-11-19)
 
 19. **A provider never invites itself.** An invitation is refused when its e-mail (compared lower-cased) belongs to an account that is a member or owner of any tenant of the provider's company (`invitation_self_invite`). Creation refuses it, and preview and acceptance check again, as the account may have joined the company in between.
+20. **A client does not see drafts.** A client sees a provider's purchase order, and the lines, shipments, incidents and change requests linked through it, only once the order has left draft. The sharing policy (`client_select`) of the order and of every row naming an order excludes drafts, a client cannot cite a draft in an incident or a change request, and the client status `pending` now means sent only.
 
 ## Goals
 

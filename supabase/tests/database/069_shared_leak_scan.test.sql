@@ -12,6 +12,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Each column of each row (to_jsonb, one key per column) is matched against the sentinels; a hit names
 -- the relation and the column.
 --
+-- A draft order for C and its line (decision 20) carry sentinels in their client-visible columns
+-- (ids ...69fd and ...69ff, ready date, quantity): a draft must not reach the client at all.
 -- Sentinels (written as postgres with the rules bypassed, column by column from field_class: every
 -- column that is not client_visible on a shared table, every column of a provider-only table, the
 -- provider-guarded cost on client records):
@@ -27,7 +29,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Signing in (F4): `RESET ROLE; SELECT private.impersonate_scope(user, active, scope);`.
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(20);
 
 SELECT private.create_test_helpers();
 
@@ -98,6 +100,16 @@ UPDATE public.purchase_order SET pi_document_id = '00000000-0000-4000-8000-00000
                                  packing_instruction_document_id = '00000000-0000-4000-8000-0000000069f6'
 WHERE id = '00000000-0000-4000-8000-000000006951';
 UPDATE public.purchase_order_line SET spec_document_id = '00000000-0000-4000-8000-0000000069f7' WHERE id = '00000000-0000-4000-8000-000000006961';
+-- The shared order is sent (decision 20: a draft does not reach the client at all).
+UPDATE public.purchase_order SET status = 'sent' WHERE id = '00000000-0000-4000-8000-000000006951';
+-- Decision 20: a draft order for C (...69fd) and its line (...69ff). Their ids are id sentinels and
+-- the order's ready date a date sentinel, client-visible columns all: no client run may meet them.
+INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, incoterm, deposit_rate, ready_on) VALUES
+   ('00000000-0000-4000-8000-0000000069fd', current_setting('test.p')::UUID, current_setting('test.c')::UUID,
+    '00000000-0000-4000-8000-0000000069f1', 'USD', 'EXW', 30, '2987-06-05');
+INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, product_id, quantity, unit_price, sell_price_eur) VALUES
+   ('00000000-0000-4000-8000-0000000069ff', current_setting('test.p')::UUID, '00000000-0000-4000-8000-0000000069fd',
+    '00000000-0000-4000-8000-000000006941', 987654, 2.50, 9.90);
 INSERT INTO public.purchase_order_payment (id, tenant_id, purchase_order_id, kind, amount, currency) VALUES
    ('00000000-0000-4000-8000-0000000069f3', current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000006951', 'deposit', 1, 'USD');
 INSERT INTO public.purchase_order_update (id, tenant_id, purchase_order_id, happened_on, note) VALUES
@@ -324,6 +336,9 @@ SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM api.purchase_order WHERE 
                           + (SELECT count(*)::INT FROM api.change_request WHERE id = '00000000-0000-4000-8000-000000006992')
                           + (SELECT count(*)::INT FROM api.incident_log WHERE id = '00000000-0000-4000-8000-0000000069a1') $$,
                    $$ VALUES (8) $$, 'the owner reads every shared row of the fixture (the scan is not vacuous)');
+SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM api.purchase_order WHERE id = '00000000-0000-4000-8000-0000000069fd'),
+                            (SELECT count(*)::INT FROM api.purchase_order_line WHERE id = '00000000-0000-4000-8000-0000000069ff') $$,
+                  $$ VALUES (0, 0) $$, 'the owner reads neither the draft order nor its line (decision 20)');
 SELECT pg_temp.run('thomas {THO}', ARRAY[current_setting('test.c')::UUID, current_setting('test.p')::UUID]);
 RESET ROLE;
 SELECT private.impersonate_scope(current_setting('test.thomas')::UUID, current_setting('test.c')::UUID,

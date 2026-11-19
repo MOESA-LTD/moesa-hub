@@ -28,8 +28,9 @@
 --                            a row cannot become shared after the end, so nothing new is reachable.
 --   provider_link_forbidden  the caller may not read orders (or shipments) in the row's tenant, or
 --                            the target is not x's row shared with the row's tenant
---                            (client_tenant_id), or is not an order or a shipment. An unknown id
---                            gets the same message.
+--                            (client_tenant_id), or is an order still a draft (decision 20: not
+--                            shared yet), or is not an order or a shipment. An unknown id gets the
+--                            same message.
 -- A kept link is not checked again (history); a link emptied (the order deleted, F7) has nothing to
 -- check. A link into the row's own tenant keeps the same-tenant rules (incident_guard, the foreign
 -- key). Under private.rules_bypassed() only the stored tenant is normalized.
@@ -133,9 +134,11 @@ BEGIN
         RAISE EXCEPTION 'provider_link_forbidden' USING ERRCODE = 'check_violation';
     END IF;
 
-    -- 3. The target is the provider's row shared with the row's tenant; an unknown id alike.
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I r WHERE r.id = $1 AND r.tenant_id = $2 AND r.client_tenant_id = $3)',
-                   target_table)
+    -- 3. The target is the provider's row shared with the row's tenant; an unknown id alike. An
+    -- order still a draft is not shared yet (decision 20).
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I r WHERE r.id = $1 AND r.tenant_id = $2 AND r.client_tenant_id = $3%s)',
+                   target_table,
+                   CASE WHEN target_table = 'purchase_order' THEN ' AND r.status <> ''draft''::public.purchase_order_status' ELSE '' END)
     INTO shared
     USING link_id, target_tenant, own;
     IF NOT shared THEN

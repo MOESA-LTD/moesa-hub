@@ -791,11 +791,14 @@ DO $$ BEGIN
     PERFORM set_config('story.t_krn', pg_temp.krn()::TEXT, TRUE);
     PERFORM set_config('story.t_cls', pg_temp.tenant('Clearstar Handel GmbH')::TEXT, TRUE);
 END $$;
--- sharing.thomas_sees_orders: thomas (owner of THO, scope {THO}) reads exactly the orders MOESA LTD placed for THO, none of their
+-- sharing.thomas_sees_orders: thomas (owner of THO, scope {THO}) reads exactly the orders MOESA LTD placed for THO that left draft (decision 20), none of their
 -- provider-only figures (PI total, raw status), and every line with its sell price (client-visible) and no purchase price
 DO $$ BEGIN
-    PERFORM set_config('story.exp_po', (SELECT count(*) FROM public.purchase_order WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho())::TEXT, TRUE);
-    PERFORM set_config('story.exp_lines', (SELECT count(*) FROM public.purchase_order_line WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho())::TEXT, TRUE);
+    PERFORM set_config('story.exp_po', (SELECT count(*) FROM public.purchase_order WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho() AND status <> 'draft')::TEXT, TRUE);
+    PERFORM set_config('story.exp_lines', (SELECT count(*) FROM public.purchase_order_line l JOIN public.purchase_order o ON o.id = l.purchase_order_id
+                                           WHERE l.tenant_id = pg_temp.moesa() AND l.client_tenant_id = pg_temp.tho() AND o.status <> 'draft')::TEXT, TRUE);
+    PERFORM set_config('story.draft_ids', (SELECT coalesce(array_agg(id), '{}')::TEXT FROM public.purchase_order
+                                           WHERE tenant_id = pg_temp.moesa() AND client_tenant_id = pg_temp.tho() AND status = 'draft'), TRUE);
     PERFORM private.impersonate_scope((SELECT id FROM public.user WHERE email = 'thomas@moesa-panel.test'), pg_temp.tho(), ARRAY[pg_temp.tho()]);
 END $$;
 SELECT 'sharing.thomas_sees_orders', 'orders' WHERE (SELECT count(*) FROM api.purchase_order WHERE tenant_id = current_setting('story.t_moesa')::UUID AND client_tenant_id = current_setting('story.t_tho')::UUID)
@@ -804,6 +807,10 @@ SELECT 'sharing.thomas_sees_orders', 'orders' WHERE (SELECT count(*) FROM api.pu
 UNION ALL
 SELECT 'sharing.thomas_sees_orders', 'lines' WHERE (SELECT count(*) FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID) <> current_setting('story.exp_lines')::INT
    OR EXISTS (SELECT 1 FROM api.purchase_order_line WHERE tenant_id = current_setting('story.t_moesa')::UUID AND (sell_price_eur IS NULL OR unit_price IS NOT NULL));
+-- sharing.thomas_no_draft (decision 20): MOESA LTD has a draft for THO, and thomas reads neither it nor its lines
+SELECT 'sharing.thomas_no_draft' WHERE current_setting('story.draft_ids') = '{}'
+   OR EXISTS (SELECT 1 FROM api.purchase_order WHERE id = ANY (current_setting('story.draft_ids')::UUID[]))
+   OR EXISTS (SELECT 1 FROM api.purchase_order_line WHERE purchase_order_id = ANY (current_setting('story.draft_ids')::UUID[]));
 -- sharing.cost_guarded: the cost of the change request and of the incident log that cite MOESA LTD's orders is the provider's: THO's owner reads none of it
 -- (and still reads the cost of a request that cites none)
 SELECT 'sharing.cost_guarded', 'client reads' WHERE EXISTS (SELECT 1 FROM api.change_request WHERE id = '5eed0008-0000-4000-8000-000000000014' AND (cost_impact IS NOT NULL OR cost_payer IS NOT NULL))
