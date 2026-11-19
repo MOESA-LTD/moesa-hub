@@ -3652,6 +3652,17 @@
          "none": "No plan is offered right now. Ask your provider.",
          "on_request": "Price on request"
       },
+      "staff": {
+         "title": "Staff from {provider}",
+         "text": "They join your company in the roles shown. Untick anyone you do not want to add; you can manage your users and their roles yourself later.",
+         "unnamed": "Unnamed staff member",
+         "none_kept": "No staff from your provider will join.",
+         "role": {
+            "management": "Management: every module, including users, roles and settings",
+            "coordinator": "Coordinator",
+            "viewer": "Viewer"
+         }
+      },
       "accept": {
          "action": "Accept the invitation",
          "contract": "Your provider's terms are shown on the relationship page once you have joined."

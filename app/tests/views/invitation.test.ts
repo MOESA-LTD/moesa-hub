@@ -140,7 +140,7 @@ describe('invitation page', () => {
       api.errorHandler.mockResolvedValue(undefined);
    });
 
-   it('accept sends only company and plan, never model or staff', async () => {
+   it('accept sends only company and plan, never model or staff roles (F1)', async () => {
       const wrapper = await mountPage();
       expect(api.rpc).toHaveBeenCalledWith('invitation_preview', { token: TOKEN });
       await accept(wrapper);
@@ -154,6 +154,63 @@ describe('invitation page', () => {
       // The company carries only the allowlisted keys; the e-mail defaults to the invitation's.
       expect(Object.keys(options.body.company)).toEqual(['display_name', 'email']);
       expect(options.body.company.email).toBe('invitee@client.test');
+   });
+
+   it('I2: names each provider staff member and role, and sends only the staff kept', async () => {
+      api.rpc.mockResolvedValue({
+         data: preview({
+            seats: 3,
+            staff: [
+               { index: 0, display_name: 'Koordinatör', role_name: 'coordinator' },
+               { index: 1, display_name: null, role_name: 'management' }
+            ]
+         }),
+         error: null
+      });
+      const wrapper = await mountPage();
+      await toPlanStep(wrapper);
+
+      const list = wrapper.get('[data-staff]');
+      expect(list.text()).toContain('Koordinatör');
+      expect(list.text()).toContain(en.invitation.staff.role.coordinator);
+      expect(list.text()).toContain(en.invitation.staff.unnamed);
+      expect(list.text()).toContain(en.invitation.staff.role.management);
+      expect(wrapper.get('[data-step="plan"]').text()).toContain('brings 3 users');
+
+      await wrapper.get('[data-staff-member="1"] input').setValue(false);
+      await flushPromises();
+      expect(wrapper.get('[data-step="plan"]').text()).toContain('brings 2 users');
+
+      await wrapper.get('[data-accept]').trigger('click');
+      await flushPromises();
+      const [, options] = api.invoke.mock.calls[0]!;
+      expect(Object.keys(options.body)).toEqual(['token', 'company', 'plan_id', 'staff']);
+      expect(options.body.staff).toEqual([0]);
+   });
+
+   it('I2: the plans follow the staff kept', async () => {
+      const small = { ...preview().plans[0]!, limits: { max_users: 2 } };
+      api.rpc.mockResolvedValue({
+         data: preview({
+            seats: 3,
+            recommended_plan_id: 'basic',
+            plans: [small, preview().plans[1]],
+            staff: [
+               { index: 0, display_name: 'Koordinatör', role_name: 'coordinator' },
+               { index: 1, display_name: 'Akif', role_name: 'viewer' }
+            ]
+         }),
+         error: null
+      });
+      const wrapper = await mountPage();
+      await toPlanStep(wrapper);
+      // Three seats: the two-user plan is not offered, so nothing is chosen.
+      expect(wrapper.get('[data-accept]').attributes('disabled')).toBeDefined();
+      expect(wrapper.get('[data-plan="basic"]').text()).toContain('this invitation brings 3');
+
+      await wrapper.get('[data-staff-member="0"] input').setValue(false);
+      await flushPromises();
+      expect(wrapper.get('[data-plan="basic"]').text()).not.toContain('this invitation brings');
    });
 
    it('switches to the new tenant after reloading the tenants, then opens the dashboard', async () => {

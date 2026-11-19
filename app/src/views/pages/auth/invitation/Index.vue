@@ -69,6 +69,13 @@ const accepting = ref(false);
 /** The company exists, but its tenant is not in the user's list yet. */
 const accepted = ref(false);
 const planId = ref<string | null>(null);
+/** I2: the indexes of the provider staff the customer keeps (all of them to start with). */
+const keptStaff = ref<number[]>([]);
+const listedStaff = computed(() => preview.value?.staff ?? []);
+/** The users the new company starts with: the owner and the staff kept. */
+const seats = computed(
+   () => (preview.value?.seats ?? 1) - (listedStaff.value.length - keptStaff.value.length)
+);
 
 const { values, errors, validateFields, setErrors } = useForm({
    schema: companySchema,
@@ -88,7 +95,13 @@ const { values, errors, validateFields, setErrors } = useForm({
 });
 
 const fitsSeats = (plan: InvitationPreview['plans'][number]) =>
-   plan.limits.max_users == null || plan.limits.max_users >= (preview.value?.seats ?? 1);
+   plan.limits.max_users == null || plan.limits.max_users >= seats.value;
+
+// More staff kept than the chosen plan allows: the plan is no longer chosen.
+watch(seats, () => {
+   const chosen = preview.value?.plans.find(({ id }) => id === planId.value);
+   if (chosen && !fitsSeats(chosen)) planId.value = null;
+});
 
 /** The plan to start from: the provider's recommendation, when it fits. */
 const defaultPlan = () => {
@@ -105,6 +118,7 @@ const load = async () => {
       preview.value = await previewInvitation(token);
       values.value.display_name = preview.value.company_name ?? '';
       values.value.email = preview.value.email;
+      keptStaff.value = listedStaff.value.map(({ index }) => index);
       planId.value = defaultPlan();
       step.value = preview.value.needs_password ? 1 : 2;
    } catch (error) {
@@ -161,7 +175,12 @@ const accept = async () => {
    accepting.value = true;
    notice.value = null;
    try {
-      const { tenant_id } = await acceptInvitation(token, toCompany(parsed.data), planId.value);
+      const { tenant_id } = await acceptInvitation(
+         token,
+         toCompany(parsed.data),
+         planId.value,
+         preview.value?.staff ? keptStaff.value : undefined
+      );
       toast.add({ life: 3000, severity: ToastSeverity.SUCCESS, summary: t('toast.success') });
 
       // The tenant was just created: read the user's tenants again until it is among them.
@@ -339,9 +358,11 @@ const expires = computed(() =>
                <PlanStep
                   v-else
                   v-model="planId"
+                  v-model:staff="keptStaff"
                   :plans="preview.plans"
                   :recommendedId="preview.recommended_plan_id"
-                  :seats="preview.seats"
+                  :seats
+                  :listedStaff
                   :providerName="preview.provider_name"
                   :coreModules
                   :accepting

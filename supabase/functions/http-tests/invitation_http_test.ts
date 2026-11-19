@@ -202,8 +202,12 @@ t('acceptance through the mailed link creates tenant, accepted relationship and 
    assertEquals(p.body.provider_name, f.providerName);
    assertEquals(p.body.seats, 3);
    assertEquals(p.body.needs_password, true);
+   // Final review I2: the staff who would join, by display name and role; never an e-mail or an id.
+   const listed = p.body.staff as { index: number; display_name: string | null; role_name: string }[];
+   assertEquals(listed.map((s) => s.role_name).sort(), ['coordinator', 'management']);
+   for (const s of listed) assertEquals(Object.keys(s).sort(), ['display_name', 'index', 'role_name']);
    const text = JSON.stringify(p.body);
-   for (const s of f.staff) assert(!text.includes(s.email) && !text.includes(s.id), 'the preview names the staff');
+   for (const s of f.staff) assert(!text.includes(s.email) && !text.includes(s.id), 'the preview names a staff e-mail or id');
    assert(!text.includes(main.token));
 
    const r = await acceptCompany(main.session.access, main.token, 'HTTP Inv Client Main', f.proPlan);
@@ -352,6 +356,29 @@ t('the accepting user cannot choose model, staff, roles, tenant or owner', async
    assertEquals(await tenantsNamed(name), 0);
    const row = await invitationRow(id);
    assertEquals([row.status, row.failed_attempts], ['pending', 0]);
+});
+
+t('the customer keeps only the staff it chooses (I2)', async () => {
+   const user = await invitee('choose');
+   const { token } = await issueInvitation(f, user.email, {}, [
+      { user_id: f.staff[0].id, role_name: 'management' },
+      { user_id: f.staff[1].id, role_name: 'coordinator' },
+   ]);
+   tokens.push(token);
+   const p = await preview(user.token, token);
+   assertEquals(p.status, 200, JSON.stringify(p.body));
+   const listed = p.body.staff as { index: number; role_name: string }[];
+   const coordinator = listed.find((s) => s.role_name === 'coordinator')!;
+
+   // An index the preview did not give is the payload refusal, before anything is written.
+   const name = 'HTTP Inv Client Chosen';
+   const wrong = refused(await accept(user.token, { token, company: { display_name: name }, plan_id: null, staff: [9] }), 'staff index');
+   assertEquals([wrong.status, wrong.body?.message], [400, 'invitation_payload_invalid']);
+
+   const r = await accept(user.token, { token, company: { display_name: name }, plan_id: null, staff: [coordinator.index] });
+   assertEquals(r.status, 200, JSON.stringify(r.body));
+   const members = (await admin(`tenant_user?tenant_id=eq.${r.body.tenant_id}&select=user_id`)).body as { user_id: string }[];
+   assertEquals(members.map((m) => m.user_id).sort(), [user.id, f.staff[1].id].sort());
 });
 
 t('concurrent acceptance creates one tenant', async () => {

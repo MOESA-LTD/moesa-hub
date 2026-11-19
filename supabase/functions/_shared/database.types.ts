@@ -9522,6 +9522,7 @@ export type Database = {
           p_token: string
           p_company: Json
           p_plan_id: string
+          p_staff?: Json
         }
         Returns: Json
       }

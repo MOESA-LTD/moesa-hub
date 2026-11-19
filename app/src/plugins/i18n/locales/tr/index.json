@@ -3652,6 +3652,17 @@
          "none": "Şu anda sunulan plan yok. Tedarikçinize danışın.",
          "on_request": "Fiyat için sorun"
       },
+      "staff": {
+         "title": "{provider} çalışanları",
+         "text": "Şirketinize gösterilen rollerle katılırlar. Eklemek istemediğiniz kişinin işaretini kaldırın; kullanıcılarınızı ve rollerini daha sonra kendiniz de yönetebilirsiniz.",
+         "unnamed": "Adı belirtilmemiş çalışan",
+         "none_kept": "Sağlayıcınızdan hiçbir çalışan katılmayacak.",
+         "role": {
+            "management": "Yönetim: kullanıcılar, roller ve ayarlar dahil tüm modüller",
+            "coordinator": "Koordinatör",
+            "viewer": "Görüntüleyici"
+         }
+      },
       "accept": {
          "action": "Daveti kabul et",
          "contract": "Tedarikçinizin koşulları, katıldıktan sonra ilişki sayfasında gösterilir."

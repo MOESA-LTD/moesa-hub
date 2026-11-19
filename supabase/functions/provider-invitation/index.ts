@@ -2,8 +2,10 @@
 //
 //   POST /provider-invitation              { invitation, staff }   insert right   -> 201 { id }
 //   POST /provider-invitation/:id/resend   {}                      update right   -> 200 { id }
-//   POST /provider-invitation/accept       { token, company, plan_id }  signed in -> 200 { tenant_id }
-//                                          (drops a pending self-signup of the account, Task 11)
+//   POST /provider-invitation/accept       { token, company, plan_id, staff? }  signed in
+//                                          -> 200 { tenant_id } (drops a pending self-signup of the
+//                                          account, Task 11); staff: the preview's indexes of the
+//                                          provider staff the customer keeps (I2), all when absent
 //
 // The token is the invitation's only credential: it is minted by the database, mailed as a link
 // through Supabase Auth and then forgotten. It is never returned, logged or passed to an error.
@@ -36,7 +38,9 @@ const acceptSchema = z
       token: z.string().min(1).max(256),
       // The database checks the company keys (accept_provider_invitation's allowlist).
       company: z.record(z.unknown()),
-      plan_id: UUID.nullable()
+      plan_id: UUID.nullable(),
+      // The preview's staff indexes (final review I2): numbers only, never a user id or a role.
+      staff: z.array(z.number().int().min(0)).max(100).optional()
    })
    .strict();
 
@@ -202,7 +206,7 @@ export const resendInvitation = (req: Request, id: string) =>
 export const acceptInvitation = async (req: Request) => {
    // Signed in, verified by Supabase Auth: the user who accepts is the token's subject.
    const { sub: userId } = await authenticate(req);
-   const { token, company, plan_id } = await readBody(req, acceptSchema);
+   const { token, company, plan_id, staff } = await readBody(req, acceptSchema);
    const { db } = invitationService(userId);
 
    // accept_provider_invitation labels its own writes with p_user and restores the headers (Task 4).
@@ -210,7 +214,8 @@ export const acceptInvitation = async (req: Request) => {
       p_user: userId,
       p_token: token,
       p_company: company as Json,
-      p_plan_id: plan_id as string
+      p_plan_id: plan_id as string,
+      p_staff: (staff ?? null) as Json
    });
    if (error) throw error;
 

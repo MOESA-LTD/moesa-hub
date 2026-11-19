@@ -426,14 +426,22 @@ Deno.test('accept takes the user from the verified token', async () => {
       p_user: CALLER,
       p_token: SECRET,
       p_company: { display_name: 'New Ltd' },
-      p_plan_id: null
+      p_plan_id: null,
+      p_staff: null
    });
    assertEquals(accept.headers.get('x-audit-role'), 'provider-invitation');
    assertEquals(accept.headers.get('x-audit-actor'), CALLER);
 });
 
 Deno.test('accept refuses a body naming the user', async () => {
-   for (const extra of [{ p_user: 'x' }, { user_id: 'x' }, { staff: [] }]) {
+   for (const extra of [
+      { p_user: 'x' },
+      { user_id: 'x' },
+      { staff: [{ user_id: 'x', role_name: 'management' }] },
+      { staff: ['0'] },
+      { staff: [-1] },
+      { staff: [0.5] }
+   ]) {
       const { seen, restore } = backend();
       let res!: Response;
       try {
@@ -445,6 +453,20 @@ Deno.test('accept refuses a body naming the user', async () => {
       assertEquals((await res.json()).message, 'invitation_payload_invalid');
       assertEquals(rpcCalls(seen), []);
    }
+});
+
+// Final review I2: the customer keeps only some of the invitation's staff, by the preview's indexes.
+Deno.test('accept passes the staff the customer keeps', async () => {
+   const { seen, restore } = backend();
+   let res!: Response;
+   try {
+      res = await handler(request('/provider-invitation/accept', { ...acceptBody, staff: [1, 0] }));
+   } finally {
+      restore();
+   }
+   assertEquals(res.status, 200);
+   const accept = seen.find((s) => s.path === '/rest/v1/rpc/accept_provider_invitation')!;
+   assertEquals(JSON.parse(accept.body).p_staff, [1, 0]);
 });
 
 Deno.test('accept without a JWT is 401', async () => {

@@ -668,6 +668,17 @@
          "none": "",
          "on_request": ""
       },
+      "staff": {
+         "title": "",
+         "text": "",
+         "unnamed": "",
+         "none_kept": "",
+         "role": {
+            "management": "",
+            "coordinator": "",
+            "viewer": ""
+         }
+      },
       "accept": {
          "action": "",
          "contract": ""

@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(169);
+SELECT plan(178);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -325,9 +325,9 @@ CREATE TEMP TABLE acc_071 (label TEXT, result JSONB) ON COMMIT DROP;
 GRANT ALL ON acc_071 TO service_role, authenticated;
 
 -- Who may run what (F1).
-SELECT ok(NOT has_function_privilege('authenticated', 'public.accept_provider_invitation(uuid,text,jsonb,uuid)', 'EXECUTE')
-          AND NOT has_function_privilege('anon', 'public.accept_provider_invitation(uuid,text,jsonb,uuid)', 'EXECUTE')
-          AND has_function_privilege('service_role', 'public.accept_provider_invitation(uuid,text,jsonb,uuid)', 'EXECUTE'),
+SELECT ok(NOT has_function_privilege('authenticated', 'public.accept_provider_invitation(uuid,text,jsonb,uuid,jsonb)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.accept_provider_invitation(uuid,text,jsonb,uuid,jsonb)', 'EXECUTE')
+          AND has_function_privilege('service_role', 'public.accept_provider_invitation(uuid,text,jsonb,uuid,jsonb)', 'EXECUTE'),
           'only the service role accepts (F1): a user cannot name p_user');
 SELECT ok(has_function_privilege('authenticated', 'public.invitation_preview(text)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.invitation_preview(text)', 'EXECUTE'),
@@ -401,14 +401,23 @@ SELECT is((SELECT result -> 'contract' FROM acc_071 WHERE label = 'preview1'),
           'and the contract terms');
 SELECT set_eq($$ SELECT jsonb_object_keys(result) FROM acc_071 WHERE label = 'preview1' $$,
    ARRAY['company_name', 'email', 'provider_name', 'procurement_model', 'contract', 'recommended_plan_id', 'expires_at', 'seats',
-         'needs_password', 'plans'],
+         'staff', 'needs_password', 'plans'],
    'the preview carries exactly the documented keys');
+-- Final review I2 (ruling changed: the preview names the staff): each staff member who would join,
+-- by display name and role, numbered for the accepter's choice; never a user id or an e-mail.
+SELECT set_eq($$ SELECT (s ->> 'display_name') || ':' || (s ->> 'role_name') FROM acc_071, jsonb_array_elements(result -> 'staff') s
+                 WHERE label = 'preview1' $$,
+   ARRAY['Koordinatör:coordinator', 'Akif Ayçiçek:management'], 'the preview names each staff member and their role');
+SELECT ok((SELECT bool_and(ARRAY(SELECT jsonb_object_keys(s) ORDER BY 1) = ARRAY['display_name', 'index', 'role_name'])
+                  AND array_agg((s ->> 'index')::INT ORDER BY (s ->> 'index')::INT) = ARRAY[0, 1]
+           FROM acc_071, jsonb_array_elements(result -> 'staff') s WHERE label = 'preview1'),
+          'each as {index, display_name, role_name}, numbered from 0');
 SELECT ok((SELECT result::TEXT NOT LIKE ALL (ARRAY['%' || current_setting('test.koordinator') || '%', '%' || current_setting('test.akif') || '%',
                                                    '%koordinator@%', '%akif@%', '%' || i.token || '%',
                                                    '%' || encode(extensions.digest(i.token, 'sha256'), 'hex') || '%',
                                                    '%' || encode(extensions.digest(i.token, 'sha256'), 'base64') || '%'])
            FROM acc_071 a, inv_071 i WHERE a.label = 'preview1' AND i.label = 'inv1'),
-          'no staff identity, token or hash in the preview');
+          'no staff user id or e-mail, token or hash in the preview');
 SELECT is((SELECT ARRAY(SELECT p ->> 'display_name' FROM jsonb_array_elements(result -> 'plans') AS p) FROM acc_071 WHERE label = 'preview1'),
           ARRAY(SELECT display_name FROM public.plan WHERE is_active ORDER BY position, display_name),
           'the plans are the active ones, in order');
@@ -477,11 +486,15 @@ SELECT private.unimpersonate();
 SELECT private.impersonate_scope(current_setting('test.third')::UUID, NULL, '{}'::UUID[]);
 SELECT is((public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv3')) ->> 'seats')::INT, 2,
           'a departed staff member takes no seat');
+SELECT is((SELECT array_agg(s ->> 'display_name') FROM jsonb_array_elements(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv3')) -> 'staff') s),
+          ARRAY['Koordinatör'], 'and is not listed');
 RESET ROLE;
 SELECT private.unimpersonate();
 SELECT private.impersonate_scope(current_setting('test.insider')::UUID, NULL, '{}'::UUID[]);
 SELECT is((public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')) ->> 'seats')::INT, 2,
           'nor does the viewer listed as staff (they are the owner)');
+SELECT is((SELECT array_agg(s ->> 'role_name') FROM jsonb_array_elements(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')) -> 'staff') s),
+          ARRAY['coordinator'], 'who is not listed either');
 RESET ROLE;
 SELECT private.unimpersonate();
 
@@ -653,6 +666,38 @@ SELECT results_eq($$ SELECT (SELECT count FROM private.invitation_attempt WHERE 
                             (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'Small Co'),
                             (SELECT status::TEXT FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'seats')) $$,
    $$ VALUES (2, 0, 'pending') $$, 'both refusals are counted by the throttle and create nothing');
+
+-- I2: the accepter keeps only some of the staff, by the preview's indexes. The 'seats' invitation
+-- brings koordinator and akif; with akif dropped it fits the two-user plan it did not fit before.
+SELECT private.impersonate_scope(current_setting('test.small')::UUID, NULL, '{}'::UUID[]);
+INSERT INTO acc_071 SELECT 'preview_small', public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'seats'));
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT set_config('test.koordinator_index',
+                  (SELECT s ->> 'index' FROM acc_071, jsonb_array_elements(result -> 'staff') s
+                   WHERE label = 'preview_small' AND s ->> 'role_name' = 'coordinator'), TRUE);
+SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
+SET LOCAL ROLE service_role;
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co"}', NULL, '[7]') ->> 'error',
+          'invitation_payload_invalid', 'a staff choice must name the preview''s indexes');
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co"}', NULL, '{"0": true}') ->> 'error',
+          'invitation_payload_invalid', 'as an array of integers');
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co"}', NULL, '[0.5]') ->> 'error',
+          'invitation_payload_invalid', 'and nothing else');
+SELECT ok(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co"}', '00000000-0000-4000-8000-000000071210',
+                                            jsonb_build_array(current_setting('test.koordinator_index')::INT)) ? 'tenant_id',
+          'the accepter keeps one of two staff, on a plan that fits the seats they chose');
+RESET ROLE;
+SELECT results_eq($$ SELECT u.email || ':' || r.display_name FROM public.tenant t JOIN public.tenant_user tu ON tu.tenant_id = t.id
+                     JOIN public.user u ON u.id = tu.user_id
+                     LEFT JOIN public.user_role ur ON ur.user_id = tu.user_id
+                     LEFT JOIN public.role r ON r.id = ur.role_id AND r.tenant_id = t.id
+                     WHERE t.display_name = 'Small Co' AND tu.user_id <> current_setting('test.small')::UUID AND r.id IS NOT NULL $$,
+   $$ VALUES ('koordinator@moesa-panel.test:coordinator') $$, 'only the kept staff member joins, in their role');
 
 -- The insider: invited under their own e-mail and listed as staff; they own the new tenant, not join it as staff.
 SET LOCAL ROLE service_role;

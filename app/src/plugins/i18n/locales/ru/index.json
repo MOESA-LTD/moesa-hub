@@ -3625,7 +3625,18 @@
       "retry": "Try again",
       "load_failed": "The invitation could not be loaded. Check your connection and try again.",
       "reload_needed": "Your company was created, but it is not in your list yet. Reload the page to continue.",
-      "reload": "Reload"
+      "reload": "Reload",
+      "staff": {
+         "title": "Staff from {provider}",
+         "text": "They join your company in the roles shown. Untick anyone you do not want to add; you can manage your users and their roles yourself later.",
+         "unnamed": "Unnamed staff member",
+         "none_kept": "No staff from your provider will join.",
+         "role": {
+            "management": "Management: every module, including users, roles and settings",
+            "coordinator": "Coordinator",
+            "viewer": "Viewer"
+         }
+      }
    },
    "signup": {
       "loading": "Loading...",

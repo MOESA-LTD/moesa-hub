@@ -8,6 +8,12 @@ import * as z from 'zod';
 // into the preview call and the accept request body, and nowhere else (never logged, stored or put
 // in a query key).
 
+/**
+ * A provider staff member the invitation brings (final review I2): a name and a role, never an
+ * e-mail or a user id. `index` is how the accept call names them.
+ */
+export type InvitationStaff = { index: number; display_name: string | null; role_name: string };
+
 /** What `invitation_preview` returns for the signed-in invitee (supabase/migrations/071). */
 export type InvitationPreview = {
    company_name: string | null;
@@ -17,6 +23,8 @@ export type InvitationPreview = {
    recommended_plan_id: string | null;
    expires_at: string | null;
    seats: number;
+   /** The staff who would join (absent in an older preview). */
+   staff?: InvitationStaff[];
    needs_password: boolean;
    plans: PlanSummary[];
 };
@@ -90,16 +98,19 @@ const named = async (error: unknown) => {
 
 /**
  * Accepts the invitation: creates the company on the chosen plan. The body is exactly the token,
- * the company and the plan: the model, the staff and the roles come from the invitation.
+ * the company and the plan, and, when the invitation brings staff, the indexes of those the
+ * customer keeps: the model, the staff themselves and their roles come from the invitation.
  */
 export async function acceptInvitation(
    token: string,
    company: Record<string, string>,
-   planId: string | null
+   planId: string | null,
+   staff?: number[]
 ) {
+   const body = { token, company, plan_id: planId, ...(staff ? { staff } : {}) };
    const { data, error } = await supabase.functions.invoke<{ tenant_id: string; error?: string }>(
       'provider-invitation/accept',
-      { method: 'POST', body: { token, company, plan_id: planId } }
+      { method: 'POST', body }
    );
    if (error) throw await named(error);
    if (data?.error) throw new InvitationError(String(data.error));

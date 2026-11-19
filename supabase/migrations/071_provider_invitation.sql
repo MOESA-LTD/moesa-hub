@@ -589,17 +589,28 @@ REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authent
 --   private.invitation_open(user, token, count) finds (and, to count, locks) the invitation behind
 --                                              a token and checks it for the user (shared by both
 --                                              below; only acceptance counts a mismatch).
+--   private.invitation_staff_slots(inv, user) the invitation's staff as the user sees them: every
+--                                              staff row but the user's own, numbered from 0 in the
+--                                              row order (the rows never change after creation, so a
+--                                              number names the same person in the preview and at
+--                                              acceptance), and whether they are still with the
+--                                              provider.
 --   public.invitation_preview(token) → JSONB   authenticated (auth.uid()); consumes nothing.
---   public.accept_provider_invitation(p_user, p_token, p_company, p_plan_id) → JSONB
+--   public.accept_provider_invitation(p_user, p_token, p_company, p_plan_id, p_staff) → JSONB
 --                                              service role only (F1): the provider-invitation Edge
 --                                              Function, p_user from the verified JWT.
+--
+-- Final review I2 (informed consent, decision 16): the preview names each staff member who would
+-- join ({index, display_name, role_name}: the display name, never an e-mail or a user id) and the
+-- accepter may keep only some of them (p_staff, the preview's indexes; NULL keeps every one).
 --
 -- Refusals before the first write return {"error": code} and do not raise (F2), so the attempt
 -- counts and failed_attempts they wrote commit: invitation_throttled (preview:<uid> 30 per 10
 -- minutes, accept:<uid> 10 per hour), invitation_invalid (unknown, used, revoked, expired, or locked
 -- by 10 failed acceptances until a resend), invitation_email_mismatch (the user's confirmed e-mail
 -- is not the invited one; counted by acceptance only, so a preview never locks an invitation),
--- invitation_payload_invalid, plan_inactive, company_email_exists, company_phone_exists. A failure
+-- invitation_payload_invalid (also a p_staff that is not an array of the preview's indexes),
+-- plan_inactive, company_email_exists, company_phone_exists. A failure
 -- after the first write raises and leaves nothing: company_email_exists, company_phone_exists
 -- (23505, a concurrent registration), invitation_payload_invalid (23514), invitation_staff_invalid
 -- (23514), plan_limit_users.
@@ -700,11 +711,30 @@ $$;
 
 REVOKE ALL ON FUNCTION private.invitation_open (UUID, TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated, service_role;
 
+-- The invitation's staff for a user (see the section header): (idx, user_id, role_name, present).
+CREATE OR REPLACE FUNCTION private.invitation_staff_slots (p_invitation UUID, p_user UUID) RETURNS TABLE (
+   idx INT,
+   user_id UUID,
+   role_name TEXT,
+   present BOOLEAN
+) LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT (row_number() OVER (ORDER BY s.id) - 1)::INT, s.user_id, s.role_name,
+           EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = s.tenant_id AND tu.user_id = s.user_id)
+    FROM public.provider_invitation_staff s
+    WHERE s.invitation_id = p_invitation AND s.user_id IS DISTINCT FROM p_user;
+$$;
+
+REVOKE ALL ON FUNCTION private.invitation_staff_slots (UUID, UUID) FROM PUBLIC, anon, authenticated, service_role;
+
 -- What the invited user sees before accepting: the invitation's terms, the seats it needs (the owner
--- and the staff still with the provider, the viewer aside) and the active plans. Same validity and
--- e-mail rules as acceptance, but consumes and counts nothing. Staff identities,
--- the token and its hash are never returned. needs_password: the user has no password of their own
--- yet (none, or Auth's temporary one of an invited account), so the page asks for one.
+-- and the staff still with the provider, the viewer aside), those staff by display name and role
+-- (I2: {index, display_name, role_name}; the accepter's choice names them by index) and the active
+-- plans. Same validity and e-mail rules as acceptance, but consumes and counts nothing. Staff user
+-- ids and e-mails, the token and its hash are never returned. needs_password: the user has no
+-- password of their own yet (none, or Auth's temporary one of an invited account), so the page asks
+-- for one.
 CREATE OR REPLACE FUNCTION public.invitation_preview (token TEXT) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -736,9 +766,15 @@ BEGIN
                                        'start_on', inv.start_on, 'deposit_rate', inv.deposit_rate),
         'recommended_plan_id', inv.recommended_plan_id,
         'expires_at', inv.expires_at,
-        'seats', 1 + (SELECT count(*) FROM public.provider_invitation_staff s
-                      WHERE s.invitation_id = inv.id AND s.user_id <> uid
-                        AND EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = inv.tenant_id AND tu.user_id = s.user_id)),
+        'seats', 1 + (SELECT count(*) FROM private.invitation_staff_slots(inv.id, uid) s WHERE s.present),
+        -- I2: who joins, and in which role; a staff member who left the provider joins no more.
+        'staff', coalesce((
+            SELECT jsonb_agg(jsonb_build_object('index', s.idx, 'display_name', u.user_metadata ->> 'display_name',
+                                                'role_name', s.role_name) ORDER BY s.idx)
+            FROM private.invitation_staff_slots(inv.id, uid) s
+            JOIN public.user u ON u.id = s.user_id
+            WHERE s.present
+        ), '[]'::JSONB),
         -- No password, or only the temporary one Auth gives an invited account when its link is
         -- followed: the acceptance page sets one, marking user_metadata.password_set true with it.
         'needs_password', (SELECT coalesce(u.encrypted_password, '') = ''
@@ -761,9 +797,16 @@ $$;
 
 -- Accepts the invitation behind p_token for p_user (F1: the service role, with p_user from the
 -- verified JWT). p_company is the new company: the keys of private.create_company, text values; its
--- e-mail defaults to the invited one (F15). Returns {tenant_id, skipped_staff}: staff who are no
--- longer members of the provider are skipped.
-CREATE OR REPLACE FUNCTION public.accept_provider_invitation (p_user UUID, p_token TEXT, p_company JSONB, p_plan_id UUID) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
+-- e-mail defaults to the invited one (F15). p_staff (I2): the staff the accepter keeps, as the
+-- preview's indexes (a JSON array of integers; NULL keeps every one, [] none). Returns {tenant_id,
+-- skipped_staff}: kept staff who are no longer members of the provider are skipped.
+CREATE OR REPLACE FUNCTION public.accept_provider_invitation (
+   p_user UUID,
+   p_token TEXT,
+   p_company JSONB,
+   p_plan_id UUID,
+   p_staff JSONB DEFAULT NULL
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
@@ -777,6 +820,7 @@ DECLARE
     v_constraint TEXT;
     s RECORD;
     skipped UUID[] := '{}';
+    kept INT[];
     v_headers TEXT := current_setting('request.headers', TRUE);
     v_result JSONB;
 BEGIN
@@ -815,6 +859,22 @@ BEGIN
     IF p_plan_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.plan p WHERE p.id = p_plan_id AND p.is_active) THEN
         v_result := jsonb_build_object('error', 'plan_inactive');
         EXIT body;
+    END IF;
+
+    -- I2: the staff the accepter keeps, by the preview's indexes.
+    IF p_staff IS NOT NULL AND jsonb_typeof(p_staff) <> 'null' THEN
+        IF jsonb_typeof(p_staff) <> 'array'
+           OR jsonb_array_length(p_staff) > 100
+           OR EXISTS (
+               SELECT 1 FROM jsonb_array_elements(p_staff) AS e (v)
+               WHERE jsonb_typeof(e.v) <> 'number'
+                  OR (e.v #>> '{}')::NUMERIC <> trunc((e.v #>> '{}')::NUMERIC)
+                  OR NOT EXISTS (SELECT 1 FROM private.invitation_staff_slots(inv.id, p_user) x WHERE x.idx = (e.v #>> '{}')::NUMERIC)
+           ) THEN
+            v_result := jsonb_build_object('error', 'invitation_payload_invalid');
+            EXIT body;
+        END IF;
+        kept := ARRAY(SELECT DISTINCT (e.v #>> '{}')::INT FROM jsonb_array_elements(p_staff) AS e (v));
     END IF;
 
     company := p_company || jsonb_build_object('display_name', btrim(p_company ->> 'display_name'));
@@ -871,12 +931,14 @@ BEGIN
         inv.eu_responsible_person
     );
 
-    -- The provider's staff, in their roles. One who left the provider is skipped; the plan's user
-    -- limit may refuse one, which fails the whole call.
-    FOR s IN SELECT st.user_id, st.role_name FROM public.provider_invitation_staff st WHERE st.invitation_id = inv.id ORDER BY st.user_id LOOP
-        IF s.user_id = p_user THEN
-            CONTINUE;
-        END IF;
+    -- The provider's staff the accepter kept (I2; all without a choice), in their roles; the accepter
+    -- is never one of them. One who left the provider is skipped; the plan's user limit may refuse
+    -- one, which fails the whole call.
+    FOR s IN
+        SELECT st.user_id, st.role_name FROM private.invitation_staff_slots(inv.id, p_user) st
+        WHERE kept IS NULL OR st.idx = ANY (kept)
+        ORDER BY st.user_id
+    LOOP
         IF NOT EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = inv.tenant_id AND tu.user_id = s.user_id) THEN
             skipped := skipped || s.user_id;
             CONTINUE;
@@ -904,11 +966,11 @@ $$;
 
 REVOKE ALL ON FUNCTION public.invitation_preview (TEXT) FROM PUBLIC, anon;
 
-REVOKE ALL ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID, JSONB) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.invitation_preview (TEXT) TO authenticated;
 
-GRANT EXECUTE ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID, JSONB) TO service_role;
 
 -- A client tenant is not deleted while a relationship names it (F14): the relationship's RESTRICT
 -- foreign key, with a code the app can name. The provider ends the relationship first.
