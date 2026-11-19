@@ -34,11 +34,28 @@
          } catch {
             /* Storage blocked: the app decides once it loads. */
          }
+
+         // Which skeleton: the sign-in pages (routes/auth.ts, under an optional locale) or anyone
+         // without a stored Supabase session gets the sign-in shell; everyone else the app's.
+         try {
+            const authPath =
+               /^(\/[a-z]{2}(-[a-z]+)?)?\/(login|register|otp|forgot-password|invite-code|invitation)(\/|$)/i;
+            const session = Object.keys(localStorage).some((key) => /^sb-.+-auth-token$/.test(key));
+            const auth = authPath.test(location.pathname) || !session;
+            document.documentElement.dataset.boot = auth ? 'auth' : 'app';
+         } catch {
+            document.documentElement.dataset.boot = 'auth';
+         }
       </script>
 
       <!-- Boot skeleton: the MOESA Hub shell shown until Vue mounts and replaces #app's content.
            Colours are the default theme's (viva surfaces, moesa blue). -->
       <style>
+         /* Tailwind's preflight is not loaded yet: padding must not widen the blocks. */
+         .boot,
+         .boot * {
+            box-sizing: border-box;
+         }
          .boot {
             --ground: #e7e7e8;
             --bar: #ffffff;
@@ -159,6 +176,74 @@
                animation: none;
             }
          }
+         /* Sign-in shell: the welcome panel (pale primary / navy, as auth/Index.vue) and the form. */
+         .boot__auth {
+            display: none;
+         }
+         [data-boot='auth'] .boot__body {
+            display: none;
+         }
+         [data-boot='auth'] .boot__auth {
+            flex: 1;
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(26rem, 1fr);
+            margin: 1rem;
+            border-radius: 18px;
+            overflow: hidden;
+            background: var(--card);
+            min-height: 0;
+         }
+         .boot__welcome {
+            --block: #cfe3f2;
+            --shine: #e3f0f9;
+
+            background: #ebf5fb;
+            padding: 3.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+         }
+         .dark .boot__welcome {
+            --block: #1d3d5e;
+            --shine: #264a6e;
+
+            background: #102c49;
+         }
+         .boot__welcome .boot__block--headline {
+            height: 3.25rem;
+            width: 55%;
+         }
+         .boot__form {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1.25rem;
+            padding: 3rem;
+            width: 100%;
+            max-width: 26rem;
+            margin-inline: auto;
+         }
+         .boot__block--field {
+            height: 2.6rem;
+         }
+         .boot__block--button {
+            height: 3rem;
+            margin-top: 0.5rem;
+         }
+         @media (max-width: 767px) {
+            [data-boot='auth'] .boot__auth {
+               grid-template-columns: 1fr;
+               grid-template-rows: auto 1fr;
+               margin: 0.5rem;
+            }
+            .boot__welcome {
+               padding: 2rem;
+            }
+            .boot__form {
+               justify-content: flex-start;
+               padding: 2rem;
+            }
+         }
          @media (max-width: 991px) {
             .boot__side {
                display: none;
@@ -204,6 +289,21 @@
                   <div class="boot__block boot__block--row"></div>
                   <div class="boot__block boot__block--row"></div>
                </main>
+            </div>
+            <div class="boot__auth" aria-hidden="true">
+               <section class="boot__welcome">
+                  <div class="boot__block boot__block--headline"></div>
+                  <div class="boot__block boot__block--headline" style="width: 40%"></div>
+                  <div class="boot__block" style="width: 60%; margin-top: 0.75rem"></div>
+                  <div class="boot__block" style="width: 45%"></div>
+               </section>
+               <section class="boot__form">
+                  <div class="boot__block boot__block--title" style="width: 55%"></div>
+                  <div class="boot__block" style="width: 75%"></div>
+                  <div class="boot__block boot__block--field"></div>
+                  <div class="boot__block boot__block--field"></div>
+                  <div class="boot__block boot__block--button"></div>
+               </section>
             </div>
          </div>
       </div>
