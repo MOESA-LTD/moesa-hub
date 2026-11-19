@@ -3846,6 +3846,92 @@ export type Database = {
           },
         ]
       }
+      transfer: {
+        Row: {
+          audit_transaction_ids: string[] | null
+          created_at: string | null
+          decisions: Json | null
+          files: Json | null
+          files_status: string | null
+          id: string | null
+          id_map: Json | null
+          missing_files: string[] | null
+          mode: Database["public"]["Enums"]["transfer_mode"] | null
+          product_ids: string[] | null
+          report: Json | null
+          source_tenant_id: string | null
+          started_by: string | null
+          tenant_id: string | null
+          updated_at: string | null
+          xact_id: unknown | null
+        }
+        Insert: {
+          audit_transaction_ids?: string[] | null
+          created_at?: string | null
+          decisions?: Json | null
+          files?: Json | null
+          files_status?: string | null
+          id?: string | null
+          id_map?: Json | null
+          missing_files?: string[] | null
+          mode?: Database["public"]["Enums"]["transfer_mode"] | null
+          product_ids?: string[] | null
+          report?: Json | null
+          source_tenant_id?: string | null
+          started_by?: string | null
+          tenant_id?: string | null
+          updated_at?: string | null
+          xact_id?: unknown | null
+        }
+        Update: {
+          audit_transaction_ids?: string[] | null
+          created_at?: string | null
+          decisions?: Json | null
+          files?: Json | null
+          files_status?: string | null
+          id?: string | null
+          id_map?: Json | null
+          missing_files?: string[] | null
+          mode?: Database["public"]["Enums"]["transfer_mode"] | null
+          product_ids?: string[] | null
+          report?: Json | null
+          source_tenant_id?: string | null
+          started_by?: string | null
+          tenant_id?: string | null
+          updated_at?: string | null
+          xact_id?: unknown | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transfer_source_tenant_id_fkey"
+            columns: ["source_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_source_tenant_id_fkey"
+            columns: ["source_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user: {
         Row: {
           created_at: string | null
@@ -8378,6 +8464,92 @@ export type Database = {
           },
         ]
       }
+      transfer: {
+        Row: {
+          audit_transaction_ids: string[]
+          created_at: string
+          decisions: Json
+          files: Json
+          files_status: string
+          id: string
+          id_map: Json
+          missing_files: string[]
+          mode: Database["public"]["Enums"]["transfer_mode"]
+          product_ids: string[]
+          report: Json
+          source_tenant_id: string
+          started_by: string
+          tenant_id: string
+          updated_at: string
+          xact_id: unknown
+        }
+        Insert: {
+          audit_transaction_ids?: string[]
+          created_at?: string
+          decisions?: Json
+          files?: Json
+          files_status?: string
+          id?: string
+          id_map?: Json
+          missing_files?: string[]
+          mode: Database["public"]["Enums"]["transfer_mode"]
+          product_ids: string[]
+          report: Json
+          source_tenant_id: string
+          started_by: string
+          tenant_id: string
+          updated_at?: string
+          xact_id?: unknown
+        }
+        Update: {
+          audit_transaction_ids?: string[]
+          created_at?: string
+          decisions?: Json
+          files?: Json
+          files_status?: string
+          id?: string
+          id_map?: Json
+          missing_files?: string[]
+          mode?: Database["public"]["Enums"]["transfer_mode"]
+          product_ids?: string[]
+          report?: Json
+          source_tenant_id?: string
+          started_by?: string
+          tenant_id?: string
+          updated_at?: string
+          xact_id?: unknown
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transfer_source_tenant_id_fkey"
+            columns: ["source_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_source_tenant_id_fkey"
+            columns: ["source_tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "company_subscription"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user: {
         Row: {
           created_at: string | null
@@ -9957,6 +10129,23 @@ export type Database = {
         }
         Returns: boolean
       }
+      transfer_options: {
+        Args: {
+          source_tenant: string
+        }
+        Returns: Json
+      }
+      transfer_products: {
+        Args: {
+          source_tenant: string
+          target_tenant: string
+          product_ids: string[]
+          mode: string
+          decisions?: Json
+          rehearse?: boolean
+        }
+        Returns: Json
+      }
     }
     Enums: {
       api_connection: "none" | "connected" | "revoked"
@@ -10143,6 +10332,7 @@ export type Database = {
       stock_source: "own_warehouse" | "3pl" | "platform" | "pan_eu"
       supplier_status: "candidate" | "approved" | "suspended"
       task_status: "todo" | "doing" | "done" | "blocked"
+      transfer_mode: "copy" | "move"
       type_permission_command: "select" | "insert" | "update" | "delete"
       type_permission_kind: "read" | "create" | "modify"
       warehouse_type: "own" | "third_party" | "fba"

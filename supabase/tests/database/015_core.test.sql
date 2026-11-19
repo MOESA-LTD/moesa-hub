@@ -66,8 +66,12 @@ INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
 INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
     ('00000000-0000-4000-8000-000000001504', '00000000-0000-4000-8000-000000001501');
 
--- M21 and the customer_viewer profile are retired (customer = tenant).
-SELECT hasnt_table('public', 'transfer', 'M21 retired');
+-- M21 and the customer_viewer profile are retired (customer = tenant). The tenant transfer (072) has
+-- no customer entry point and no customer column.
+SELECT ok(to_regproc('public.transfer_customer') IS NULL
+          AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'transfer'
+                          AND column_name IN ('customer_id', 'target_customer_id')),
+          'M21 retired');
 
 SELECT is_empty($$ SELECT 1 FROM private.field_default WHERE profile = 'customer_viewer' $$, 'customer_viewer retired');
 

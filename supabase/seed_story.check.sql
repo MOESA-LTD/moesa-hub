@@ -210,7 +210,8 @@ VALUES
     ('provider_invitation', 'procurement_model', 'exempt', 'copied onto the relationship, whose column covers every value'),
     ('provider_invitation', 'commercial_model', 'exempt', 'copied onto the relationship, whose column covers every value'),
     ('provider_invitation', 'contract_status', 'exempt', 'copied onto the relationship, whose column covers every value'),
-    ('provider_invitation', 'status', 'exempt', 'the story onboards by an accepted invitation (Plan 3 Task 16); pending and revoked are 071''s tests');
+    ('provider_invitation', 'status', 'exempt', 'the story onboards by an accepted invitation (Plan 3 Task 16); pending and revoked are 071''s tests'),
+    ('transfer', 'mode', 'exempt', 'the story copies (Plan 3 Task 16, step 10); a move is 073''s tests');
 
 -- core.cast: the tenants the story runs in
 SELECT 'core.cast', n FROM unnest(ARRAY['MOESA LTD', 'MOESA Europe', 'MOESA Trading GmbH', 'THOMETZKI ONLINE HANDEL', 'Kernhaus Living GmbH',

@@ -6,7 +6,9 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- policies' shared-row call, the signed access caches (tenant_scope, permitted_tenants), the api
 -- view generator's shared-row masking, and the forwarder's and the base write guard's rights
 -- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
--- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company), or extends it (a chain such as 021 → 032 → 036). A
+-- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company, 072 the
+-- rules bypass's transfer flag, the revert's transfer lock and the coordinator's standard role without
+-- the transfer right), or extends it (a chain such as 021 → 032 → 036). A
 -- restated body is the owner's current body plus only the restating migration's own delta, so an
 -- edit of the owner that is not carried into the restatement would be undone silently, and so
 -- would a chain step a later restatement forgot. Each row below names, for the live function,
@@ -14,13 +16,13 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- (non-error needles), and the markers of each later step; a missing one fails here. Needs no seed rows.
 --
 -- Not pinned, on purpose:
---   private.rules_bypassed (019, 030): 030 restates 019's body unchanged (050 only grants it); the
---     row below pins that body, so a drift in either copy shows.
+--   private.rules_bypassed (019, 030, 072): 030 restates 019's body unchanged (050 only grants it),
+--     072 adds OR private.transferring(); the row below pins that body, so a drift in any copy shows.
 --   notify_access_changed in 012 and 013: those files create triggers on it, not a body.
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(47);
+SELECT plan(48);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -72,9 +74,11 @@ VALUES
    ('public.reverter(public.audit_transaction)', '010', '058',
     ARRAY['$1.reverted_by', 'FROM api.user u']),
    -- 068: the revert's pre-check reads a field's rights tenant from its rights column.
-   ('public.revert_audit_transaction(uuid)', '010', '059, 068',
+   -- 072: a transfer's audit transactions are locked before anything is checked.
+   ('public.revert_audit_transaction(uuid)', '010', '059, 068, 072',
     ARRAY['audit_already_reverted', 'audit_conflict', 'audit_revert_field_forbidden', 'private.field_rights_column(chk.table_schema',
-          'coalesce(rights_tenant, chk.tenant_id) = ANY (private.field_write_tenants(']),
+          'coalesce(rights_tenant, chk.tenant_id) = ANY (private.field_write_tenants(',
+          'audit_transfer_not_revertable', 'private.audit_transfer_locked(target.id)']),
    ('private.can_read_media_file(text)', '024', '060',
     ARRAY['private.tenants_permitting', 'private.media_restriction']),
    -- Chains: each later definition extends the one before; the live body holds every step.
@@ -103,9 +107,14 @@ VALUES
           'public.document d WHERE d.tenant_id = OLD.tenant_id AND d.media_id = OLD.id']),
    ('private.document_signed_requires()', '016', '023',
     ARRAY['NEW.status = ''approved'' AND NEW.type = ''spec_sheet''']),
-   ('private.rules_bypassed()', '019', '030',
+   ('private.rules_bypassed()', '019', '030, 072',
     ARRAY['current_setting(''moesa.rules_bypass'', TRUE) = ''1''', 'current_setting(''role'') = ''none''',
-          'session_user IN (''postgres'', ''supabase_admin'')']),
+          'session_user IN (''postgres'', ''supabase_admin'')', 'OR private.transferring()']),
+   -- 072: the coordinator's standard role leaves the transfer right out.
+   ('private.create_standard_role(uuid, text)', '070', '072',
+    ARRAY['standard_role_unknown', 'WHEN ''management'' THEN TRUE', 'p.group_name = ''ops_setting'' AND p.command = ''update''',
+          'p.resource_name = ''public.media'' AND p.command = ''delete''', 'p.group_name = ''transfer''',
+          'OR p.resource_name = ''public.provider_relationship''', 'private.apply_field_defaults(role_id, p_role)']),
    ('public.save_role(jsonb, uuid[], jsonb)', '009', '050',
     ARRAY['role not found', 'DELETE FROM public.role_permission', 'field_grant_exceeds_own', 'private.save_role_field_rights']),
    ('public.my_access(uuid)', '011', '050',

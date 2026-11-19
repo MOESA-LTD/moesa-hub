@@ -299,6 +299,8 @@
       "audit_already_reverted": "This change has already been reverted.",
       "audit_conflict": "This change cannot be reverted: the record was changed afterwards. Revert the later changes first.",
       "audit_revert_field_forbidden": "This change cannot be reverted: it touches a field you are not allowed to change.",
+      "audit_transfer_not_revertable": "This change came with a transfer between companies. Undo it by transferring back.",
+      "transfer_package_invalid": "The transfer could not be prepared. Please contact support.",
       "avatar_type": "The photo must be a PNG, JPEG or WebP image.",
       "avatar_size": "The photo must be at most 1 MB.",
       "access_denied": "Access denied",

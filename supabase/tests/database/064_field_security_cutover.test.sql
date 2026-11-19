@@ -120,6 +120,11 @@ SELECT private.unimpersonate();
 --   the invitation's terms, the seat count and the active plans: no staff identity, token or hash,
 --   and it writes nothing but its own throttle counter. accept_provider_invitation is
 --   granted to the service role alone (F1) and is not listed.
+--   transfer_options, transfer_products (072): the caller is auth.uid(); both answer through
+--   private.transfer_refusal, which allows only a member or owner of both tenants (no super-admin
+--   bypass) holding the table and field rights in both (F6, F5). transfer_options lists only the
+--   caller's own tenants with a refusal code each; transfer_products returns a report of counts and ids
+--   only (no row value), reads only the source's own rows, and writes nothing until 073 adds the run.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
 --   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
@@ -155,7 +160,9 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.save_role'),
    ('public.set_platform_setting'),
    ('public.set_primary_media'),
-   ('public.set_user_roles') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
+   ('public.set_user_roles'),
+   ('public.transfer_options'),
+   ('public.transfer_products') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
 
 SELECT * FROM finish();
 ROLLBACK;
