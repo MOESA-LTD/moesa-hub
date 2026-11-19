@@ -23,6 +23,7 @@ import KeyFilter from 'primevue/keyfilter';
 import Ripple from 'primevue/ripple';
 import Tooltip from 'primevue/tooltip';
 import router from './router';
+import { hideBoot } from './lib/boot';
 
 export const app = createApp(App);
 setApp(app);
@@ -58,3 +59,6 @@ app.use(router);
 await setupTheme();
 
 app.mount('#app');
+
+// Never let the boot skeleton cover the app for good (App.vue normally hides it much sooner).
+setTimeout(hideBoot, 15_000);

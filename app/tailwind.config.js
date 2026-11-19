@@ -34,6 +34,22 @@ export default {
       },
       extend: {
          colors: {
+            // From moesaltd.com's design system: 400 cyan_accent, 500 primary_blue,
+            // 800 brand_dark_blue, 900 dark_navy.
+            moesa: {
+               0: '#ffffff',
+               50: '#ebf5fb',
+               100: '#cfe8f6',
+               200: '#9fd3ee',
+               300: '#5bbde6',
+               400: '#14a3db',
+               500: '#0069b2',
+               600: '#005a99',
+               700: '#004b85',
+               800: '#003b72',
+               900: '#102c49',
+               950: '#0a1d31'
+            },
             soho: {
                0: '#ffffff',
                50: '#f4f4f4',

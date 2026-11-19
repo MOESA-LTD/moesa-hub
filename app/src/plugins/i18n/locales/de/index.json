@@ -47,7 +47,17 @@
       "branch": "Filiale",
       "welcome": {
          "title": "Willkommen",
-         "text": "Willkommen im Verwaltungsbereich"
+         "text": "Willkommen im Verwaltungsbereich",
+         "headline": "Vom Hersteller ins Regal, in einem Panel",
+         "lead": "Lieferanten, Qualitätsschranken, Sendungen und Marktplatz-Listings treffen sich in denselben Datensätzen.",
+         "route": {
+            "label": "Produktweg vom Hersteller zum Marktplatz",
+            "gate": "Qualitätsschranke",
+            "shipment": "Sendung",
+            "marketplace": "Marktplätze"
+         },
+         "no_account": "Noch kein Konto?",
+         "have_account": "Schon ein Konto?"
       },
       "please_dont_forget_to_update_your_password": "Bitte vergessen Sie nicht, Ihr Passwort zu aktualisieren",
       "confirm": {

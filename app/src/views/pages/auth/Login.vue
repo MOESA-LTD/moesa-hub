@@ -85,16 +85,15 @@ const { values: forgotValues, errors: forgotErrors } = forgotPasswordForm;
 </script>
 
 <template>
-   <FormBox @submit="submit" class="self-center gap-8" v-focustrap>
-      <div class="flex-auto w-full text-center flex flex-col justify-center gap-8">
-         <div class="text-3xl font-medium" v-text="$t('auth.login.welcome_back')" />
-
-         <span
-            class="text-muted-color font-medium"
-            v-text="$t('auth.login.please_login_to_continue')"
+   <FormBox @submit="submit" class="!w-full self-center gap-8" v-focustrap>
+      <div class="w-full flex flex-col gap-2">
+         <h2
+            class="m-0 text-3xl font-semibold tracking-tight"
+            v-text="$t('auth.login.welcome_back')"
          />
+         <p class="m-0 text-muted-color" v-text="$t('auth.login.please_login_to_continue')" />
       </div>
-      <div class="flex-auto flex flex-col gap-8">
+      <div class="w-full flex flex-col gap-6">
          <FormField v-slot="slotProps" fluid :label="$t('fields.email')" :error="errors.email">
             <InputText autofocus v-bind="slotProps" v-model="values.email" />
          </FormField>
@@ -113,42 +112,36 @@ const { values: forgotValues, errors: forgotErrors } = forgotPasswordForm;
          </FormField>
       </div>
       <template #form-actions>
-         <div class="flex-auto w-full flex flex-col gap-8">
-            <div class="flex items-center justify-between gap-4">
+         <div class="w-full flex flex-col gap-6">
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                <FormField v-slot="slotProps" reverse :label="$t('fields.remember_me')">
                   <Checkbox v-bind="slotProps" v-model="rememberMe" binary />
                </FormField>
-
-               <div class="flex flex-col justify-center items-end">
-                  <Button
-                     variant="link"
-                     @click="forgotPassword"
-                     :label="$t('auth.login.forgot_your_password?')"
-                  />
-                  <RouterLink
-                     custom
-                     v-slot="{ href, navigate }"
-                     :to="{
-                        path: 'invite-code',
-                        replace: true
-                     }"
-                  >
-                     <Button
-                        variant="link"
-                        as="a"
-                        :href
-                        @click="navigate"
-                        :label="$t('auth.login.do_you_have_invite_code?')"
-                     />
-                  </RouterLink>
-               </div>
+               <Button
+                  variant="link"
+                  class="!px-0"
+                  @click="forgotPassword"
+                  :label="$t('auth.login.forgot_your_password?')"
+               />
             </div>
-            <Button
-               variant="outlined"
-               class="!border-primary-emphasis w-[75%] mx-auto"
-               type="submit"
-               :label="$t('action.submit')"
-            />
+            <Button class="w-full" size="large" type="submit" :label="$t('route.label.login')" />
+            <RouterLink
+               custom
+               v-slot="{ href, navigate }"
+               :to="{
+                  path: 'invite-code',
+                  replace: true
+               }"
+            >
+               <Button
+                  variant="link"
+                  as="a"
+                  class="self-center"
+                  :href
+                  @click="navigate"
+                  :label="$t('auth.login.do_you_have_invite_code?')"
+               />
+            </RouterLink>
          </div>
       </template>
    </FormBox>

@@ -47,7 +47,17 @@
       "branch": "Oddział",
       "welcome": {
          "title": "Witamy",
-         "text": "Witamy w panelu zarządzania"
+         "text": "Witamy w panelu zarządzania",
+         "headline": "Od producenta na półkę, w jednym panelu",
+         "lead": "Dostawcy, bramki jakości, wysyłki i oferty na marketplace’ach spotykają się w tych samych rekordach.",
+         "route": {
+            "label": "Droga produktu od producenta do marketplace",
+            "gate": "Bramka jakości",
+            "shipment": "Wysyłka",
+            "marketplace": "Marketplace’y"
+         },
+         "no_account": "Nie masz jeszcze konta?",
+         "have_account": "Masz już konto?"
       },
       "please_dont_forget_to_update_your_password": "Proszę, nie zapomnij zaktualizować swojego hasła.",
       "confirm": {

@@ -2,9 +2,9 @@
 <html lang="en">
    <head>
       <meta charset="UTF-8" />
-      <link rel="icon" href="/favicon.ico" />
+      <link rel="icon" type="image/png" href="/brand/favicon.png" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Moesa Panel</title>
+      <title>MOESA Hub</title>
       <link rel="preconnect" href="https://fonts.cdnfonts.com" crossorigin />
       <link rel="preload" as="style" href="https://fonts.cdnfonts.com/css/lato" />
       <link
@@ -14,9 +14,326 @@
          onload="this.media='all'"
       />
       <noscript> <link href="https://fonts.cdnfonts.com/css/lato" rel="stylesheet" /></noscript>
+      <!-- Manrope: MOESA's brand face, used only by the topbar lockup (TopbarBrand.vue). -->
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link
+         href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700&display=swap"
+         rel="stylesheet"
+      />
+
+      <!-- Dark mode before the app loads, as the theme store decides it (useDark, "color-scheme"),
+           so the boot skeleton below does not flash the wrong mode. -->
+      <script>
+         try {
+            const scheme = localStorage.getItem('color-scheme');
+            const dark =
+               scheme === 'dark' ||
+               (scheme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.classList.toggle('dark', dark);
+
+            // UI scale too, from the profile in use (store/theme: the dark one only while dark
+            // and unlinked; lib/theme/settings: 0.5–1.5), as lib/theme/setup.ts sets it later.
+            // Without it the page draws at scale 1 and shrinks or grows once the app starts.
+            const settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
+            const profile = settings.linked === false && dark ? settings.dark : settings.light;
+            const scale = Number(profile?.uiScale);
+            if (scale >= 0.5 && scale <= 1.5) {
+               document.documentElement.style.setProperty('--ui-scale', String(scale));
+            }
+         } catch {
+            /* Storage blocked or unreadable: the app decides once it loads. */
+         }
+
+         // Which skeleton: the sign-in pages (routes/auth.ts, under an optional locale) or anyone
+         // without a stored Supabase session gets the sign-in shell; everyone else the app's.
+         try {
+            const authPath =
+               /^(\/[a-z]{2}(-[a-z]+)?)?\/(login|register|otp|forgot-password|invite-code|invitation)(\/|$)/i;
+            const session = Object.keys(localStorage).some((key) => /^sb-.+-auth-token$/.test(key));
+            const auth = authPath.test(location.pathname) || !session;
+            document.documentElement.dataset.boot = auth ? 'auth' : 'app';
+         } catch {
+            document.documentElement.dataset.boot = 'auth';
+         }
+      </script>
+
+      <!-- Boot skeleton: the MOESA Hub shell over #app until the first page is on screen (src/lib/boot.ts).
+           Colours are the default theme's (viva surfaces, moesa blue). -->
+      <style>
+         /* The root size before the app's CSS arrives: the same rule as assets/style/base/_core.scss,
+            so the skeleton and the first page share one scale (keep the two in step). */
+         :root {
+            font-size: clamp(
+               calc(0.625rem * var(--ui-scale, 1)),
+               2vw,
+               calc(1rem * var(--ui-scale, 1))
+            );
+         }
+         /* Tailwind's preflight is not loaded yet: padding must not widen the blocks. */
+         .boot,
+         .boot * {
+            box-sizing: border-box;
+         }
+         .boot {
+            --ground: #e7e7e8;
+            --bar: #ffffff;
+            --card: #ffffff;
+            --block: #dfe7ee;
+            --shine: #f1f5f9;
+            --ink: #19324a;
+            --sub: #536b7d;
+
+            /* Over #app until the first page has rendered (src/lib/boot.ts hideBoot). */
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            background: var(--ground);
+            font-family: 'Manrope', Arial, 'Segoe UI', sans-serif;
+            transition: opacity 200ms ease-out;
+         }
+         .boot--done {
+            opacity: 0;
+            pointer-events: none;
+         }
+         .dark .boot {
+            --ground: #0e1315;
+            --bar: #262b2c;
+            --card: #1c2122;
+            --block: #2b3335;
+            --shine: #353e40;
+            --ink: #ffffff;
+            --sub: #b4cfe0;
+         }
+         .boot__bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 4.5rem;
+            padding-inline: 2rem;
+            background: var(--bar);
+         }
+         .boot__brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.25rem;
+            line-height: 1;
+         }
+         .boot__brand img {
+            height: 26px;
+            width: auto;
+         }
+         .dark .boot__brand img {
+            display: none;
+         }
+         .boot__brand b {
+            color: var(--ink);
+            letter-spacing: 0.04em;
+         }
+         .boot__brand span {
+            color: var(--sub);
+            padding-inline-start: 0.75rem;
+            border-inline-start: 1px solid currentColor;
+         }
+         .boot__body {
+            flex: 1;
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            min-height: 0;
+         }
+         .boot__side,
+         .boot__main {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.9rem;
+         }
+         .boot__side {
+            width: 16rem;
+         }
+         .boot__main {
+            flex: 1;
+            gap: 1.25rem;
+         }
+         .boot__block {
+            height: 0.9rem;
+            border-radius: 6px;
+            background: linear-gradient(
+               90deg,
+               var(--block) 0%,
+               var(--shine) 50%,
+               var(--block) 100%
+            );
+            background-size: 200% 100%;
+            animation: boot-shine 1.4s ease-in-out infinite;
+         }
+         .boot__block--title {
+            height: 1.75rem;
+            width: 40%;
+         }
+         .boot__block--row {
+            height: 2.75rem;
+         }
+         .boot__grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+         }
+         .boot__grid .boot__block {
+            height: 6rem;
+            border-radius: 10px;
+         }
+         @keyframes boot-shine {
+            from {
+               background-position: 100% 0;
+            }
+            to {
+               background-position: -100% 0;
+            }
+         }
+         @media (prefers-reduced-motion: reduce) {
+            .boot__block {
+               animation: none;
+            }
+         }
+         /* Sign-in shell: the welcome panel (pale primary / navy, as auth/Index.vue) and the form. */
+         .boot__auth {
+            display: none;
+         }
+         [data-boot='auth'] .boot__body {
+            display: none;
+         }
+         [data-boot='auth'] .boot__auth {
+            flex: 1;
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(26rem, 1fr);
+            margin: 1rem;
+            border-radius: 18px;
+            overflow: hidden;
+            background: var(--card);
+            min-height: 0;
+         }
+         .boot__welcome {
+            --block: #cfe3f2;
+            --shine: #e3f0f9;
+
+            background: #ebf5fb;
+            padding: 3.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+         }
+         .dark .boot__welcome {
+            --block: #1d3d5e;
+            --shine: #264a6e;
+
+            background: #102c49;
+         }
+         .boot__welcome .boot__block--headline {
+            height: 3.25rem;
+            width: 55%;
+         }
+         .boot__form {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 1.25rem;
+            padding: 3rem;
+            width: 100%;
+            max-width: 26rem;
+            margin-inline: auto;
+         }
+         .boot__block--field {
+            height: 2.6rem;
+         }
+         .boot__block--button {
+            height: 3rem;
+            margin-top: 0.5rem;
+         }
+         @media (max-width: 767px) {
+            [data-boot='auth'] .boot__auth {
+               grid-template-columns: 1fr;
+               grid-template-rows: auto 1fr;
+               margin: 0.5rem;
+            }
+            .boot__welcome {
+               padding: 2rem;
+            }
+            .boot__form {
+               justify-content: flex-start;
+               padding: 2rem;
+            }
+         }
+         @media (max-width: 991px) {
+            .boot__side {
+               display: none;
+            }
+            .boot__bar {
+               padding-inline: 1rem;
+            }
+         }
+         @media (max-width: 575px) {
+            .boot__grid {
+               grid-template-columns: 1fr;
+            }
+         }
+      </style>
    </head>
 
    <body>
+      <!-- Outside #app, so mounting does not clear it before the first page is ready. -->
+      <div id="boot">
+         <div class="boot" aria-busy="true" aria-label="MOESA Hub">
+            <header class="boot__bar">
+               <div class="boot__brand">
+                  <img src="/brand/moesa_mark.png" alt="" />
+                  <b>MOESA</b>
+                  <span>Hub</span>
+               </div>
+            </header>
+            <div class="boot__body" aria-hidden="true">
+               <aside class="boot__side">
+                  <div class="boot__block" style="width: 70%"></div>
+                  <div class="boot__block" style="width: 85%"></div>
+                  <div class="boot__block" style="width: 60%"></div>
+                  <div class="boot__block" style="width: 75%"></div>
+                  <div class="boot__block" style="width: 50%"></div>
+               </aside>
+               <main class="boot__main">
+                  <div class="boot__block boot__block--title"></div>
+                  <div class="boot__grid">
+                     <div class="boot__block"></div>
+                     <div class="boot__block"></div>
+                     <div class="boot__block"></div>
+                  </div>
+                  <div class="boot__block boot__block--row"></div>
+                  <div class="boot__block boot__block--row"></div>
+                  <div class="boot__block boot__block--row"></div>
+               </main>
+            </div>
+            <div class="boot__auth" aria-hidden="true">
+               <section class="boot__welcome">
+                  <div class="boot__block boot__block--headline"></div>
+                  <div class="boot__block boot__block--headline" style="width: 40%"></div>
+                  <div class="boot__block" style="width: 60%; margin-top: 0.75rem"></div>
+                  <div class="boot__block" style="width: 45%"></div>
+               </section>
+               <section class="boot__form">
+                  <div class="boot__block boot__block--title" style="width: 55%"></div>
+                  <div class="boot__block" style="width: 75%"></div>
+                  <div class="boot__block boot__block--field"></div>
+                  <div class="boot__block boot__block--field"></div>
+                  <div class="boot__block boot__block--button"></div>
+               </section>
+            </div>
+         </div>
+      </div>
       <div id="app"></div>
       <script type="module" src="/src/main.ts"></script>
    </body>
