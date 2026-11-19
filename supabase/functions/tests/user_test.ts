@@ -39,7 +39,7 @@ const backend = (
       owns?: string[];
       /** Tenant tree, id to parent: lets a caller sit in a branch of a company. */
       parents?: Record<string, string | null>;
-      /** public.abandoned_signup's answer for the existing account (Task 11 M4). */
+      /** public.release_abandoned_signup's answer for the existing account (Task 11 M4). */
       abandoned?: boolean;
    } = {}
 ) => {
@@ -93,7 +93,7 @@ const backend = (
          }
          case '/rest/v1/rpc/is_super_admin':
             return jsonResponse(opts.superAdmin ?? false);
-         case '/rest/v1/rpc/abandoned_signup':
+         case '/rest/v1/rpc/release_abandoned_signup':
             return jsonResponse(opts.abandoned ?? false);
          case '/rest/v1/rpc/is_provider_staff':
             return jsonResponse(opts.staff ?? false);
@@ -547,13 +547,14 @@ Deno.test('an abandoned self-signup is released and the address invited as new',
    } finally {
       restore();
    }
-   const check = seen.find((s) => s.path === '/rest/v1/rpc/abandoned_signup');
+   const check = seen.find((s) => s.path === '/rest/v1/rpc/release_abandoned_signup');
    assertEquals(JSON.parse(check!.body), { p_user: OTHER });
    assertEquals(
       seen
          .filter((s) => s.path.startsWith('/auth/v1/') || (s.method === 'POST' && s.path === '/rest/v1/tenant_user'))
          .map((s) => `${s.method} ${s.path}`),
-      [`DELETE /auth/v1/admin/users/${OTHER}`, 'POST /auth/v1/invite', 'POST /rest/v1/tenant_user']
+      // Released in one SQL statement: no Auth admin delete.
+      ['POST /auth/v1/invite', 'POST /rest/v1/tenant_user']
    );
 });
 
@@ -567,5 +568,19 @@ Deno.test('a younger squat is still refused with user_exists_elsewhere and kept'
       restore();
    }
    assert(!seen.some((s) => s.method === 'DELETE'));
+   assert(!seen.some((s) => s.path === '/auth/v1/invite'));
+});
+
+Deno.test('N4: a caller who may not write the new account deletes nothing', async () => {
+   const { seen, restore } = backend({ existingUser: true, memberOf: [], abandoned: true, canWrite: false });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      // For them the address stays taken, as before the release existed.
+      assertEquals([res.status, (await res.json()).message], [409, 'user_exists_elsewhere']);
+   } finally {
+      restore();
+   }
+   assert(!seen.some((s) => s.path === '/rest/v1/rpc/release_abandoned_signup'), 'no release before the field check');
    assert(!seen.some((s) => s.path === '/auth/v1/invite'));
 });

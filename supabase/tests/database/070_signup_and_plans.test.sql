@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- verify-first self-signup: complete_signup and signup_throttle (Task 11, task-5-review I1).
 BEGIN;
 
-SELECT plan(39);
+SELECT plan(45);
 
 SELECT is((SELECT value FROM private.platform_setting WHERE key = 'open_signup'), 'false'::JSONB, 'open signup is off by default');
 
@@ -102,7 +102,7 @@ SELECT ok(bool_and(NOT has_function_privilege('authenticated', f, 'EXECUTE')
                    AND has_function_privilege('service_role', f, 'EXECUTE')),
           'only the service role saves, reads, completes, releases and counts sign-ups')
 FROM unnest(ARRAY['public.save_pending_signup(uuid, jsonb, uuid)', 'public.pending_signup(uuid)',
-                  'public.complete_signup(uuid, jsonb, uuid)', 'public.abandoned_signup(uuid)',
+                  'public.complete_signup(uuid, jsonb, uuid)', 'public.release_abandoned_signup(uuid)',
                   'public.signup_throttle(text, text)']) AS f;
 
 SELECT public.save_pending_signup('00000000-0000-4000-8000-000000070301', '{"display_name": "Asked 070"}', NULL);
@@ -172,18 +172,50 @@ SELECT throws_ok(
 SELECT is((SELECT count(*)::INT FROM public.tenant_owner WHERE user_id = '00000000-0000-4000-8000-000000070301'), 1,
           'exactly one company');
 
--- Abandoned squats (M4): unconfirmed, owning nothing, member of nothing, pending for over a day.
-SELECT public.save_pending_signup('00000000-0000-4000-8000-000000070304', '{"display_name": "Stale 070"}', NULL);
-SELECT public.save_pending_signup('00000000-0000-4000-8000-000000070305', '{"display_name": "Member 070"}', NULL);
-INSERT INTO public.tenant_user (tenant_id, user_id) SELECT id, '00000000-0000-4000-8000-000000070305' FROM signup_070;
-SELECT ok(NOT public.abandoned_signup('00000000-0000-4000-8000-000000070304'), 'a sign-up younger than a day is not abandoned');
-UPDATE private.pending_signup SET created_at = now() - INTERVAL '25 hours'
-WHERE user_id IN ('00000000-0000-4000-8000-000000070304', '00000000-0000-4000-8000-000000070305', '00000000-0000-4000-8000-000000070302');
-SELECT ok(public.abandoned_signup('00000000-0000-4000-8000-000000070304'), 'an unconfirmed, ownerless, memberless sign-up older than a day is');
-SELECT ok(NOT public.abandoned_signup('00000000-0000-4000-8000-000000070305'), 'not when the account is a member of a company');
-UPDATE auth.users SET email_confirmed_at = now() WHERE id = '00000000-0000-4000-8000-000000070304';
-SELECT ok(NOT public.abandoned_signup('00000000-0000-4000-8000-000000070304'), 'not once the inbox is proven');
-SELECT ok(NOT public.abandoned_signup('00000000-0000-4000-8000-000000070303'), 'not without a pending sign-up');
+-- Abandoned squats (M4, N1, N3/N5): release_abandoned_signup deletes, in one statement, an account
+-- that is unconfirmed, created over a day ago (auth.users), has a pending sign-up, owns nothing and
+-- is a member of nothing. Each condition is tried alone.
+INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at,
+                        confirmation_token, recovery_token, email_change_token_new, email_change)
+SELECT '00000000-0000-0000-0000-000000000000', v.id::UUID, 'authenticated', 'authenticated', v.email, '', v.confirmed,
+       now() - v.age, now(), '', '', '', ''
+FROM (VALUES ('00000000-0000-4000-8000-000000070310', 'squat070@signup.test', NULL::TIMESTAMPTZ, INTERVAL '25 hours'),
+             ('00000000-0000-4000-8000-000000070311', 'young070@signup.test', NULL::TIMESTAMPTZ, INTERVAL '23 hours'),
+             ('00000000-0000-4000-8000-000000070312', 'confirmed070@signup.test', now(), INTERVAL '25 hours'),
+             ('00000000-0000-4000-8000-000000070313', 'nopending070@signup.test', NULL::TIMESTAMPTZ, INTERVAL '25 hours'),
+             ('00000000-0000-4000-8000-000000070314', 'owner070@signup.test', NULL::TIMESTAMPTZ, INTERVAL '25 hours'),
+             ('00000000-0000-4000-8000-000000070315', 'member070b@signup.test', NULL::TIMESTAMPTZ, INTERVAL '25 hours'),
+             ('00000000-0000-4000-8000-000000070316', 'resigned070@signup.test', NULL::TIMESTAMPTZ, INTERVAL '25 hours')) AS v (id, email, confirmed, age);
+INSERT INTO private.pending_signup (user_id, company, created_at)
+SELECT v.id::UUID, '{"display_name": "Squat 070"}', now() - INTERVAL '25 hours'
+FROM (VALUES ('00000000-0000-4000-8000-000000070310'), ('00000000-0000-4000-8000-000000070311'),
+             ('00000000-0000-4000-8000-000000070312'), ('00000000-0000-4000-8000-000000070314'),
+             ('00000000-0000-4000-8000-000000070315'), ('00000000-0000-4000-8000-000000070316')) AS v (id);
+INSERT INTO public.tenant_owner (tenant_id, user_id) SELECT id, '00000000-0000-4000-8000-000000070314' FROM signup_070;
+INSERT INTO public.tenant_user (tenant_id, user_id) SELECT id, '00000000-0000-4000-8000-000000070315' FROM signup_070;
+
+SELECT ok(NOT public.release_abandoned_signup('00000000-0000-4000-8000-000000070311'), 'an account younger than a day is kept');
+SELECT ok(NOT public.release_abandoned_signup('00000000-0000-4000-8000-000000070312'), 'a confirmed account is kept');
+SELECT ok(NOT public.release_abandoned_signup('00000000-0000-4000-8000-000000070313'), 'an account without a pending sign-up is kept');
+SELECT ok(NOT public.release_abandoned_signup('00000000-0000-4000-8000-000000070314'), 'an account owning a company is kept');
+SELECT ok(NOT public.release_abandoned_signup('00000000-0000-4000-8000-000000070315'), 'an account in a company is kept');
+SELECT is((SELECT count(*)::INT FROM auth.users WHERE id::TEXT LIKE '00000000-0000-4000-8000-00000007031%'
+                                                   AND id <> '00000000-0000-4000-8000-000000070310'
+                                                   AND id <> '00000000-0000-4000-8000-000000070316'), 5,
+          'the refused releases deleted nothing');
+
+SELECT ok(public.release_abandoned_signup('00000000-0000-4000-8000-000000070310'), 'an abandoned squat is released');
+SELECT ok(NOT EXISTS (SELECT 1 FROM auth.users WHERE id = '00000000-0000-4000-8000-000000070310')
+          AND public.pending_signup('00000000-0000-4000-8000-000000070310') IS NULL,
+          'the account and its pending sign-up are gone');
+
+-- N1: signing the address up again does not make the squat young again.
+SELECT public.save_pending_signup('00000000-0000-4000-8000-000000070316', '{"display_name": "Again 070"}', NULL);
+SELECT ok((public.pending_signup('00000000-0000-4000-8000-000000070316') ->> 'created_at')::TIMESTAMPTZ < now() - INTERVAL '24 hours'
+          AND public.pending_signup('00000000-0000-4000-8000-000000070316') -> 'company' = '{"display_name": "Again 070"}',
+          'a repeated sign-up replaces the company and keeps the first date');
+SELECT ok(public.release_abandoned_signup('00000000-0000-4000-8000-000000070316'), 'and the account is still released');
+
 DELETE FROM auth.users WHERE id = '00000000-0000-4000-8000-000000070302';
 SELECT is(public.pending_signup('00000000-0000-4000-8000-000000070302'), NULL, 'deleting the account deletes its pending sign-up');
 
@@ -202,6 +234,13 @@ DELETE FROM private.invitation_attempt WHERE key LIKE 'signup:%';
 SELECT is((SELECT count(*) FILTER (WHERE allowed)::INT
            FROM (SELECT public.signup_throttle('all' || i || '@signup.test', '192.0.2.' || (i % 250)) AS allowed
                  FROM generate_series(1, 201) i) t), 200, 'two hundred sign-ups an hour in all');
+
+-- N2: calls refused by their own address or client limit never spend the global budget.
+DELETE FROM private.invitation_attempt WHERE key LIKE 'signup:%';
+SELECT count(*) FROM (SELECT public.signup_throttle('hammer' || i || '@signup.test', '198.51.100.99') FROM generate_series(1, 40) i) t;
+SELECT count(*) FROM (SELECT public.signup_throttle('same070@signup.test', '192.0.2.' || i) FROM generate_series(1, 8) i) t;
+SELECT is((SELECT count FROM private.invitation_attempt WHERE key = 'signup:all'), 35,
+          'only the 30 + 5 calls their own limits allowed count toward the global cap');
 
 SELECT * FROM finish();
 

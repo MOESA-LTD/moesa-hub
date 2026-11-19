@@ -43,7 +43,7 @@ type Opts = {
    undoFails?: boolean;
    /** The invitation is not in the caller's active tenant (the scoped read finds nothing). */
    invitationMissing?: boolean;
-   /** public.abandoned_signup's answer for the existing account (Task 11 M4); 'fails' errors. */
+   /** public.release_abandoned_signup's answer for the existing account (Task 11 M4); 'fails' errors. */
    abandoned?: boolean | 'fails';
 };
 
@@ -92,7 +92,7 @@ const backend = (opts: Opts = {}) => {
             return jsonResponse(
                url.pathname === '/auth/v1/otp' ? {} : { id: EXISTING, email: 'new@client.test' }
             );
-         case '/rest/v1/rpc/abandoned_signup':
+         case '/rest/v1/rpc/release_abandoned_signup':
             if (opts.abandoned === 'fails') return jsonResponse({ code: '57014', message: 'canceling statement' }, 500);
             return jsonResponse(opts.abandoned === true);
          case `/auth/v1/admin/users/${EXISTING}`:
@@ -485,20 +485,17 @@ Deno.test('accept leaves the Auth account alone', async () => {
 const adminCalls = (seen: { method: string; path: string }[]) =>
    seen.filter((s) => s.path.startsWith('/auth/v1/admin/users/') || s.path === '/auth/v1/invite').map((s) => `${s.method} ${s.path}`);
 
-Deno.test('an abandoned self-signup is deleted, then the address is invited afresh', async () => {
+Deno.test('an abandoned self-signup is released in SQL, then the address is invited afresh', async () => {
    const { seen, restore } = backend({ existingUser: true, unconfirmed: true, abandoned: true });
    try {
       assertEquals((await handler(request('/provider-invitation', createBody, [INSERT]))).status, 201);
    } finally {
       restore();
    }
-   const release = seen.find((s) => s.path === '/rest/v1/rpc/abandoned_signup')!;
+   const release = seen.find((s) => s.path === '/rest/v1/rpc/release_abandoned_signup')!;
    assertEquals(JSON.parse(release.body), { p_user: EXISTING });
-   assertEquals(adminCalls(seen), [
-      `GET /auth/v1/admin/users/${EXISTING}`,
-      `DELETE /auth/v1/admin/users/${EXISTING}`,
-      'POST /auth/v1/invite'
-   ]);
+   // Released in one SQL statement: no Auth admin delete.
+   assertEquals(adminCalls(seen), [`GET /auth/v1/admin/users/${EXISTING}`, 'POST /auth/v1/invite']);
 });
 
 Deno.test('a younger unconfirmed account is re-invited, not deleted; a failed check changes nothing', async () => {
@@ -523,7 +520,7 @@ Deno.test('a confirmed account is never checked for release', async () => {
    } finally {
       restore();
    }
-   assert(!seen.some((s) => s.path === '/rest/v1/rpc/abandoned_signup'));
+   assert(!seen.some((s) => s.path === '/rest/v1/rpc/release_abandoned_signup'));
    assert(!seen.some((s) => s.method === 'DELETE'));
 });
 

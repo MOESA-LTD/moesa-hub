@@ -29,6 +29,8 @@ const ADMIN_ALLOWED: Record<string, string> = {
    '_shared/company.ts':
       'not Amazon: where an account is used, for the user and create-account flows',
    'create-account/index.ts': 'not Amazon: creates the auth user',
+   '_shared/abandonedSignup.ts':
+      'not Amazon: releases an abandoned self-signup (release_abandoned_signup, a service-only SQL delete); called by user and provider-invitation only',
    'user/index.ts': 'not Amazon: the Auth admin API (invite, update a user)'
 };
 

@@ -114,6 +114,7 @@ export const createUser = (req: Request) =>
 
       let user = existing;
       let invited = false;
+      let fieldsChecked = false;
 
       if (user) {
          // An existing account is only added to another branch of a company it is already in, or
@@ -125,7 +126,18 @@ export const createUser = (req: Request) =>
          ]);
          if (!belongsToCompany(reach, company) && !(await isProviderStaff(tenantId, user.id))) {
             // An abandoned self-signup squatting the address (Task 11 M4) is released, and the
-            // person invited as new; any other account stays refused.
+            // person invited as new; any other account stays refused. Nothing is deleted for a
+            // caller who could not write the new account: for them the address stays taken (the
+            // same answer as before the release existed).
+            try {
+               await assertFieldWrite(req, null, written);
+            } catch (error) {
+               if (error instanceof HttpError && error.message === 'field_write_forbidden') {
+                  throw new HttpError(409, 'user_exists_elsewhere');
+               }
+               throw error;
+            }
+            fieldsChecked = true;
             if (!(await releaseAbandonedSignup(service, user.id))) {
                throw new HttpError(409, 'user_exists_elsewhere');
             }
@@ -135,7 +147,7 @@ export const createUser = (req: Request) =>
 
       if (!user) {
          // The invitation writes the new account's e-mail and metadata (admin API).
-         await assertFieldWrite(req, null, written);
+         if (!fieldsChecked) await assertFieldWrite(req, null, written);
          const { data, error } = await service.auth.admin.inviteUserByEmail(email, {
             data: user_metadata
          });

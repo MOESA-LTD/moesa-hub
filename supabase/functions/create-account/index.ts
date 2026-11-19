@@ -109,13 +109,22 @@ const siteUrl = () => {
 };
 
 /**
- * The client's address: the *rightmost* x-forwarded-for entry, the one the platform's proxy appends
- * for the connection it received. Entries to its left come from the client and can be anything, so
- * they are never used. (If the hosted edge appends more hops after it, this degrades towards one
- * shared bucket, which the per-address and global limits still back up.)
+ * The client's address from x-forwarded-for, counted from the right: entry `hops` from the end, the
+ * one the nearest trusted proxy appended for the connection it received (SIGNUP_TRUSTED_PROXY_HOPS,
+ * default 1: the rightmost). Entries further left come from the client and can be anything, so they
+ * are never used. If the header has fewer entries the address is unknown (one shared bucket, which
+ * the per-address and global limits still back up). See supabase/functions/.env.example for how to
+ * verify the value on the hosted project.
  */
-export const clientIp = (req: Request) =>
-   (req.headers.get('x-forwarded-for') ?? '').split(',').map((entry) => entry.trim()).filter(Boolean).at(-1)?.slice(0, 64) ?? '';
+export const clientIp = (req: Request) => {
+   const configured = Number(Deno.env.get('SIGNUP_TRUSTED_PROXY_HOPS') ?? '1');
+   const hops = Number.isInteger(configured) && configured >= 1 ? configured : 1;
+   const entries = (req.headers.get('x-forwarded-for') ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+   return entries.at(-hops)?.slice(0, 64) ?? '';
+};
 
 /** Self-signup is a platform setting, off by default (decision 17); the service role alone reads it. */
 const openSignup = async (service: Service) => {

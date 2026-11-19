@@ -338,15 +338,22 @@ GRANT EXECUTE ON FUNCTION public.register_tenant (UUID, JSONB) TO service_role;
 --                                                default); create_company checks its allowlist. The
 --                                                pending row goes in the same transaction.
 --                                                Serialised per user.
---   public.abandoned_signup(user)                whether the account is a squat to release (M4): not
---                                                confirmed, owning no company, member of none, with a
---                                                pending sign-up older than a day. The staff and
---                                                provider invitations then delete it and proceed as
---                                                for a new address.
---   public.signup_throttle(email, ip)            five sign-ups an hour per address, thirty per client
---                                                address and two hundred in all, so the endpoint can
---                                                neither mail-bomb an inbox nor drain the project's
---                                                mail quota. The counter is 071's
+--   public.release_abandoned_signup(user)        deletes the account if it is a squat (M4): not
+--                                                confirmed, created over a day ago (auth.users, so a
+--                                                repeated sign-up cannot keep it young), owning no
+--                                                company, member of none, with a pending sign-up. One
+--                                                statement: the conditions are checked under the
+--                                                row's lock, so an account confirmed meanwhile is
+--                                                kept. Returns whether it was deleted (its identities
+--                                                and pending sign-up go with it, cascade). The staff
+--                                                and provider invitations then proceed as for a new
+--                                                address.
+--   public.signup_throttle(email, ip)            five sign-ups an hour per address and thirty per
+--                                                client address; only a call both allow counts toward
+--                                                two hundred in all (so one caller refused by its own
+--                                                limits cannot spend everyone's budget). The endpoint
+--                                                can neither mail-bomb an inbox nor drain the
+--                                                project's mail quota. The counter is 071's
 --                                                private.invitation_throttle (resolved when called;
 --                                                the migrations are applied together).
 -- All are granted to the service role alone (not in the 064 allowlist).
@@ -363,7 +370,7 @@ ALTER TABLE private.pending_signup ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON TABLE private.pending_signup FROM PUBLIC, anon, authenticated, service_role, api_owner;
 
--- A new request replaces the earlier one and starts its day again.
+-- A new request replaces the company and plan of the earlier one; the row keeps its first date.
 CREATE OR REPLACE FUNCTION public.save_pending_signup (p_user UUID, p_company JSONB, p_plan_id UUID) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -373,7 +380,7 @@ BEGIN
     END IF;
     INSERT INTO private.pending_signup AS p (user_id, company, plan_id)
     VALUES (p_user, p_company, p_plan_id)
-    ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, plan_id = EXCLUDED.plan_id, created_at = now();
+    ON CONFLICT (user_id) DO UPDATE SET company = EXCLUDED.company, plan_id = EXCLUDED.plan_id;
 END;
 $$;
 
@@ -413,19 +420,19 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.abandoned_signup (p_user UUID) RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE
+CREATE OR REPLACE FUNCTION public.release_abandoned_signup (p_user UUID) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
-    SELECT EXISTS (
-        SELECT 1
-        FROM auth.users u
-        JOIN private.pending_signup p ON p.user_id = u.id
-        WHERE u.id = p_user
-          AND u.email_confirmed_at IS NULL
-          AND p.created_at < now() - INTERVAL '24 hours'
-          AND NOT EXISTS (SELECT 1 FROM public.tenant_owner o WHERE o.user_id = u.id)
-          AND NOT EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.user_id = u.id)
-    )
+BEGIN
+    DELETE FROM auth.users u
+    WHERE u.id = p_user
+      AND u.email_confirmed_at IS NULL
+      AND u.created_at < now() - INTERVAL '24 hours'
+      AND EXISTS (SELECT 1 FROM private.pending_signup p WHERE p.user_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM public.tenant_owner o WHERE o.user_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.user_id = u.id);
+    RETURN FOUND;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.signup_throttle (p_email TEXT, p_ip TEXT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
@@ -434,9 +441,12 @@ SET
 DECLARE
     by_email BOOLEAN := private.invitation_throttle('signup:email:' || lower(trim(coalesce(p_email, ''))), 5, INTERVAL '1 hour');
     by_ip BOOLEAN := private.invitation_throttle('signup:ip:' || coalesce(nullif(trim(p_ip), ''), 'unknown'), 30, INTERVAL '1 hour');
-    in_all BOOLEAN := private.invitation_throttle('signup:all', 200, INTERVAL '1 hour');
 BEGIN
-    RETURN by_email AND by_ip AND in_all;
+    -- Refused by its own limits: it never reaches the global budget.
+    IF NOT (by_email AND by_ip) THEN
+        RETURN FALSE;
+    END IF;
+    RETURN private.invitation_throttle('signup:all', 200, INTERVAL '1 hour');
 END;
 $$;
 
@@ -446,7 +456,7 @@ REVOKE ALL ON FUNCTION public.pending_signup (UUID) FROM PUBLIC, anon, authentic
 
 REVOKE ALL ON FUNCTION public.complete_signup (UUID, JSONB, UUID) FROM PUBLIC, anon, authenticated;
 
-REVOKE ALL ON FUNCTION public.abandoned_signup (UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.release_abandoned_signup (UUID) FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.signup_throttle (TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 
@@ -456,6 +466,6 @@ GRANT EXECUTE ON FUNCTION public.pending_signup (UUID) TO service_role;
 
 GRANT EXECUTE ON FUNCTION public.complete_signup (UUID, JSONB, UUID) TO service_role;
 
-GRANT EXECUTE ON FUNCTION public.abandoned_signup (UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.release_abandoned_signup (UUID) TO service_role;
 
 GRANT EXECUTE ON FUNCTION public.signup_throttle (TEXT, TEXT) TO service_role;

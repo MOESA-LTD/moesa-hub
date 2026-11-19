@@ -9380,12 +9380,6 @@ export type Database = {
       }
     }
     Functions: {
-      abandoned_signup: {
-        Args: {
-          p_user: string
-        }
-        Returns: boolean
-      }
       accept_provider_invitation: {
         Args: {
           p_user: string
@@ -9820,6 +9814,12 @@ export type Database = {
           tax_office: string | null
           website: string | null
         }
+      }
+      release_abandoned_signup: {
+        Args: {
+          p_user: string
+        }
+        Returns: boolean
       }
       revert_audit_transaction: {
         Args: {

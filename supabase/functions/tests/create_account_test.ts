@@ -322,6 +322,21 @@ Deno.test('clientIp takes the rightmost x-forwarded-for entry', () => {
    assertEquals(ip(), '');
 });
 
+Deno.test('SIGNUP_TRUSTED_PROXY_HOPS picks the entry that many hops from the right', () => {
+   const ip = (value: string) => clientIp(new Request('http://localhost', { headers: { 'x-forwarded-for': value } }));
+   try {
+      Deno.env.set('SIGNUP_TRUSTED_PROXY_HOPS', '2');
+      assertEquals(ip('6.6.6.6, 203.0.113.9, 10.0.0.1'), '203.0.113.9', 'the client entry the edge appended before its own hop');
+      assertEquals(ip('10.0.0.1'), '', 'fewer entries than hops: unknown, never a client-supplied one');
+      for (const invalid of ['0', '-1', '1.5', 'x']) {
+         Deno.env.set('SIGNUP_TRUSTED_PROXY_HOPS', invalid);
+         assertEquals(ip('6.6.6.6, 203.0.113.9'), '203.0.113.9', `invalid ${invalid}: the default, rightmost`);
+      }
+   } finally {
+      Deno.env.delete('SIGNUP_TRUSTED_PROXY_HOPS');
+   }
+});
+
 // --- /complete ------------------------------------------------------------------------------------
 
 Deno.test('GET complete gives the pending company and plan, for the signed-in proven account only', async () => {
