@@ -334,6 +334,22 @@ describe('invitation page', () => {
       expect(wrapper.find('[data-sign-out]').exists()).toBe(true);
    });
 
+   // Decision 19: the invited account is a member of the provider's company.
+   it('ends on a fatal card for invitation_self_invite at preview', async () => {
+      api.rpc.mockResolvedValue({ data: { error: 'invitation_self_invite' }, error: null });
+      const wrapper = await mountPage();
+      expect(wrapper.get('[data-fatal]').text()).toContain('member of the inviting company');
+   });
+
+   it('ends on a fatal card for invitation_self_invite (409) at acceptance', async () => {
+      api.invoke.mockResolvedValue(refusal(409, { message: 'invitation_self_invite' }));
+      const wrapper = await mountPage();
+      await accept(wrapper);
+
+      expect(wrapper.get('[data-fatal]').text()).toContain('member of the inviting company');
+      expect(api.errorHandler).not.toHaveBeenCalled();
+   });
+
    it('puts a taken company e-mail (409) on the e-mail field', async () => {
       api.invoke.mockResolvedValue(refusal(409, { message: 'company_email_exists' }));
       const wrapper = await mountPage();

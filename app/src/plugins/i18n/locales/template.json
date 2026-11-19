@@ -377,6 +377,7 @@
       "invitation_throttled": "",
       "invitation_invalid": "",
       "invitation_pending_exists": "",
+      "invitation_self_invite": "",
       "invitation_mail_failed": "",
       "invitation_unconfigured": "",
       "client_code_taken": "",
@@ -688,6 +689,7 @@
       "error": {
          "invitation_invalid": "",
          "invitation_email_mismatch": "",
+         "invitation_self_invite": "",
          "invitation_throttled": "",
          "invitation_payload_invalid": "",
          "company_email_exists": "",

@@ -558,6 +558,7 @@ const ACCEPT_REFUSALS: [string, number][] = [
    ['company_phone_exists', 409],
    ['client_code_taken', 409],
    ['invitation_pending_exists', 409],
+   ['invitation_self_invite', 409],
    ['plan_inactive', 400]
 ];
 
@@ -586,6 +587,7 @@ const RAISED: [{ status: number; code: string; message: string }, number][] = [
    [{ status: 400, code: '23514', message: 'plan_inactive' }, 400],
    [{ status: 409, code: '23505', message: 'client_code_taken' }, 409],
    [{ status: 409, code: '23505', message: 'invitation_pending_exists' }, 409],
+   [{ status: 400, code: '23514', message: 'invitation_self_invite' }, 409],
    [{ status: 409, code: '23505', message: 'company_email_exists' }, 409],
    [{ status: 409, code: '23505', message: 'company_phone_exists' }, 409],
    [{ status: 403, code: '42501', message: 'invitation_forbidden' }, 403],

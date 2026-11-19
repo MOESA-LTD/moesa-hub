@@ -190,6 +190,34 @@ t('the provider app never sees a token', async () => {
    assertNotEquals(svc.status, 200);
 });
 
+t('the provider never invites an account of its own company, nor may one accept (decision 19)', async () => {
+   // At creation: the owner's own address and a staff member's, in another case.
+   for (const email of [f.owner.email, f.staff[0].email.toUpperCase()]) {
+      const r = refused(
+         await edge(f.owner.token, 'provider-invitation', {
+            headers: asProvider,
+            body: { invitation: { email, company_name: 'HTTP Inv Self Co', client_code: nextClientCode(), procurement_model: 'provider' } },
+         }),
+         'self invite',
+      );
+      assertEquals([r.status, r.body?.message], [409, 'invitation_self_invite'], JSON.stringify(r.body));
+   }
+   assertEquals(((await admin(`provider_invitation?company_name=eq.${encodeURIComponent('HTTP Inv Self Co')}&select=id`)).body as unknown[]).length, 0);
+
+   // At preview and acceptance: the invited account joined the provider meanwhile.
+   const joiner = await invitee('self-joiner');
+   const { token, id } = await issueInvitation(f, joiner.email);
+   tokens.push(token);
+   await admin('tenant_user', { method: 'POST', body: { tenant_id: f.provider, user_id: joiner.id } });
+   const p = refused(await preview(joiner.token, token), 'self preview');
+   assertEquals([p.status, p.body], [200, { error: 'invitation_self_invite' }]);
+   const r = refused(await acceptCompany(joiner.token, token, 'HTTP Inv Self Joiner'), 'self accept');
+   assertEquals([r.status, r.body?.message], [409, 'invitation_self_invite'], JSON.stringify(r.body));
+   const row = await invitationRow(id);
+   assertEquals([row.status, row.failed_attempts], ['pending', 0]);
+   assertEquals(await tenantsNamed('HTTP Inv Self Joiner'), 0);
+});
+
 t('acceptance through the mailed link creates tenant, accepted relationship and stored staff roles', async () => {
    // The invited address had no account: the mail was an Auth invitation. Following it signs the
    // new user in (e-mail confirmed by the link), as the browser would.

@@ -161,6 +161,13 @@ const toPlan = () => {
    if (validateFields(Object.keys(values.value))) step.value = 3;
 };
 
+/** The refusals that end the page: the link cannot be accepted by this account (decision 19 too). */
+const FATAL_REFUSALS = [
+   'invitation_invalid',
+   'invitation_email_mismatch',
+   'invitation_self_invite'
+];
+
 /** The refusals that belong to one company field show on it. */
 const FIELD_REFUSALS: Record<string, string> = {
    company_email_exists: 'email',
@@ -201,7 +208,7 @@ const accept = async () => {
       if (!(error instanceof InvitationError)) return await appErrorHandler(error);
 
       const code = error.code;
-      if (code === 'invitation_invalid' || code === 'invitation_email_mismatch') {
+      if (FATAL_REFUSALS.includes(code)) {
          fatal.value = code;
       } else if (FIELD_REFUSALS[code]) {
          setErrors({ [FIELD_REFUSALS[code]]: errorText(code) });

@@ -45,6 +45,10 @@ Scale today: `customer_id` sits on 32 tables and views (local DB). The customer 
     - The provider may mark a recommended plan in the invitation. The customer can still choose another.
     - My call: payment collection is out of scope. The chosen plan becomes the tenant's subscription, as today.
 
+## Owner decisions 19–21 (2026-11-19)
+
+19. **A provider never invites itself.** An invitation is refused when its e-mail (compared lower-cased) belongs to an account that is a member or owner of any tenant of the provider's company (`invitation_self_invite`). Creation refuses it, and preview and acceptance check again, as the account may have joined the company in between.
+
 ## Goals
 
 - `public.customer` and every `customer_id` column are gone. A record belongs to the tenant it lives in.

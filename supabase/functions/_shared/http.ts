@@ -43,6 +43,8 @@ export const NAMED_ERROR_STATUS: Record<string, number> = {
    company_phone_exists: 409,
    client_code_taken: 409,
    invitation_pending_exists: 409,
+   // Decision 19: the invited e-mail is an account of the provider's own company.
+   invitation_self_invite: 409,
    // Self-signup's completion (complete_signup, Task 11).
    company_payload_invalid: 400,
    signup_closed: 403,

@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(185);
+SELECT plan(188);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -25,6 +25,10 @@ INSERT INTO public.role_permission (role_id, permission_id)
 SELECT '00000000-0000-4000-8000-000000071102', p.id FROM public.permission p
 WHERE p.resource_name IN ('public.provider_invitation', 'public.provider_invitation_staff') AND p.command = 'select';
 INSERT INTO public.user_role (user_id, role_id) VALUES ('00000000-0000-4000-8000-000000071101', '00000000-0000-4000-8000-000000071102');
+-- branch.owner (...071105) owns MOESA Europe, a branch of MOESA LTD, and nothing else (decision 19).
+INSERT INTO public.user (id, email) VALUES ('00000000-0000-4000-8000-000000071105', 'branch.owner@invite.test');
+INSERT INTO public.tenant_owner (user_id, tenant_id)
+SELECT '00000000-0000-4000-8000-000000071105', t.id FROM public.tenant t WHERE t.display_name = 'MOESA Europe';
 -- A retired plan, the default (active) plan, and a client tenant for relationship fixtures (Atlas).
 INSERT INTO public.plan (id, display_name, is_active) VALUES ('00000000-0000-4000-8000-000000071103', 'Retired 071', FALSE);
 SELECT set_config('test.plan', (SELECT id::TEXT FROM public.plan WHERE is_active ORDER BY position LIMIT 1), TRUE);
@@ -113,6 +117,17 @@ SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_sett
 SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "new@client.test", "company_name": "New Again", "client_code": "NEA", "procurement_model": "provider"}', '[]') $$,
    '23505', 'invitation_pending_exists', 'one pending invitation per e-mail');
+-- Decision 19: no invitation to an account of the provider's own company, compared lower-cased.
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": " BARIS@Moesa-Panel.test ", "company_name": "Self Ltd", "client_code": "SLF", "procurement_model": "provider"}', '[]') $$,
+   '23514', 'invitation_self_invite', 'the provider owner''s own e-mail (a case variant) is refused');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "koordinator@moesa-panel.test", "company_name": "Self Ltd", "client_code": "SLF", "procurement_model": "provider"}', '[]') $$,
+   '23514', 'invitation_self_invite', 'so is a member''s');
+SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
+   '{"email": "branch.owner@invite.test", "company_name": "Self Ltd", "client_code": "SLF", "procurement_model": "provider"}', '[]') $$,
+   '23514', 'invitation_self_invite', 'and the owner of a branch of the provider''s company');
+SELECT is((SELECT count(*)::INT FROM public.provider_invitation WHERE client_code = 'SLF'), 0, 'none of them is stored');
 SELECT throws_ok($$ SELECT * FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "p@client.test", "company_name": "P Ltd", "client_code": "PPA", "procurement_model": "provider",
      "recommended_plan_id": "00000000-0000-4000-8000-000000071103"}', '[]') $$,
@@ -315,8 +330,7 @@ SELECT set_config('test.badrole', '00000000-0000-4000-8000-000000071209', TRUE);
 SELECT set_config('test.akif', (SELECT id::TEXT FROM public.user WHERE email = 'akif@moesa-panel.test'), TRUE);
 SELECT set_config('test.ali', (SELECT id::TEXT FROM public.user WHERE email = 'ali@moesa-panel.test'), TRUE);
 SELECT set_config('test.pro_plan', (SELECT id::TEXT FROM public.plan WHERE display_name = 'Pro'), TRUE);
-INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (current_setting('test.departed')::UUID, current_setting('test.p')::UUID),
-                                                           (current_setting('test.insider')::UUID, current_setting('test.p')::UUID);
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (current_setting('test.departed')::UUID, current_setting('test.p')::UUID);
 -- A plan for two users, below the three seats of an invitation with two staff.
 INSERT INTO public.plan (id, display_name, is_active, position) VALUES ('00000000-0000-4000-8000-000000071210', 'Tiny 071', TRUE, 99);
 INSERT INTO public.plan_limit (plan_id, limit_key, value) VALUES ('00000000-0000-4000-8000-000000071210', 'max_users', 2);
@@ -364,8 +378,7 @@ INSERT INTO inv_071 SELECT 'lock', i.id, i.token FROM public.create_provider_inv
    '{"email": "lockee@client.test", "company_name": "Lock Co", "client_code": "LCK", "procurement_model": "provider"}', '[]') i;
 INSERT INTO inv_071 SELECT 'insider', i.id, i.token FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "insider@client.test", "company_name": "Insider Co", "client_code": "INS", "procurement_model": "provider"}',
-   jsonb_build_array(jsonb_build_object('user_id', current_setting('test.insider'), 'role_name', 'viewer'),
-                     jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i;
+   jsonb_build_array(jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i;
 INSERT INTO inv_071 SELECT 'badrole', i.id, i.token FROM public.create_provider_invitation(current_setting('test.p')::UUID, current_setting('test.baris')::UUID,
    '{"email": "badrole@client.test", "company_name": "Badrole Co", "client_code": "BDR", "procurement_model": "provider"}',
    jsonb_build_array(jsonb_build_object('user_id', current_setting('test.koordinator'), 'role_name', 'coordinator'))) i;
@@ -374,6 +387,8 @@ SELECT set_config('request.jwt.claims', '', TRUE);
 
 UPDATE public.provider_invitation SET expires_at = now() - interval '1 second' WHERE id = (SELECT id FROM inv_071 WHERE label = 'expired');
 DELETE FROM public.tenant_user WHERE user_id = current_setting('test.departed')::UUID AND tenant_id = current_setting('test.p')::UUID;
+-- The insider joins MOESA LTD after being invited (decision 19: preview and acceptance check again).
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (current_setting('test.insider')::UUID, current_setting('test.p')::UUID);
 SELECT is((SELECT count(*)::INT FROM inv_071 WHERE label IN ('inv1', 'inv2', 'inv3', 'expired', 'seats', 'lock', 'insider', 'badrole')), 8, 'the fixture invitations are made');
 
 -- Preview: what the customer sees before accepting, as themself (authenticated).
@@ -491,10 +506,9 @@ SELECT is((SELECT array_agg(s ->> 'display_name') FROM jsonb_array_elements(publ
 RESET ROLE;
 SELECT private.unimpersonate();
 SELECT private.impersonate_scope(current_setting('test.insider')::UUID, NULL, '{}'::UUID[]);
-SELECT is((public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')) ->> 'seats')::INT, 2,
-          'nor does the viewer listed as staff (they are the owner)');
-SELECT is((SELECT array_agg(s ->> 'role_name') FROM jsonb_array_elements(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')) -> 'staff') s),
-          ARRAY['coordinator'], 'who is not listed either');
+SELECT is(public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'insider')),
+          '{"error": "invitation_self_invite"}'::JSONB,
+          'an invited account that joined the provider''s company since is refused at preview (decision 19)');
 RESET ROLE;
 SELECT private.unimpersonate();
 
@@ -705,19 +719,17 @@ SELECT results_eq($$ SELECT u.email || ':' || r.display_name FROM public.tenant 
                      WHERE t.display_name = 'Small Co' AND tu.user_id <> current_setting('test.small')::UUID AND r.id IS NOT NULL $$,
    $$ VALUES ('koordinator@moesa-panel.test:coordinator') $$, 'only the kept staff member joins, in their role');
 
--- The insider: invited under their own e-mail and listed as staff; they own the new tenant, not join it as staff.
+-- The insider: invited, then a member of MOESA LTD; acceptance refuses and writes nothing (decision 19).
 SET LOCAL ROLE service_role;
 SELECT is(public.accept_provider_invitation(current_setting('test.insider')::UUID, (SELECT token FROM inv_071 WHERE label = 'insider'),
-                                            '{"display_name": "Insider Co"}', NULL) -> 'skipped_staff', '[]'::JSONB,
-          'the accepting user listed as staff is passed over, not reported');
+                                            '{"display_name": "Insider Co"}', NULL),
+          '{"error": "invitation_self_invite"}'::JSONB,
+          'an invited account that joined the provider''s company since is refused at acceptance');
 RESET ROLE;
-SELECT results_eq($$ SELECT (SELECT array_agg(tu.user_id ORDER BY tu.user_id) FROM public.tenant_user tu JOIN public.tenant t ON t.id = tu.tenant_id WHERE t.display_name = 'Insider Co'),
-                            (SELECT count(*)::INT FROM public.user_role ur JOIN public.role r ON r.id = ur.role_id JOIN public.tenant t ON t.id = r.tenant_id
-                             WHERE t.display_name = 'Insider Co' AND ur.user_id = current_setting('test.insider')::UUID),
-                            (SELECT count(*)::INT FROM public.tenant_owner o JOIN public.tenant t ON t.id = o.tenant_id
-                             WHERE t.display_name = 'Insider Co' AND o.user_id = current_setting('test.insider')::UUID) $$,
-   $$ VALUES ((SELECT array_agg(u ORDER BY u) FROM unnest(ARRAY[current_setting('test.insider')::UUID, current_setting('test.koordinator')::UUID]) u), 0, 1) $$,
-   'they own the tenant, with no staff role; the other staff join');
+SELECT results_eq($$ SELECT (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'Insider Co'),
+                            (SELECT status::TEXT FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'insider')),
+                            (SELECT failed_attempts FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'insider')) $$,
+   $$ VALUES (0, 'pending', 0) $$, 'and leaves the invitation pending, no tenant made, no failed attempt counted');
 
 -- A staff role missing in the new tenant fails the whole call: never a member without a role. Only
 -- reachable past the role CHECK, so the test lifts it for one row.

@@ -18,7 +18,9 @@
 --
 -- Refusals: invitation_forbidden (42501: the actor lacks the right, or the invitation is unknown),
 -- invitation_payload_invalid and invitation_staff_invalid (23514), client_code_taken and
--- invitation_pending_exists (23505), invitation_throttled and invitation_invalid (P0001: not pending).
+-- invitation_pending_exists (23505), invitation_throttled and invitation_invalid (P0001: not pending),
+-- invitation_self_invite (23514, decision 19: the e-mail is that of an account that is a member or
+-- owner of a tenant of the provider's company, compared lower-cased; private.invitation_self_invite).
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 CREATE TYPE public.invitation_status AS ENUM('pending', 'accepted', 'revoked');
@@ -317,6 +319,24 @@ OR
 UPDATE OF client_code ON public.provider_relationship FOR EACH ROW
 EXECUTE FUNCTION private.provider_relationship_reserved_code ();
 
+-- Decision 19: whether p_email (lower-cased) is the e-mail of an account that is a member or owner
+-- of any tenant of p_tenant's company (private.company_users). A provider invites customers, never
+-- itself: creation refuses such an invitation, and preview and acceptance check again, as the
+-- account may have joined the company meanwhile.
+CREATE OR REPLACE FUNCTION private.invitation_self_invite (p_tenant UUID, p_email TEXT) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM private.entitlements(ARRAY[p_tenant]) e
+        CROSS JOIN LATERAL private.company_users(e.company_id) AS m (user_id)
+        JOIN public.user u ON u.id = m.user_id
+        WHERE lower(u.email) = lower(btrim(p_email))
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.invitation_self_invite (UUID, TEXT) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Creates an invitation for the provider tenant p_tenant in the name of p_actor, who must hold the
 -- insert right on invitations there. Returns the token once; only its hash is kept.
 CREATE OR REPLACE FUNCTION public.create_provider_invitation (p_tenant UUID, p_actor UUID, p_invitation JSONB, p_staff JSONB DEFAULT '[]') RETURNS TABLE (id UUID, token TEXT) LANGUAGE plpgsql SECURITY DEFINER
@@ -340,6 +360,11 @@ BEGIN
     IF jsonb_typeof(p_invitation) IS DISTINCT FROM 'object'
        OR EXISTS (SELECT 1 FROM jsonb_object_keys(p_invitation) AS k WHERE k <> ALL (allowed)) THEN
         RAISE EXCEPTION 'invitation_payload_invalid' USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Decision 19: never an account of the provider's own company.
+    IF private.invitation_self_invite(p_tenant, p_invitation ->> 'email') THEN
+        RAISE EXCEPTION 'invitation_self_invite' USING ERRCODE = 'check_violation';
     END IF;
 
     -- Staff: at most 20 distinct members of the provider, each with one of the standard roles.
@@ -610,7 +635,8 @@ REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authent
 -- by 10 failed acceptances until a resend), invitation_email_mismatch (the user's confirmed e-mail
 -- is not the invited one; counted by acceptance only, so a preview never locks an invitation),
 -- invitation_payload_invalid (also a p_staff that is not an array of the preview's indexes),
--- plan_inactive, company_email_exists, company_phone_exists. A failure
+-- invitation_self_invite (decision 19: the invited account is now a member or owner of a tenant of
+-- the provider's company; preview too), plan_inactive, company_email_exists, company_phone_exists. A failure
 -- after the first write raises and leaves nothing: company_email_exists, company_phone_exists
 -- (23505, a concurrent registration), invitation_payload_invalid (23514), invitation_staff_invalid
 -- (23514), plan_limit_users.
@@ -756,6 +782,9 @@ BEGIN
         RETURN jsonb_build_object('error', v_error);
     END IF;
     SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
+    IF private.invitation_self_invite(inv.tenant_id, inv.email) THEN
+        RETURN jsonb_build_object('error', 'invitation_self_invite');
+    END IF;
 
     RETURN jsonb_build_object(
         'company_name', inv.company_name,
@@ -848,6 +877,12 @@ BEGIN
         EXIT body;
     END IF;
     SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
+
+    -- Decision 19, again at acceptance: the account may have joined the provider's company since.
+    IF private.invitation_self_invite(inv.tenant_id, inv.email) THEN
+        v_result := jsonb_build_object('error', 'invitation_self_invite');
+        EXIT body;
+    END IF;
 
     -- The accepter names their company only: not the model, the staff, the tenant or the owner.
     IF jsonb_typeof(p_company) IS DISTINCT FROM 'object'

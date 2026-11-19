@@ -198,6 +198,18 @@ describe('the invitation calls', () => {
       });
    });
 
+   it('maps the self-invitation refusal to the e-mail field (decision 19)', async () => {
+      mock.invoke.mockResolvedValue({
+         data: null,
+         error: refusal(409, { message: 'invitation_self_invite', code: '23514' })
+      });
+      const error = await createInvitation(parse().data!).catch((e) => e);
+      expect(error.message).toBe('invitation_self_invite');
+      expect(mapPostgrestError(error, ['client_code', 'email'])).toEqual({
+         email: expect.any(String)
+      });
+   });
+
    it('leaves a toast-level refusal to the error handler', async () => {
       mock.invoke.mockResolvedValue({
          data: null,

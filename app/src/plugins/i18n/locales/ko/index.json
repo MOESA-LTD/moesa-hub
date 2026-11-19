@@ -618,6 +618,7 @@
       "invitation_throttled": "Too many invitations were sent today. Try again later.",
       "invitation_invalid": "This invitation is no longer valid.",
       "invitation_pending_exists": "This e-mail address already has a pending invitation.",
+      "invitation_self_invite": "This e-mail address belongs to a member of your own company. Invite your customer's address instead.",
       "invitation_mail_failed": "The e-mail could not be sent, so no invitation was created. Try again later.",
       "invitation_unconfigured": "Invitations are not set up on this server yet.",
       "client_code_taken": "This client code is already in use.",
@@ -3614,6 +3615,7 @@
       "error": {
          "invitation_invalid": "This link is no longer valid; ask your provider for a new one.",
          "invitation_email_mismatch": "You are signed in as {email}; this invitation is for another address.",
+         "invitation_self_invite": "You are a member of the inviting company, so you cannot accept its invitation. Ask your provider to invite another address.",
          "invitation_throttled": "Too many attempts. Wait a little while and try again.",
          "invitation_payload_invalid": "Some of the company details are not acceptable. Check them and try again.",
          "company_email_exists": "A company with this e-mail address is already registered.",

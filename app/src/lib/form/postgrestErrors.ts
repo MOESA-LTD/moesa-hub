@@ -484,6 +484,13 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       field: 'email',
       message: 'errors.invitation_pending_exists'
    },
+   // Decision 19: the invited e-mail is an account of the provider's own company.
+   {
+      code: '23514',
+      name: 'invitation_self_invite',
+      field: 'email',
+      message: 'errors.invitation_self_invite'
+   },
    {
       code: '23514',
       name: 'plan_inactive',
