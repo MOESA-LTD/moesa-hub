@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(23);
+SELECT plan(24);
 
 SELECT private.create_test_helpers();
 
@@ -282,6 +282,18 @@ SELECT throws_like(
     $$ SELECT public.transfer_check_files(current_setting('test.t1')::UUID) $$,
     '%transfer_not_found%',
     'without a signed-in user there is nothing to find'
+);
+
+-- 19. PostgREST runs with pg-safeupdate, which refuses a DELETE or UPDATE with no WHERE; pgTAP does not
+-- load it, so the check is on the source: no exposed transfer function holds a DELETE with no WHERE
+-- (private helpers are covered by the HTTP suite) (found over HTTP: the temp table's DELETE was refused as 21000).
+SELECT is(
+    ARRAY(SELECT p.proname::TEXT FROM pg_proc p
+          WHERE p.pronamespace = 'public'::REGNAMESPACE AND p.proname LIKE 'transfer\_%'
+            AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+            AND p.prosrc ~* 'DELETE\s+FROM\s+[a-z_."]+\s*;'),
+    ARRAY[]::TEXT[],
+    'no exposed transfer function runs a DELETE with no WHERE (pg-safeupdate)'
 );
 
 SELECT * FROM finish();

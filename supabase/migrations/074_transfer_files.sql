@@ -98,7 +98,8 @@ BEGIN
 
     -- Each listed file against its row and its object (see the header).
     CREATE TEMP TABLE IF NOT EXISTS transfer_file_check (n BIGINT, path TEXT, state TEXT) ON COMMIT DROP;
-    DELETE FROM pg_temp.transfer_file_check;
+    -- TRUNCATE, not a bare DELETE: PostgREST runs pg-safeupdate, which refuses a DELETE with no WHERE.
+    TRUNCATE pg_temp.transfer_file_check;
 
     INSERT INTO pg_temp.transfer_file_check (n, path, state)
     SELECT f.n, f.value ->> 'to',
