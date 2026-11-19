@@ -4,7 +4,6 @@ import type { GlossaryEnum } from '@/api/glossary';
 export const GUIDE_PAGES = [
    'dashboard',
    'setting',
-   'customer',
    'supplier',
    'product',
    'project',
@@ -72,19 +71,6 @@ export const PAGE_GUIDES: Record<GuidePage, PageGuide> = {
       related: ['dashboard', 'ops-purchase-order', 'ops-incident'],
       terms: ['K6'],
       glossary: []
-   },
-   customer: {
-      route: 'ops-customer',
-      tasks: [
-         task('add_customer', 'create', 'customer'),
-         task('add_warehouse', 'create', 'customer_warehouse'),
-         task('add_platform', 'create', 'customer_platform_account'),
-         task('connect_amazon', 'update', 'customer_platform_account'),
-         task('transfer_customer', 'create', 'transfer')
-      ],
-      related: ['ops-project', 'ops-product', 'ops-market'],
-      terms: ['S14', 'K8', 'K5', 'GTIN'],
-      glossary: ['customer_status', 'package']
    },
    supplier: {
       route: 'ops-supplier',
@@ -158,7 +144,7 @@ export const PAGE_GUIDES: Record<GuidePage, PageGuide> = {
          task('log_event', 'create', 'shipment_event'),
          task('accept', 'update', 'shipment')
       ],
-      related: ['ops-purchase-order', 'ops-incident', 'ops-customer'],
+      related: ['ops-purchase-order', 'ops-incident'],
       terms: ['S15', 'S16', 'S14', 'ETD', 'ETA'],
       glossary: ['shipment_status', 'shipment_mode']
    },
@@ -170,7 +156,7 @@ export const PAGE_GUIDES: Record<GuidePage, PageGuide> = {
          task('go_live', 'update', 'market_cell'),
          task('publish_amazon', 'create', 'listing_submission')
       ],
-      related: ['ops-product', 'ops-customer', 'ops-incident'],
+      related: ['ops-product', 'ops-incident'],
       terms: ['S05', 'S12', 'SKU', 'L-G1', 'S13', 'ASIN', 'submissionId'],
       glossary: ['market_cell_status', 'market_compliance', 'content_status', 'stock_source']
    },

@@ -11,7 +11,7 @@
 --                        these never go into public.permission (T18). A later migration restricts
 --                        writes to save_role. A migration that makes a field
 --                        non-sensitive deletes its rights rows; nothing else re-checks them.
--- private.field_default  The rights a built-in profile (management, coordinator, customer_viewer) has
+-- private.field_default  The rights a built-in profile (management, coordinator) has
 --                        per group; no row means no right on the group.
 --
 --   field_not_sensitive  (check_violation) a right was set on a field that is not sensitive
@@ -108,7 +108,7 @@ WHERE
    AND NOT a.attisdropped;
 
 -- 2. The sensitive fields: the classification document's, with the owner's amendments (target price
--- is cost, the customer drive URL is an internal note, the parties of a shipment event and incident
+-- is cost, the relationship's drive URL is an internal note, the parties of a shipment event and incident
 -- identify suppliers).
 UPDATE public.field_class f
 SET
@@ -117,17 +117,17 @@ SET
 FROM
    (
       VALUES
-         ('public.customer', 'contract_accepted_on', 'contract'),
-         ('public.customer', 'contract_document_id', 'contract'),
-         ('public.customer', 'deposit_rate', 'contract'),
-         ('public.customer', 'extra_cost_rule', 'contract'),
-         ('public.customer', 'start_on', 'contract'),
-         ('public.product', 'landed_cost_eur', 'cost'),
-         ('public.product', 'landed_cost_on', 'cost'),
-         ('public.product', 'purchase_currency', 'cost'),
-         ('public.product', 'purchase_incoterm', 'cost'),
-         ('public.product', 'purchase_price', 'cost'),
-         ('public.product', 'target_price_eur', 'cost'),
+         ('public.provider_relationship', 'contract_accepted_on', 'contract'),
+         ('public.provider_relationship', 'contract_document_id', 'contract'),
+         ('public.provider_relationship', 'deposit_rate', 'contract'),
+         ('public.provider_relationship', 'extra_cost_rule', 'contract'),
+         ('public.provider_relationship', 'start_on', 'contract'),
+         ('public.sourcing', 'landed_cost_eur', 'cost'),
+         ('public.sourcing', 'landed_cost_on', 'cost'),
+         ('public.sourcing', 'purchase_currency', 'cost'),
+         ('public.sourcing', 'purchase_incoterm', 'cost'),
+         ('public.sourcing', 'purchase_price', 'cost'),
+         ('public.sourcing', 'target_price_eur', 'cost'),
          ('public.purchase_order', 'pi_balance_amount', 'cost'),
          ('public.purchase_order', 'pi_check', 'cost'),
          ('public.purchase_order', 'pi_deposit_amount', 'cost'),
@@ -146,9 +146,9 @@ FROM
          ('public.purchase_order_payment', 'amount', 'finance'),
          ('public.purchase_order_payment', 'currency', 'finance'),
          ('public.change_request', 'decision_note', 'internal_note'),
-         ('public.customer', 'notes', 'internal_note'),
-         ('public.customer', 'restricted_drive_url', 'internal_note'),
-         ('public.customer_platform_account', 'notes', 'internal_note'),
+         ('public.provider_relationship', 'notes', 'internal_note'),
+         ('public.provider_relationship', 'restricted_drive_url', 'internal_note'),
+         ('public.platform_account', 'notes', 'internal_note'),
          ('public.document', 'notes', 'internal_note'),
          ('public.incident', 'impact_note', 'internal_note'),
          ('public.incident', 'lessons', 'internal_note'),
@@ -163,29 +163,31 @@ FROM
          ('public.purchase_order_payment', 'notes', 'internal_note'),
          ('public.shipment', 'notes', 'internal_note'),
          ('public.shipment_event', 'note', 'internal_note'),
+         ('public.sourcing', 'notes', 'internal_note'),
          ('public.supplier', 'last_audit_on', 'internal_note'),
          ('public.supplier', 'notes', 'internal_note'),
          ('public.supplier', 'rating', 'internal_note'),
-         ('public.customer_contact', 'email', 'personal_data'),
-         ('public.customer_contact', 'name', 'personal_data'),
-         ('public.customer_contact', 'phone', 'personal_data'),
-         ('public.customer_platform_account', 'account_holder', 'personal_data'),
-         ('public.customer_warehouse', 'receiving_person', 'personal_data'),
+         ('public.contact', 'email', 'personal_data'),
+         ('public.contact', 'name', 'personal_data'),
+         ('public.contact', 'phone', 'personal_data'),
+         ('public.platform_account', 'account_holder', 'personal_data'),
+         ('public.warehouse', 'receiving_person', 'personal_data'),
          ('public.user', 'email', 'personal_data'),
          ('public.user', 'phone', 'personal_data'),
          ('public.user', 'user_metadata', 'personal_data'),
-         ('public.product', 'company_price_eur', 'sell_price'),
-         ('public.product', 'price_list_version', 'sell_price'),
+         ('public.purchase_order_line', 'sell_price_eur', 'sell_price'),
+         ('public.sourcing', 'price_list_version', 'sell_price'),
+         ('public.sourcing', 'sell_price_eur', 'sell_price'),
          ('public.supplier_contact', 'email', 'supplier_contact'),
          ('public.supplier_contact', 'name', 'supplier_contact'),
          ('public.supplier_contact', 'phone', 'supplier_contact'),
          ('public.supplier_contact', 'role', 'supplier_contact'),
          ('public.incident', 'affected_parties', 'supplier_identity'),
          ('public.incident_log', 'counterparty', 'supplier_identity'),
-         ('public.product', 'manufacturer_art_no', 'supplier_identity'),
-         ('public.product', 'supplier_id', 'supplier_identity'),
-         ('public.product', 'supplier_product_code', 'supplier_identity'),
          ('public.purchase_order', 'supplier_id', 'supplier_identity'),
+         ('public.sourcing', 'manufacturer_art_no', 'supplier_identity'),
+         ('public.sourcing', 'supplier_id', 'supplier_identity'),
+         ('public.sourcing', 'supplier_product_code', 'supplier_identity'),
          ('public.shipment_event', 'from_party', 'supplier_identity'),
          ('public.shipment_event', 'to_party', 'supplier_identity'),
          ('public.purchase_order', 'deposit_rate', 'supplier_terms'),
@@ -307,10 +309,7 @@ VALUES
    ('coordinator', 'contract', TRUE, FALSE),
    ('coordinator', 'finance', TRUE, FALSE),
    ('coordinator', 'internal_note', TRUE, TRUE),
-   ('coordinator', 'personal_data', TRUE, TRUE),
-   ('customer_viewer', 'sell_price', TRUE, FALSE),
-   ('customer_viewer', 'contract', TRUE, FALSE),
-   ('customer_viewer', 'personal_data', TRUE, FALSE);
+   ('coordinator', 'personal_data', TRUE, TRUE);
 
 -- Gives a role the default rights of a profile. The fields of public.user are read by management and
 -- coordinator, and by no portal user.
@@ -350,7 +349,7 @@ SET
     SET can_read = EXCLUDED.can_read, can_write = EXCLUDED.can_write;
 $$;
 
--- Every role of a tenant: the three built-in profiles get their defaults, any other role every field
+-- Every role of a tenant: the two built-in profiles get their defaults, any other role every field
 -- it can reach (R1).
 CREATE OR REPLACE FUNCTION private.backfill_role_fields () RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
@@ -359,7 +358,7 @@ DECLARE
     r RECORD;
 BEGIN
     FOR r IN SELECT id, display_name FROM public.role WHERE tenant_id IS NOT NULL LOOP
-        IF r.display_name IN ('management', 'coordinator', 'customer_viewer') THEN
+        IF r.display_name IN ('management', 'coordinator') THEN
             PERFORM private.apply_field_defaults(r.id, r.display_name);
         ELSE
             PERFORM private.grant_all_fields(r.id);

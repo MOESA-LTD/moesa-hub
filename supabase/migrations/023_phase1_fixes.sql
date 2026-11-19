@@ -6,11 +6,6 @@
 --                        documents (a gate approval is an e-mail or e-signature record) do not. A superseded document stays superseded, and
 --                        what a document is (its record, type, version and tenant) never changes
 --                        (private.document_transition).
--- project                A closed customer gets no new projects (private.project_set_code).
--- customer               The contract terms (contract_accepted_on, contract_document_id, start_on,
---                        deposit_rate, extra_cost_rule, restricted_drive_url) are changed only by
---                        those who may change the company's settings, i.e. management
---                        (private.customer_contract_guard).
 -- product_with_evidence  The product list: every product column plus its evidence
 --                        (public.product_evidence), so the list can filter on a signed spec sheet.
 --
@@ -20,9 +15,8 @@
 --   document_superseded_sticky    a superseded document cannot get another status
 --   document_identity_immutable   a document's entity_type, entity_id, type, version or tenant
 --                                 changed
---   customer_closed               a project for a closed customer
---   customer_contract_restricted  a contract term changed by a caller without the update
---                                 permission on settings in the customer's tenant
+-- (The contract-terms rule moved to the provider relationship: private.relationship_contract_guard,
+-- 018_tenant_relations.sql.)
 
 -- Signed means signed, stamped, sent from the official e-mail and dated; so does an approved spec
 -- sheet, the product's evidence.
@@ -63,60 +57,6 @@ UPDATE ON public.document FOR EACH ROW
 EXECUTE FUNCTION private.document_transition ();
 
 REVOKE ALL ON FUNCTION private.document_transition () FROM PUBLIC, anon, authenticated;
-
--- The project's code and starting phase (see 021_projects.sql); a closed customer gets no new
--- projects.
-CREATE OR REPLACE FUNCTION private.project_set_code () RETURNS TRIGGER LANGUAGE plpgsql
-SET
-   search_path = '' AS $$
-DECLARE
-    customer_code TEXT;
-    customer_status public.customer_status;
-BEGIN
-    SELECT c.code, c.status INTO customer_code, customer_status
-    FROM public.customer c
-    WHERE c.id = NEW.customer_id AND c.tenant_id = NEW.tenant_id;
-
-    IF customer_code IS NULL THEN
-        RAISE EXCEPTION 'project_customer_missing' USING ERRCODE = 'foreign_key_violation';
-    END IF;
-    IF customer_status = 'closed' THEN
-        RAISE EXCEPTION 'customer_closed' USING ERRCODE = 'check_violation';
-    END IF;
-
-    NEW.code := public.next_code('project', customer_code);
-    NEW.current_phase := public.initial_phase(NEW.type, NEW.path, NEW.packages);
-    RETURN NEW;
-END;
-$$;
-
--- The contract terms are management's: a caller changes them only while holding the update
--- permission on settings in the customer's tenant. SECURITY DEFINER for the permission lookup
--- (private.tenants_permitting reads roles the caller may not read). A request without a user
--- (migrations, seed, service role) is not limited.
-CREATE OR REPLACE FUNCTION private.customer_contract_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    IF (NEW.contract_accepted_on IS DISTINCT FROM OLD.contract_accepted_on
-        OR NEW.contract_document_id IS DISTINCT FROM OLD.contract_document_id
-        OR NEW.start_on IS DISTINCT FROM OLD.start_on
-        OR NEW.deposit_rate IS DISTINCT FROM OLD.deposit_rate
-        OR NEW.extra_cost_rule IS DISTINCT FROM OLD.extra_cost_rule
-        OR NEW.restricted_drive_url IS DISTINCT FROM OLD.restricted_drive_url)
-       AND auth.uid() IS NOT NULL
-       AND cardinality(private.tenants_permitting(auth.uid(), ARRAY[NEW.tenant_id], 'public.setting', 'update')) = 0 THEN
-        RAISE EXCEPTION 'customer_contract_restricted' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER customer_contract_guard BEFORE
-UPDATE ON public.customer FOR EACH ROW
-EXECUTE FUNCTION private.customer_contract_guard ();
-
-REVOKE ALL ON FUNCTION private.customer_contract_guard () FROM PUBLIC, anon, authenticated;
 
 -- The product list: the product and its evidence, as the caller may read them.
 CREATE OR REPLACE VIEW public.product_with_evidence

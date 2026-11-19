@@ -23,11 +23,10 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PrimeVue from 'primevue/config';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, ref } from 'vue';
+import { defineComponent, h, nextTick, ref } from 'vue';
 
 const api = vi.hoisted(() => ({
    query: {} as Record<string, string>,
-   customerId: null as string | null,
    options: undefined as
       | undefined
       | {
@@ -35,25 +34,45 @@ const api = vi.hoisted(() => ({
            toPayload: (data: Record<string, unknown>) => Record<string, unknown>;
            onSaved?: (row: { id: string }) => void;
         },
-   row: { value: null as unknown }
+   row: { value: null as unknown },
+   values: { value: {} as Record<string, unknown> },
+   linked: { status: 'pending' } as { status: string; clientTenantId?: string | null },
+   linkedProjectIds: [] as unknown[]
 }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRoute: () => ({ query: api.query }),
    useRouter: () => ({ push: vi.fn() })
 }));
-vi.mock('@/store/customerFilter', () => ({
-   useCustomerFilter: () => ({ customerId: api.customerId })
-}));
 // The card's form is useUpsertForm; what usePurchaseOrderForm adds is checked against a stand-in.
 vi.mock('@/composables/useUpsertForm', () => ({
    useUpsertForm: (given: NonNullable<typeof api.options>) => {
       api.options = given;
-      return { discardDraft: vi.fn(), row: api.row };
+      return {
+         discardDraft: vi.fn(),
+         row: api.row,
+         values: api.values,
+         tenantId: { value: 'provider' }
+      };
    }
 }));
+vi.mock('@/api/relationship', async (importOriginal) => {
+   const { computed, toValue } = await import('vue');
+   return {
+      ...(await importOriginal<typeof import('@/api/relationship')>()),
+      useLinkedClient: (projectId: () => unknown) =>
+         computed(() => {
+            api.linkedProjectIds.push(toValue(projectId));
+            return api.linked;
+         })
+   };
+});
 vi.mock('@/api/purchaseOrder', async (importOriginal) => {
    const { computed } = await import('vue');
    return {
@@ -84,7 +103,6 @@ const CustomLink = defineComponent({
          h('span', { 'data-link': props.to.name }, slots.default?.({ navigate: () => {} }))
 });
 
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
 const SUPPLIER = '00000000-0000-4000-8000-000000000002';
 
 const line = (id: string, position: number): PurchaseOrderCardLine =>
@@ -104,7 +122,6 @@ const order = (status: PurchaseOrderStatus, lines: PurchaseOrderCardLine[] = [])
       code: 'PO-THO-2026-001',
       status,
       currency: 'USD',
-      customer_id: CUSTOMER,
       supplier_id: SUPPLIER,
       incoterm: 'EXW',
       deposit_rate: 30,
@@ -120,10 +137,12 @@ const standInForm = (row: PurchaseOrderCard | null) => ({
    isDirty: ref(false),
    isSubmitting: ref(false),
    readonly: ref(false),
+   shared: ref(false),
    reset: vi.fn(),
    submit: vi.fn(),
    draft: {},
-   row: ref(row)
+   row: ref(row),
+   linkError: ref<string | null>(null)
 });
 
 const mountTab = (
@@ -142,9 +161,9 @@ const mountTab = (
          stubs: {
             FormBox: Slot,
             FormField: Slot,
-            SelectCustomer: Stub('SelectCustomer'),
             SelectSupplier,
             ProjectSelect: Stub('ProjectSelect'),
+            SelectClient: Stub('SelectClient'),
             CustomLink
          }
       }
@@ -156,8 +175,10 @@ beforeEach(() => {
    setActivePinia(createPinia());
    ability.update([{ action: 'manage', subject: 'all' }]);
    api.query = {};
-   api.customerId = null;
    api.row.value = null;
+   api.values.value = { client_tenant_id: null, project_id: null };
+   api.linked = { status: 'pending' };
+   api.linkedProjectIds = [];
 });
 
 describe('tabForField', () => {
@@ -170,20 +191,61 @@ describe('tabForField', () => {
 });
 
 describe('usePurchaseOrderForm', () => {
-   it('starts a new order on the filtered customer', () => {
-      api.customerId = 'c-filter';
+   it('starts a new order empty', () => {
       usePurchaseOrderForm(() => null);
-      expect(api.options!.prefill()).toEqual({ customer_id: 'c-filter' });
+      expect(api.options!.prefill()).toEqual({});
    });
 
-   it("takes the customer and project from the link's props over the filter", () => {
-      api.customerId = 'c-filter';
-      usePurchaseOrderForm(() => null, undefined, { customerId: 'c-link', projectId: 'pr1' });
-      expect(api.options!.prefill()).toEqual({ customer_id: 'c-link', project_id: 'pr1' });
+   it("takes the project from the link's props", () => {
+      usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      expect(api.options!.prefill()).toEqual({ project_id: 'pr1' });
+   });
+
+   it("names the client of a client project's link", async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'client', clientTenantId: 'tho' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(api.linkedProjectIds).toContain('pr1');
+      expect(api.values.value).toEqual({ client_tenant_id: 'tho', project_id: 'pr1' });
+      expect(form.linkError.value).toBeNull();
+   });
+
+   it("leaves an own project's link without a client", async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'own' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(api.values.value).toEqual({ client_tenant_id: null, project_id: 'pr1' });
+      expect(form.linkError.value).toBeNull();
+   });
+
+   it('refuses the link of a project outside an active provider-procures relationship', async () => {
+      api.values.value = { client_tenant_id: null, project_id: 'pr1' };
+      api.linked = { status: 'forbidden' };
+      const form = usePurchaseOrderForm(() => null, undefined, { projectId: 'pr1' });
+      await nextTick();
+
+      expect(form.linkError.value).toBe('relationship_inactive');
+      expect(api.values.value.project_id).toBeNull();
+   });
+
+   it('looks up no project for a saved order', () => {
+      usePurchaseOrderForm(() => 'o1', undefined, { projectId: 'pr1' });
+      expect(api.linkedProjectIds.every((id) => id === undefined)).toBe(true);
+   });
+
+   it('shows the refusal instead of the form', () => {
+      const form = { ...standInForm(null), linkError: ref('relationship_inactive') };
+      const wrapper = mountTab(General, form as never);
+      expect(wrapper.get('[data-link-error]').text()).toBe(i18n.t('errors.relationship_inactive'));
+      expect(wrapper.findComponent({ name: 'SelectSupplier' }).exists()).toBe(false);
    });
 
    it('ignores the query of the page under a route dialog', () => {
-      api.query = { customer_id: 'c-under', project_id: 'pr-under' };
+      api.query = { project_id: 'pr-under' };
       usePurchaseOrderForm(() => null);
       expect(api.options!.prefill()).toEqual({});
    });
@@ -210,6 +272,47 @@ describe('general tab', () => {
       expect(wrapper.get('[data-field="ready_on"] input').attributes()).not.toHaveProperty(
          'disabled'
       );
+   });
+
+   it('offers the client on a new order only, and its projects', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000099';
+      const form = standInForm(null);
+      form.values.value.project_id = 'pr1';
+      const wrapper = mountTab(General, form);
+      const client = wrapper.getComponent({ name: 'SelectClient' });
+      expect(client.attributes('disabled')).toBe('false');
+
+      form.values.value.client_tenant_id = CLIENT;
+      client.vm.$emit('change', CLIENT);
+      expect(form.values.value.project_id).toBeNull();
+
+      const saved = mountTab(General, standInForm(order('draft')));
+      expect(saved.getComponent({ name: 'SelectClient' }).attributes('disabled')).toBe('true');
+   });
+
+   it('names the client tenant to the project picker', async () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000099';
+      const form = standInForm(null);
+      form.values.value.client_tenant_id = CLIENT;
+      const wrapper = mountTab(General, form);
+      expect(wrapper.getComponent({ name: 'ProjectSelect' }).attributes('tenantid')).toBe(CLIENT);
+   });
+
+   it('keeps the project of an order past its draft (po_project_locked)', () => {
+      const draft = mountTab(General, standInForm(order('draft')));
+      expect(draft.getComponent({ name: 'ProjectSelect' }).attributes('disabled')).toBe('false');
+      const sent = mountTab(General, standInForm(order('sent')));
+      expect(sent.getComponent({ name: 'ProjectSelect' }).attributes('disabled')).toBe('true');
+   });
+
+   // Cleanup item 9: a shared order is read-only, and its ready date looks it (no enabled picker
+   // behind the read-only mask); an own order's ready date stays editable.
+   it('shows the ready date of a shared order disabled', () => {
+      const form = { ...standInForm(order('sent')), shared: ref(true), readonly: ref(true) };
+      const wrapper = mountTab(General, form);
+      expect(wrapper.get('[data-field="ready_on"] input').attributes()).toHaveProperty('disabled');
+      const own = mountTab(General, standInForm(order('sent')));
+      expect(own.get('[data-field="ready_on"] input').attributes()).not.toHaveProperty('disabled');
    });
 
    it('keeps the terms of a sent order editable', () => {
@@ -278,9 +381,9 @@ describe('general tab for a coordinator', () => {
             stubs: {
                FormBox: Slot,
                BlockUI: Slot,
-               SelectCustomer: Stub('SelectCustomer'),
                SelectSupplier,
                ProjectSelect: Stub('ProjectSelect'),
+               SelectClient: Stub('SelectClient'),
                CustomLink
             }
          }
@@ -337,6 +440,26 @@ describe('lines tab', () => {
       });
       expect(wrapper.get('[data-test="spec-version"]').text()).toBe('v03');
       expect(wrapper.find('[data-test="spec-missing"]').exists()).toBe(false);
+   });
+
+   it('shows a shared order its sell prices, read-only, without cost or spec sheets', () => {
+      const shared = [
+         { ...line('l1', 1), unit_price: null, line_total: null, sell_price_eur: 9.9 }
+      ];
+      const form = {
+         ...standInForm(order('sent', shared as PurchaseOrderCardLine[])),
+         shared: ref(true)
+      };
+      const wrapper = mountTab(Lines, form, { spec_missing_line_ids: null, system_subtotal: null });
+
+      const headers = wrapper.findAll('th').map((th) => th.text());
+      expect(headers).toContain(i18n.t('ops.product.fields.sell_price_eur'));
+      for (const key of ['unit_price', 'line_total', 'spec_document'])
+         expect(headers).not.toContain(i18n.t(`ops.purchase_order.fields.${key}`));
+      expect(wrapper.text()).toContain('9.90 EUR');
+      expect(wrapper.find('[data-link="ops-purchase-order-line-add"]').exists()).toBe(false);
+      expect(wrapper.find('[data-link="ops-purchase-order-line-edit"]').exists()).toBe(false);
+      expect(wrapper.find('[data-test="subtotal"]').exists()).toBe(false);
    });
 
    it('offers adding and editing lines while the order is open', () => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useLookup } from '@/api/useLookup';
 import { useFieldAccess } from '@/composables/useFieldAccess';
+import { fieldLabel as labelOf } from '@/lib/fieldLabel';
 import { computed, useAttrs } from 'vue';
 import { useI18n } from 'vue-i18n';
 import PermissionCheckbox from './PermissionCheckbox.vue';
@@ -8,7 +9,12 @@ import PermissionCheckbox from './PermissionCheckbox.vue';
 import type { FieldRightInput } from '@/api/role';
 
 type Kind = 'read' | 'write';
-type FieldRef = { resource_name: string; field: string };
+type FieldRef = {
+   resource_name: string;
+   field: string;
+   group_name?: string | null;
+   client_visible?: boolean;
+};
 
 const props = defineProps<{
    /** The role belongs to another tenant than the active one: save_role checks the rights there. */
@@ -27,7 +33,8 @@ const { data: fieldRows, suspense } = useLookup<{
    field: string;
    class: string;
    group_name: string | null;
-}>('field_class', { select: 'resource_name,field,class,group_name' });
+   client_visible?: boolean;
+}>('field_class', { select: 'resource_name,field,class,group_name,client_visible' });
 const { data: groupRows } = useLookup<{ id: string; position: number }>('field_group', {
    select: 'id,position'
 });
@@ -37,17 +44,41 @@ const position = computed(
    () => new Map((groupRows.value ?? []).map(({ id, position }) => [id, position]))
 );
 
-// One row per resource; its sensitive fields, by group in the groups' order.
-const resources = computed(() => {
-   const sensitive = (fieldRows.value ?? []).filter(({ class: c }) => c === 'sensitive');
-   return Object.entries(_groupBy(sensitive, 'resource_name')).map(([resource_name, rows]) => ({
-      display_name: resource_name,
-      fields: rows as FieldRef[],
-      groups: Object.entries(_groupBy(rows, ({ group_name }) => group_name ?? ''))
-         .map(([id, own]) => ({ id, fields: own as FieldRef[] }))
-         .sort((a, b) => (position.value.get(a.id) ?? 99) - (position.value.get(b.id) ?? 99))
-   }));
+type Row = {
+   display_name: string;
+   resource_name: string;
+   shared: boolean;
+   fields: FieldRef[];
+   groups: { id: string; fields: FieldRef[] }[];
+};
+const rowOf = (resource_name: string, rows: FieldRef[], shared: boolean): Row => ({
+   display_name: shared ? `${resource_name}#shared` : resource_name,
+   resource_name,
+   shared,
+   fields: rows,
+   groups: Object.entries(_groupBy(rows, ({ group_name }) => group_name ?? ''))
+      .map(([id, own]) => ({ id, fields: own as FieldRef[] }))
+      .sort((a, b) => (position.value.get(a.id) ?? 99) - (position.value.get(b.id) ?? 99))
 });
+
+// One row per resource: its sensitive fields, by group in the groups' order. A shared table (one
+// with client-visible fields) has a second row, "Shared by a provider": only the sensitive fields a
+// client reads on a provider's rows. Both rows write the same rights; the database picks by row.
+const resources = computed(() => {
+   const all = fieldRows.value ?? [];
+   const sensitive = all.filter(({ class: c }) => c === 'sensitive');
+   const byResource = _groupBy(sensitive, 'resource_name');
+   const sharedTables = new Set(all.filter((r) => r.client_visible).map((r) => r.resource_name));
+   const result: Row[] = [];
+   for (const [resource_name, rows] of Object.entries(byResource)) {
+      result.push(rowOf(resource_name, rows as FieldRef[], false));
+      if (!sharedTables.has(resource_name)) continue;
+      const visible = (rows as FieldRef[]).filter((r) => r.client_visible);
+      if (visible.length) result.push(rowOf(resource_name, visible, true));
+   }
+   return result;
+});
+const hasShared = computed(() => resources.value.some((r) => r.shared));
 
 const keyOf = (i: FieldRef) => `${i.resource_name}.${i.field}`;
 const rightOf = computed(() => new Map((modelValue.value ?? []).map((r) => [keyOf(r), r])));
@@ -109,14 +140,23 @@ const hint = (items: FieldRef[], kind: Kind) => {
       : undefined;
 };
 
-const resourceLabel = (resource: string) =>
+const baseLabel = (resource: string) =>
    te(`fields.${tableOf(resource)}`) ? t(`fields.${tableOf(resource)}`) : tableOf(resource);
+const resourceLabel = (row: Row) => {
+   if (!hasShared.value || !(row.shared || sharedTablesHave(row.resource_name)))
+      return baseLabel(row.resource_name);
+   const section = t(
+      `component.select_field_permission.${row.shared ? 'section_shared' : 'section_own'}`
+   );
+   return `${baseLabel(row.resource_name)}: ${section}`;
+};
+const sharedTablesHave = (resource: string) =>
+   resources.value.some((r) => r.shared && r.resource_name === resource);
 const groupLabel = (id: string) =>
    te(`fields.field_group.${id}`) ? t(`fields.field_group.${id}`) : id;
-const fieldLabel = ({ resource_name, field }: FieldRef) => {
-   const key = `ops.${tableOf(resource_name)}.fields.${field}`;
-   return te(key) ? t(key) : field;
-};
+// Where the table is edited (its own form or the one it lives in), else readable words (fieldLabel.ts).
+const fieldLabel = ({ resource_name, field }: FieldRef) =>
+   labelOf(tableOf(resource_name), field, t, te);
 const kindLabel = (kind: Kind) => t(`component.select_field_permission.${kind}`);
 
 const kinds: Kind[] = ['read', 'write'];
@@ -138,8 +178,11 @@ const tableProps = computed(() => ({
 const isReadonly = computed(() => !!attrs.readonly);
 </script>
 <template>
+   <p v-if="hasShared" class="text-sm text-muted-color mb-2" data-test="shared-fields-note">
+      {{ t('component.select_field_permission.shared_note') }}
+   </p>
    <CustomTable v-bind="tableProps">
-      <template #display_name_body="{ data }">{{ resourceLabel(data.display_name) }}</template>
+      <template #display_name_body="{ data }">{{ resourceLabel(data) }}</template>
       <template v-for="kind in kinds" #[`${kind}_body`]="{ data }" :key="kind">
          <span v-tooltip="hint(data.fields, kind)">
             <PermissionCheckbox
@@ -147,7 +190,7 @@ const isReadonly = computed(() => !!attrs.readonly);
                :state="stateOf(data.fields, kind)"
                :readonly="isReadonly"
                :disabled="disabledFor(data.fields, kind)"
-               :aria-label="`${resourceLabel(data.display_name)}: ${kindLabel(kind)}`"
+               :aria-label="`${resourceLabel(data)}: ${kindLabel(kind)}`"
                @toggle="toggle(data.fields, kind)"
             />
          </span>

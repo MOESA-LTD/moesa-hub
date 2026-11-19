@@ -17,7 +17,7 @@
       "typecheck": "vue-tsc --build",
       "test": "vitest run",
       "test:watch": "vitest",
-      "test:scripts": "node --test ../scripts/seed-story.test.mjs ../scripts/masked-fields.test.mjs",
+      "test:scripts": "node --test ../scripts/seed-story.test.mjs ../scripts/masked-fields.test.mjs ../scripts/perf-exceptions.test.mjs",
       "lint": "eslint src tests",
       "commit": "cz",
       "i18n-extract": "vue-i18n-extract report",

@@ -1,7 +1,26 @@
--- The development story seed: a coherent story for MOESA LTD on top of seed.sql. Development
--- only, never in config.toml. Run by scripts/seed-story.mjs (pnpm dev:seed-story from app/),
--- which uploads the media files first, then pipes this file to psql as postgres with
--- --single-transaction; supabase/seed_story.check.sql then checks the result.
+-- The development story seed: a coherent story for the provider MOESA LTD and its client tenants
+-- on top of seed.sql. Development only, never in config.toml. Run by scripts/seed-story.mjs (pnpm
+-- dev:seed-story from app/), which uploads the media files first (each under its row's tenant),
+-- then pipes this file to psql as postgres with --single-transaction;
+-- supabase/seed_story.check.sql then checks the result. Step 10 (THO's 6 mm filter copied into MOESA
+-- Europe through the real transfer) is run by the script after this file, since its files are
+-- copied in Storage.
+--
+-- Every customer is a tenant of its own, linked to MOESA LTD by a provider relationship (step 02):
+--   THOMETZKI ONLINE HANDEL (THO, seed.sql)  provider procures: THO owns its products, documents,
+--                                    projects, market cells, incidents and change requests; MOESA
+--                                    LTD owns the sourcing, purchase orders and shipments it makes
+--                                    for THO, each naming THO as its client (client_tenant_id).
+--   Kernhaus Living GmbH (KRN)       client procures: KRN owns all of it, its own suppliers,
+--                                    sourcing, orders and shipments included; no row anywhere names
+--                                    KRN as its client. kerstin@ owns it, koordinator@ works in it.
+--   Leafline Garten, Paxton Haushalt, Clearstar Handel (LEA, PAU, CLS)  provider procures, one per
+--                                    contract state (lead, paused, closed and ended); each owned by
+--                                    owner.<code>@.
+-- MOESA staff write a client tenant's rows as members of it (akif@ and koordinator@ were invited
+-- into THO, seed.sql), and link MOESA LTD's rows to THO's records through the same rights, so the
+-- client-link guards run as for the panel. The new tenants have fixed ids (5eed0001-…-NN): the
+-- script uploads KRN's file before the story creates KRN.
 --
 -- Each story step is one DO block and one audit transaction:
 --   PERFORM private.story_begin('<actor e-mail>', '<tenant>');   -- actor, tenant, fresh audit
@@ -14,20 +33,14 @@
 -- seed.sql rows by code, sku or name. Codes and dates are never hard-coded (they depend on the
 -- year and on today).
 --
--- Field permissions: THO's portal user, portal@moesa-panel.test (customer_viewer in MOESA LTD,
--- seed.sql), reads the story through the masked api views. It must see THO's products with their
--- sell price (company_price_eur) and THO's contract terms (deposit_rate, contract dates). It must
--- not see the purchase price (cost), the restricted drive URL, any supplier, or PO-011's PI (a
--- document of type 'pi'). THO's mop and 6 mm filter carry cost and sell prices (seed.sql and
--- step 03), TR1 its payment terms (step 02), and THO's contract (step 02) and PO-011's PI (step 05)
--- exist; seed_story.check.sql checks it (fp.portal_*), and koordinator's read-only payment terms
--- (fp.coordinator_*).
+-- Where each row lives is checked by seed_story.check.sql (tenancy.*); koordinator's read-only
+-- payment terms in MOESA LTD by fp.coordinator_*.
 
 -- Refuses a second run: the story is loaded on top of a fresh `supabase db reset` only.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM public.customer WHERE code = 'KRN') THEN
-        RAISE EXCEPTION 'seed_story: already loaded (customer KRN exists)';
+    IF EXISTS (SELECT 1 FROM public.tenant WHERE display_name = 'Kernhaus Living GmbH') THEN
+        RAISE EXCEPTION 'seed_story: already loaded (tenant Kernhaus Living GmbH exists)';
     END IF;
 END;
 $$;
@@ -98,12 +111,11 @@ $$;
 -- Inserts a document of the story (the fixed id p_id) in the request's tenant. Signed, approved
 -- and superseded documents are also signed, stamped and sent from the official e-mail (the
 -- document_signed_requires rule); the file name is <type>_v<version>. The url is a Drive example
--- unless a media row is given and no url. A supplier document passes p_customer_id NULL.
+-- unless a media row is given and no url.
 CREATE FUNCTION private.story_doc (
     p_id UUID,
     p_entity_type public.document_entity,
     p_entity_id UUID,
-    p_customer_id UUID,
     p_type public.document_type,
     p_version INT,
     p_status public.document_status,
@@ -116,9 +128,9 @@ SET
 DECLARE
     v_official BOOLEAN := p_status IN ('signed', 'approved', 'superseded');
 BEGIN
-    INSERT INTO public.document (id, tenant_id, customer_id, entity_type, entity_id, type, version, status, issued_on, url,
+    INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, version, status, issued_on, url,
                                  file_name, is_signed, is_stamped, sent_from_official_email, media_id)
-    VALUES (p_id, private.requested_tenant(), p_customer_id, p_entity_type, p_entity_id, p_type, p_version, p_status,
+    VALUES (p_id, private.requested_tenant(), p_entity_type, p_entity_id, p_type, p_version, p_status,
             p_issued_on,
             CASE WHEN p_url IS NULL AND p_media_id IS NOT NULL THEN NULL
                  ELSE coalesce(p_url, 'https://drive.google.com/example/' || p_id) END,
@@ -128,13 +140,163 @@ BEGIN
 END;
 $$;
 
--- Step 02 (40 days ago): customers, suppliers and settings, as baris in MOESA LTD. The customers
--- come first, so that the step's audit transaction is named after the customer table.
+-- Step 01 helpers, as in seed.sql: a confirmed account that signs in with Demo1234! (public.user
+-- follows through handle_new_user), a company with its owner, a business role (management or
+-- coordinator, with the field defaults of its profile) and a member with one of its roles.
+CREATE FUNCTION private.story_user (p_email TEXT, p_display_name TEXT) RETURNS UUID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_id UUID := gen_random_uuid();
+BEGIN
+    -- GoTrue reads the token columns as strings: they must be '' rather than NULL.
+    INSERT INTO auth.users (
+        instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+        raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at,
+        confirmation_token, recovery_token, email_change_token_new, email_change,
+        email_change_token_current, phone_change, phone_change_token, reauthentication_token
+    ) VALUES (
+        '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated', p_email,
+        extensions.crypt('Demo1234!', extensions.gen_salt('bf')), now(),
+        '{"provider": "email", "providers": ["email"]}', jsonb_build_object('display_name', p_display_name),
+        FALSE, now(), now(), '', '', '', '', '', '', '', ''
+    );
+    INSERT INTO auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+    VALUES (v_id::TEXT, v_id, jsonb_build_object('sub', v_id::TEXT, 'email', p_email, 'email_verified', TRUE),
+            'email', now(), now(), now());
+    RETURN v_id;
+END;
+$$;
+
+CREATE FUNCTION private.story_role (p_tenant UUID, p_role TEXT) RETURNS VOID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_role UUID;
+BEGIN
+    INSERT INTO public.role (display_name, tenant_id) VALUES (p_role, p_tenant) RETURNING id INTO v_role;
+    INSERT INTO public.role_permission (role_id, permission_id)
+    SELECT v_role, p.id
+    FROM public.permission p
+    WHERE p.group_name IN ('ops_setting', 'document', 'supplier', 'client', 'product', 'project',
+                           'purchase_order', 'shipment', 'market_matrix', 'incident', 'change_request',
+                           'media', 'listing', 'branch', 'user', 'role', 'audit_log', 'transfer')
+      AND (p_role = 'management'
+           OR NOT (p.group_name = 'ops_setting' AND p.command = 'update'
+                   OR p.group_name IN ('role', 'user') AND p.command <> 'select'
+                   OR p.resource_name = 'public.tenant' AND p.command <> 'select'
+                   OR p.resource_name = 'public.media' AND p.command = 'delete'
+                   OR p.group_name = 'transfer'));
+    PERFORM private.apply_field_defaults(v_role, p_role);
+END;
+$$;
+
+CREATE FUNCTION private.story_member (p_tenant UUID, p_email TEXT, p_role TEXT) RETURNS VOID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_user UUID := (SELECT u.id FROM public.user u WHERE u.email = p_email);
+BEGIN
+    INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (p_tenant, v_user);
+    INSERT INTO public.user_role (user_id, role_id)
+    SELECT v_user, r.id FROM public.role r WHERE r.tenant_id = p_tenant AND r.display_name = p_role;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'story: no role % in %', p_role, p_tenant;
+    END IF;
+END;
+$$;
+
+CREATE FUNCTION private.story_company (p_id UUID, p_name TEXT, p_code TEXT, p_country TEXT, p_email TEXT,
+                                       p_owner_email TEXT, p_owner_name TEXT) RETURNS UUID LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_owner UUID := private.story_user(p_owner_email, p_owner_name);
+BEGIN
+    INSERT INTO public.tenant (id, display_name, code, country, email) VALUES (p_id, p_name, p_code, p_country, p_email);
+    INSERT INTO public.tenant_owner (tenant_id, user_id) VALUES (p_id, v_owner);
+    INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (p_id, v_owner);
+    RETURN p_id;
+END;
+$$;
+
+-- Step 01: the customers sign up, each a company of its own (the panel's signup, as seed.sql makes
+-- THO), and MOESA staff join by invitation. Kernhaus Living GmbH procures for itself, so it has the
+-- provider's two roles, and koordinator coordinates its work; Clearstar Handel invited koordinator
+-- as management for its one project. KRN is on Pro like THO; the others keep their Pro trial.
+DO $$
+DECLARE
+    v_krn UUID := private.story_company('5eed0001-0000-4000-8000-000000000001', 'Kernhaus Living GmbH', 'KRN', 'Austria',
+                                        'info@kernhaus.test', 'kerstin@moesa-panel.test', 'Kerstin Huber');
+    v_cls UUID := private.story_company('5eed0001-0000-4000-8000-000000000004', 'Clearstar Handel GmbH', 'CLS', 'Germany',
+                                        'info@clearstar.test', 'owner.cls@moesa-panel.test', 'Clara Schmidt');
+BEGIN
+    -- Leafline Garten is not created here: it signs up through an invitation (the next block).
+    PERFORM private.story_user('owner.lea@moesa-panel.test', 'Lena Fischer');
+    PERFORM private.story_company('5eed0001-0000-4000-8000-000000000003', 'Paxton Haushalt GmbH', 'PAU', 'Germany',
+                                  'info@paxton.test', 'owner.pau@moesa-panel.test', 'Paul Wagner');
+
+    PERFORM private.story_role(v_krn, 'management');
+    PERFORM private.story_role(v_krn, 'coordinator');
+    PERFORM private.story_member(v_krn, 'koordinator@moesa-panel.test', 'coordinator');
+    PERFORM private.story_role(v_cls, 'management');
+    PERFORM private.story_member(v_cls, 'koordinator@moesa-panel.test', 'management');
+    PERFORM private.story_member(v_cls, 'akif@moesa-panel.test', 'management');
+
+    UPDATE public.subscription s
+    SET plan_id = p.id, is_trial = FALSE, starts_at = now() - INTERVAL '1 month', ends_at = now() + INTERVAL '11 months',
+        note = 'Demo'
+    FROM public.plan p
+    WHERE s.tenant_id = v_krn AND p.display_name = 'Pro';
+END;
+$$;
+
+-- Step 01, Leafline Garten (41 days ago): the one client that comes through the real path. baris invites
+-- owner.lea@ as the Edge Function does (service role, audit-labelled, actor baris), and owner.lea@
+-- accepts on Pro, which creates the company, its standard roles, the active relationship and
+-- koordinator as the company's coordinator. The relationship is a lead, with no contract yet.
+DO $$
+DECLARE
+    v_moesa UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
+    v_baris UUID := (SELECT u.id FROM public.user u WHERE u.email = 'baris@moesa-panel.test');
+    v_owner UUID := (SELECT u.id FROM public.user u WHERE u.email = 'owner.lea@moesa-panel.test');
+    v_coord UUID := (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test');
+    v_plan UUID := (SELECT p.id FROM public.plan p WHERE p.display_name = 'Pro');
+    v_token TEXT;
+    v_result JSONB;
+BEGIN
+    -- The Edge Function's call: service role claims, labelled for the audit.
+    PERFORM set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
+    PERFORM set_config('request.headers', json_build_object('x-audit-role', 'provider-invitation', 'x-audit-actor', v_baris)::TEXT, TRUE);
+    SET LOCAL ROLE service_role;
+
+    SELECT i.token INTO v_token FROM public.create_provider_invitation(
+        v_moesa, v_baris,
+        jsonb_build_object('email', 'owner.lea@moesa-panel.test', 'company_name', 'Leafline Garten GmbH', 'client_code', 'LEA',
+                           'procurement_model', 'provider', 'commercial_model', 'trading_partner', 'packages', jsonb_build_array('A1'),
+                           'contract_status', 'lead', 'recommended_plan_id', v_plan),
+        jsonb_build_array(jsonb_build_object('user_id', v_coord, 'role_name', 'coordinator'))) i;
+
+    v_result := public.accept_provider_invitation(
+        v_owner, v_token,
+        jsonb_build_object('display_name', 'Leafline Garten GmbH', 'email', 'info@leafline.test', 'country', 'Germany'), v_plan);
+
+    RESET ROLE;
+
+    IF v_result ->> 'tenant_id' IS NULL THEN
+        RAISE EXCEPTION 'story 01: the invitation of Leafline Garten was not accepted: %', v_result;
+    END IF;
+
+    PERFORM private.story_end('41 days');
+END;
+$$;
+
+-- Step 02 (40 days ago): the relationships, suppliers and settings, as baris in MOESA LTD. The
+-- relationships come first, so that the step's audit transaction is named after their table.
 DO $$
 DECLARE
     v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.tenant_id = v_tenant AND c.code = 'THO');
-    v_krn UUID := '5eed0002-0000-4000-8000-000000000001';
+    v_tho UUID := (SELECT r.id FROM public.provider_relationship r WHERE r.tenant_id = v_tenant AND r.client_code = 'THO');
     v_cn1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'CN1');
     v_tr1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'TR1');
     v_cn3 UUID := '5eed0002-0000-4000-8000-000000000005';
@@ -142,56 +304,33 @@ DECLARE
     v_contract UUID;
 BEGIN
     IF v_tho IS NULL OR v_cn1 IS NULL OR v_tr1 IS NULL THEN
-        RAISE EXCEPTION 'story 02: THO, CN1 or TR1 is missing';
+        RAISE EXCEPTION 'story 02: the THO relationship, CN1 or TR1 is missing';
     END IF;
 
-    -- Four more customers: one per lifecycle state and commercial model. No contract yet.
-    INSERT INTO public.customer (id, tenant_id, code, display_name, country, commercial_model, packages, status, start_on)
-    VALUES (v_krn, v_tenant, 'KRN', 'Kernhaus Living GmbH', 'Austria', 'commercial_representative',
-            ARRAY['A0', 'A2', 'C'], 'onboarding', current_date + 14),
-           ('5eed0002-0000-4000-8000-000000000002', v_tenant, 'LEA', 'Leafline Garten GmbH', 'Germany',
-            'trading_partner', ARRAY['A1'], 'lead', NULL),
-           ('5eed0002-0000-4000-8000-000000000003', v_tenant, 'PAU', 'Paxton Haushalt GmbH', 'Germany',
-            'operations_partner', ARRAY['D'], 'paused', current_date - 200),
-           -- Closed in step 04, after its project.
-           ('5eed0002-0000-4000-8000-000000000004', v_tenant, 'CLS', 'Clearstar Handel GmbH', 'Germany',
-            'trading_partner', ARRAY['A1', 'B'], 'active', current_date - 250);
+    -- Three more clients (Leafline Garten came by invitation, the block before): one per contract state
+    -- and commercial model. Kernhaus procures for itself; MOESA LTD would procure for the others.
+    -- No contract yet.
+    INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model,
+                                              commercial_model, packages, contract_status, start_on)
+    VALUES ('5eed0002-0000-4000-8000-000000000001', v_tenant, '5eed0001-0000-4000-8000-000000000001', 'KRN',
+            'Kernhaus Living GmbH', 'client', 'commercial_representative', ARRAY['A0', 'A2', 'C'], 'onboarding',
+            current_date + 14),
+           ('5eed0002-0000-4000-8000-000000000003', v_tenant, '5eed0001-0000-4000-8000-000000000003', 'PAU',
+            'Paxton Haushalt GmbH', 'provider', 'operations_partner', ARRAY['D'], 'paused', current_date - 200),
+           -- Closed and ended in step 04, after its project.
+           ('5eed0002-0000-4000-8000-000000000004', v_tenant, '5eed0001-0000-4000-8000-000000000004', 'CLS',
+            'Clearstar Handel GmbH', 'provider', 'trading_partner', ARRAY['A1', 'B'], 'active', current_date - 250);
 
-    INSERT INTO public.customer_contact (tenant_id, customer_id, name, role, email, can_approve)
-    VALUES (v_tenant, v_krn, 'Kernhaus Einkauf', 'Einkauf', 'einkauf@kernhaus.test', TRUE);
-
-    INSERT INTO public.customer_warehouse (tenant_id, customer_id, display_name, type, country, city, is_default)
-    VALUES (v_tenant, v_krn, 'Wien', 'own', 'Austria', 'Wien', TRUE);
-
-    INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id, countries, access)
-    VALUES (v_tenant, v_krn, 'bol', ARRAY['NL'], 'authorized_user'),
-           (v_tenant, v_krn, 'kaufland', ARRAY['AT'], 'authorized_user');
-
-    -- THOMETZKI: the signed contract (C-G1), the restricted fields, and the rest of the demo set.
-    v_contract := private.story_doc('5eed0002-0000-4000-8000-000000000007', 'customer', v_tho, v_tho, 'contract', 1,
+    -- THOMETZKI: the signed contract (C-G1) and the provider-internal fields of the relationship.
+    v_contract := private.story_doc('5eed0002-0000-4000-8000-000000000007', 'provider_relationship', v_tho, 'contract', 1,
                                     'signed', current_date - 300);
 
-    UPDATE public.customer
+    UPDATE public.provider_relationship
     SET contract_accepted_on = current_date - 300,
         contract_document_id = v_contract,
         eu_responsible_person = 'MOESA Europe, EU responsible person',
         restricted_drive_url = 'https://drive.google.com/example/restricted-THO'
     WHERE id = v_tho;
-
-    INSERT INTO public.customer_contact (tenant_id, customer_id, name, role, email, can_approve)
-    VALUES (v_tenant, v_tho, 'Thometzki Operations', 'Operations', 'operations@thometzki.test', FALSE),
-           (v_tenant, v_tho, 'Thometzki Lager', 'Lager', 'lager@thometzki.test', FALSE),
-           (v_tenant, v_tho, 'Thometzki Buchhaltung', 'Buchhaltung', 'buchhaltung@thometzki.test', FALSE);
-
-    INSERT INTO public.customer_warehouse (tenant_id, customer_id, display_name, type, country, city, is_default)
-    VALUES (v_tenant, v_tho, 'Rhenus 3PL', 'third_party', 'Germany', 'Hamburg', FALSE),
-           (v_tenant, v_tho, 'FBA DE', 'fba', 'Germany', NULL, FALSE);
-
-    INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id, countries, access)
-    VALUES (v_tenant, v_tho, 'kaufland', ARRAY['DE'], 'none');
-
-    INSERT INTO public.customer_brand (tenant_id, customer_id, name, registration_status)
-    VALUES (v_tenant, v_tho, 'OKAEI Pro', 'pending');
 
     -- Suppliers: a candidate and a suspended one (an archived product keeps it in step 03).
     INSERT INTO public.supplier (id, tenant_id, code, display_name, country, default_incoterm, deposit_rate, status)
@@ -213,10 +352,65 @@ BEGIN
 
     UPDATE public.supplier SET rating = 2, last_audit_on = current_date - 200 WHERE id = v_cn1;
 
-    PERFORM private.story_doc('5eed0002-0000-4000-8000-000000000008', 'supplier', v_cn1, NULL, 'certificate', 1,
-                              'signed', current_date - 400);
-    PERFORM private.story_doc('5eed0002-0000-4000-8000-000000000009', 'supplier', v_tr1, NULL, 'contract', 1,
-                              'signed', current_date - 120);
+    PERFORM private.story_doc('5eed0002-0000-4000-8000-000000000008', 'supplier', v_cn1, 'certificate', 1, 'signed',
+                              current_date - 400);
+    PERFORM private.story_doc('5eed0002-0000-4000-8000-000000000009', 'supplier', v_tr1, 'contract', 1, 'signed',
+                              current_date - 120);
+
+    PERFORM private.story_end('40 days');
+END;
+$$;
+
+-- Step 02, THO's part: thomas completes THOMETZKI's contacts, warehouses, marketplaces and brands.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('thomas@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
+BEGIN
+    INSERT INTO public.contact (tenant_id, name, role, email, can_approve)
+    VALUES (v_tenant, 'Thometzki Operations', 'Operations', 'operations@thometzki.test', FALSE),
+           (v_tenant, 'Thometzki Lager', 'Lager', 'lager@thometzki.test', FALSE),
+           (v_tenant, 'Thometzki Buchhaltung', 'Buchhaltung', 'buchhaltung@thometzki.test', FALSE);
+
+    INSERT INTO public.warehouse (tenant_id, display_name, type, country, city, is_default)
+    VALUES (v_tenant, 'Rhenus 3PL', 'third_party', 'Germany', 'Hamburg', FALSE),
+           (v_tenant, 'FBA DE', 'fba', 'Germany', NULL, FALSE);
+
+    INSERT INTO public.platform_account (tenant_id, platform_id, countries, access)
+    VALUES (v_tenant, 'kaufland', ARRAY['DE'], 'none');
+
+    INSERT INTO public.brand (tenant_id, name, registration_status)
+    VALUES (v_tenant, 'OKAEI Pro', 'pending');
+
+    PERFORM private.story_end('40 days');
+END;
+$$;
+
+-- Step 02, KRN's part: kerstin sets up Kernhaus: its buyer, its Vienna warehouse, its marketplaces,
+-- its brand and its own supplier (Kernhaus procures for itself).
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('kerstin@moesa-panel.test', 'Kernhaus Living GmbH');
+BEGIN
+    INSERT INTO public.contact (tenant_id, name, role, email, can_approve)
+    VALUES (v_tenant, 'Kernhaus Einkauf', 'Einkauf', 'einkauf@kernhaus.test', TRUE);
+
+    INSERT INTO public.warehouse (tenant_id, display_name, type, country, city, is_default)
+    VALUES (v_tenant, 'Wien', 'own', 'Austria', 'Wien', TRUE);
+
+    INSERT INTO public.platform_account (tenant_id, platform_id, countries, access)
+    VALUES (v_tenant, 'bol', ARRAY['NL'], 'authorized_user'),
+           (v_tenant, 'kaufland', ARRAY['AT'], 'authorized_user');
+
+    INSERT INTO public.brand (tenant_id, name, registration_status)
+    VALUES (v_tenant, 'Kernhaus', 'registered');
+
+    INSERT INTO public.supplier (id, tenant_id, code, display_name, country, default_incoterm, deposit_rate, status,
+                                 payment_terms)
+    VALUES ('5eed0002-0000-4000-8000-000000000010', v_tenant, 'PT1', 'Cerâmica Lusa', 'Portugal', 'EXW', 30, 'approved',
+            '30 percent deposit, balance before loading');
+
+    INSERT INTO public.supplier_contact (tenant_id, supplier_id, name, role, email, is_primary)
+    VALUES (v_tenant, '5eed0002-0000-4000-8000-000000000010', 'Lusa Vendas', 'Vendas', 'vendas@ceramica-lusa.test', TRUE);
 
     PERFORM private.story_end('40 days');
 END;
@@ -239,30 +433,21 @@ BEGIN
 END;
 $$;
 
--- Step 03 (35 days ago): products, their specs and product documents, as baris in MOESA LTD. The
+-- Step 03 (35 days ago): THO's products, their specs and product documents, as thomas in THO. The
 -- products come first, so that the step's audit transaction is named after the product table.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.tenant_id = v_tenant AND c.code = 'THO');
-    v_krn UUID := '5eed0002-0000-4000-8000-000000000001';
-    v_tr1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'TR1');
-    v_cn1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'CN1');
-    v_cn2 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'CN2');
-    v_id1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'ID1');
-    v_tr3 UUID := '5eed0002-0000-4000-8000-000000000006';
+    v_tenant UUID := private.story_begin('thomas@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
     v_mop UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-MOP40-2P');
     v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-TIPS-6-50');
     v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-CONES-100');
     v_p01 UUID := '5eed0003-0000-4000-8000-000000000001';
     v_p03 UUID := '5eed0003-0000-4000-8000-000000000003';
     v_p04 UUID := '5eed0003-0000-4000-8000-000000000004';
-    v_p08 UUID := '5eed0003-0000-4000-8000-000000000008';
     gtin TEXT;
 BEGIN
-    IF v_tho IS NULL OR v_tr1 IS NULL OR v_cn1 IS NULL OR v_cn2 IS NULL OR v_id1 IS NULL OR v_mop IS NULL
-       OR v_tips50 IS NULL OR v_cones100 IS NULL THEN
-        RAISE EXCEPTION 'story 03: a customer, supplier or product of seed.sql is missing';
+    IF v_mop IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL THEN
+        RAISE EXCEPTION 'story 03: a product of seed.sql is missing';
     END IF;
 
     -- A typo in a GTIN fails the story here, loudly. 4260696025930 is the one left over: no
@@ -274,70 +459,127 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- Nine products: every status and compliance level. The parent of the variants is the
+    -- Seven products: every status and compliance level. The parent of the variants is the
     -- on-sale mop. The old mop is inserted as archived (the unique GTIN index ignores archived
-    -- rows), so it reuses the GTIN of the live one; its supplier TR3 is suspended.
-    INSERT INTO public.product (id, tenant_id, customer_id, parent_id, sku, display_name, variant_label, brand, gtin,
-                                supplier_id, status, compliance_status)
-    VALUES (v_p01, v_tenant, v_tho, v_mop, 'THO-MOP40-3P', 'Pamuk mop bezi 40 cm, 3''lü', '3''lü', 'OKAEI',
-            '4260696025855', v_tr1, 'development', 'partial'),
-           ('5eed0003-0000-4000-8000-000000000002', v_tenant, v_tho, v_mop, 'THO-MOP40-4P',
-            'Pamuk mop bezi 40 cm, 4''lü', '4''lü', 'OKAEI', '4260696025862', v_tr1, 'development', 'none'),
-           (v_p03, v_tenant, v_tho, NULL, 'THO-MOP60-2P', 'Pamuk mop bezi 60 cm, 2''li', NULL, 'OKAEI',
-            '4260696025879', v_tr1, 'concept', 'none'),
-           (v_p04, v_tenant, v_tho, NULL, 'THO-TIPS-6-100', 'Aktif karbon filtre 6 mm, 100''lü', NULL, 'OKAEI',
-            '4260696025886', v_cn1, 'approved', 'none'),
-           ('5eed0003-0000-4000-8000-000000000005', v_tenant, v_tho, NULL, 'THO-CONES-200', 'Cones 200''lü', NULL,
-            'OKAEI', '4260696025893', v_id1, 'ordering', 'partial'),
-           ('5eed0003-0000-4000-8000-000000000006', v_tenant, v_tho, NULL, 'THO-BRUSH-1', 'Temizlik fırçası', NULL,
-            'OKAEI Pro', '4260696025909', v_cn2, 'paused', 'partial'),
-           ('5eed0003-0000-4000-8000-000000000007', v_tenant, v_tho, NULL, 'THO-MOP40-2P-OLD',
-            'Pamuk mop bezi 40 cm, 2''li (eski)', NULL, 'OKAEI', '4260696025800', v_tr3, 'archived', 'none'),
-           (v_p08, v_tenant, v_krn, NULL, 'KRN-VASE-01', 'Seramik vazo, 24 cm', NULL, 'Kernhaus', '4260696025916',
-            v_tr1, 'on_sale', 'complete'),
-           ('5eed0003-0000-4000-8000-000000000009', v_tenant, v_krn, NULL, 'KRN-VASE-02', 'Seramik vazo, 32 cm', NULL,
-            'Kernhaus', '4260696025923', v_tr1, 'concept', 'none');
+    -- rows), so it reuses the GTIN of the live one; MOESA LTD sourced it from TR3, now suspended.
+    INSERT INTO public.product (id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, status,
+                                compliance_status)
+    VALUES (v_p01, v_tenant, v_mop, 'THO-MOP40-3P', 'Pamuk mop bezi 40 cm, 3''lü', '3''lü', 'OKAEI', '4260696025855',
+            'development', 'partial'),
+           ('5eed0003-0000-4000-8000-000000000002', v_tenant, v_mop, 'THO-MOP40-4P', 'Pamuk mop bezi 40 cm, 4''lü', '4''lü',
+            'OKAEI', '4260696025862', 'development', 'none'),
+           (v_p03, v_tenant, NULL, 'THO-MOP60-2P', 'Pamuk mop bezi 60 cm, 2''li', NULL, 'OKAEI', '4260696025879', 'concept',
+            'none'),
+           (v_p04, v_tenant, NULL, 'THO-TIPS-6-100', 'Aktif karbon filtre 6 mm, 100''lü', NULL, 'OKAEI', '4260696025886',
+            'approved', 'none'),
+           ('5eed0003-0000-4000-8000-000000000005', v_tenant, NULL, 'THO-CONES-200', 'Cones 200''lü', NULL, 'OKAEI',
+            '4260696025893', 'ordering', 'partial'),
+           ('5eed0003-0000-4000-8000-000000000006', v_tenant, NULL, 'THO-BRUSH-1', 'Temizlik fırçası', NULL, 'OKAEI Pro',
+            '4260696025909', 'paused', 'partial'),
+           ('5eed0003-0000-4000-8000-000000000007', v_tenant, NULL, 'THO-MOP40-2P-OLD', 'Pamuk mop bezi 40 cm, 2''li (eski)',
+            NULL, 'OKAEI', '4260696025800', 'archived', 'none');
 
     -- The mop: full dimensions, weights and pallet data. The activated carbon filter: hazmat.
     UPDATE public.product
     SET unit_dims_mm = '400x300x15', unit_net_g = 180, pack_dims_mm = '410x310x30', pack_gross_g = 400,
         carton_pack_qty = 20, carton_dims_mm = '620x420x330', carton_net_kg = 7.2, carton_gross_kg = 8.4,
-        pallet_carton_qty = 48, pallet_type = 'EUR', company_price_eur = 9.40
+        pallet_carton_qty = 48, pallet_type = 'EUR'
     WHERE id = v_mop;
-
-    -- Sell prices next to the cost the mop carries since seed.sql (field permissions: the portal
-    -- reads these, never the cost).
-    UPDATE public.product SET purchase_price = 0.85, purchase_currency = 'USD', company_price_eur = 6.20
-    WHERE id = v_tips50;
 
     UPDATE public.product SET is_hazmat = TRUE, hs_code = '8421.39', origin_country = 'China' WHERE id = v_tips50;
 
     -- Spec sheets and other product documents. v1 of the mop spec is superseded by the v2 of
     -- seed.sql (inserted directly, so document_supersede has nothing to do).
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000021', 'product', v_mop, v_tho, 'spec_sheet', 1,
-                              'superseded', current_date - 150);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000022', 'product', v_p01, v_tho, 'spec_sheet', 1,
-                              'signed', current_date - 20);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000023', 'product', v_tips50, v_tho, 'spec_sheet', 1,
-                              'draft', NULL);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000024', 'product', v_p04, v_tho, 'spec_sheet', 1,
-                              'approved', current_date - 25);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000025', 'product', v_cones100, v_tho, 'spec_sheet', 1,
-                              'signed', current_date - 100);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000026', 'product', v_cones100, v_tho, 'certificate', 1,
-                              'signed', current_date - 400);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000027', 'product', v_tips50, v_tho, 'sds', 1,
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000021', 'product', v_mop, 'spec_sheet', 1, 'superseded',
+                              current_date - 150);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000022', 'product', v_p01, 'spec_sheet', 1, 'signed',
+                              current_date - 20);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000023', 'product', v_tips50, 'spec_sheet', 1, 'draft', NULL);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000024', 'product', v_p04, 'spec_sheet', 1, 'approved',
+                              current_date - 25);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000025', 'product', v_cones100, 'spec_sheet', 1, 'signed',
+                              current_date - 100);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000026', 'product', v_cones100, 'certificate', 1, 'signed',
+                              current_date - 400);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000027', 'product', v_tips50, 'sds', 1, 'approved',
+                              current_date - 90);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000028', 'product', v_tips50, 'doc_of_conformity', 1,
                               'approved', current_date - 90);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000028', 'product', v_tips50, v_tho, 'doc_of_conformity',
-                              1, 'approved', current_date - 90);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000029', 'product', v_tips50, v_tho, 'test_report', 1,
-                              'approved', current_date - 90);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000030', 'product', v_cones100, v_tho, 'label_artwork',
-                              1, 'approved', current_date - 60);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000031', 'product', v_p03, v_tho, 'spec_sheet', 1,
-                              'draft', NULL);
-    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000032', 'product', v_p08, v_krn, 'spec_sheet', 1,
-                              'signed', current_date - 30);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000029', 'product', v_tips50, 'test_report', 1, 'approved',
+                              current_date - 90);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000030', 'product', v_cones100, 'label_artwork', 1,
+                              'approved', current_date - 60);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000031', 'product', v_p03, 'spec_sheet', 1, 'draft', NULL);
+
+    PERFORM private.story_end('35 days');
+END;
+$$;
+
+-- Step 03, MOESA LTD's part: akif (management in MOESA LTD, invited into THO, so he may read THO's
+-- products) records MOESA LTD's sourcing of THO's new products, each naming THO as its client:
+-- supplier, purchase price and the sell price to THO. The seed's mop and 6 mm filter get their
+-- sell prices next to their cost. The signed and approved spec sheets THO's lines cite are copied
+-- to their sourcing rows (a provider order's line on a client product cites the provider's copy).
+-- Sourcing ids 5eed0003-…-1NN (NN the product), spec copies …-04N.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+    v_tho UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'THO');
+    v_mop UUID := (SELECT s.id FROM public.sourcing s WHERE s.tenant_id = v_tenant AND s.product_sku = 'THO-MOP40-2P');
+    v_tips50 UUID := (SELECT s.id FROM public.sourcing s WHERE s.tenant_id = v_tenant AND s.product_sku = 'THO-TIPS-6-50');
+    v_cones100 UUID := (SELECT s.id FROM public.sourcing s WHERE s.tenant_id = v_tenant AND s.product_sku = 'THO-CONES-100');
+BEGIN
+    IF v_tho IS NULL OR v_mop IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL THEN
+        RAISE EXCEPTION 'story 03: THO or a sourcing row of seed.sql is missing';
+    END IF;
+
+    INSERT INTO public.sourcing (id, tenant_id, client_tenant_id, product_id, supplier_id, purchase_price, purchase_currency,
+                                 purchase_incoterm, sell_price_eur)
+    SELECT ('5eed0003-0000-4000-8000-0000000001' || x.nn)::UUID, v_tenant, v_tho,
+           ('5eed0003-0000-4000-8000-0000000000' || x.nn)::UUID, s.id, x.price, CASE WHEN x.price IS NOT NULL THEN 'USD' END,
+           CASE WHEN x.price IS NOT NULL THEN s.default_incoterm END, x.sell
+    FROM (VALUES ('01', 'TR1', 2.70, 11.90), ('02', 'TR1', 3.50, 13.90), ('03', 'TR1', NULL::NUMERIC, NULL::NUMERIC),
+                 ('04', 'CN1', 0.85, 10.90), ('05', 'ID1', 1.15, 4.90), ('06', 'CN2', NULL, NULL), ('07', 'TR3', NULL, NULL))
+         x (nn, supplier, price, sell)
+    JOIN public.supplier s ON s.tenant_id = v_tenant AND s.code = x.supplier;
+
+    UPDATE public.sourcing SET sell_price_eur = 9.40 WHERE id = v_mop;
+    UPDATE public.sourcing SET purchase_price = 0.85, purchase_currency = 'USD', sell_price_eur = 6.20 WHERE id = v_tips50;
+    UPDATE public.sourcing SET sell_price_eur = 0.89 WHERE id = v_cones100;
+
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000041', 'sourcing', v_mop, 'spec_sheet', 2, 'signed',
+                              (SELECT d.issued_on FROM public.document d JOIN public.product p ON p.id = d.entity_id
+                               WHERE p.tenant_id = v_tho AND p.sku = 'THO-MOP40-2P' AND d.type = 'spec_sheet' AND d.version = 2));
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000042', 'sourcing', '5eed0003-0000-4000-8000-000000000101',
+                              'spec_sheet', 1, 'signed', current_date - 20);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000043', 'sourcing', '5eed0003-0000-4000-8000-000000000104',
+                              'spec_sheet', 1, 'approved', current_date - 25);
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000044', 'sourcing', v_cones100, 'spec_sheet', 1, 'signed',
+                              current_date - 100);
+
+    PERFORM private.story_end('35 days');
+END;
+$$;
+
+-- Step 03, KRN's part: kerstin adds Kernhaus's two vases, their sourcing from its own supplier PT1
+-- (no client: Kernhaus procures for itself) and the signed spec sheet of the vase on sale.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('kerstin@moesa-panel.test', 'Kernhaus Living GmbH');
+    v_p08 UUID := '5eed0003-0000-4000-8000-000000000008';
+BEGIN
+    INSERT INTO public.product (id, tenant_id, sku, display_name, brand, gtin, status, compliance_status)
+    VALUES (v_p08, v_tenant, 'KRN-VASE-01', 'Seramik vazo, 24 cm', 'Kernhaus', '4260696025916', 'on_sale', 'complete'),
+           ('5eed0003-0000-4000-8000-000000000009', v_tenant, 'KRN-VASE-02', 'Seramik vazo, 32 cm', 'Kernhaus',
+            '4260696025923', 'concept', 'none');
+
+    INSERT INTO public.sourcing (id, tenant_id, product_id, supplier_id, purchase_price, purchase_currency, purchase_incoterm)
+    VALUES ('5eed0003-0000-4000-8000-000000000108', v_tenant, v_p08, '5eed0002-0000-4000-8000-000000000010', 6.40, 'EUR', 'EXW'),
+           ('5eed0003-0000-4000-8000-000000000109', v_tenant, '5eed0003-0000-4000-8000-000000000009',
+            '5eed0002-0000-4000-8000-000000000010', NULL, NULL, NULL);
+
+    PERFORM private.story_doc('5eed0003-0000-4000-8000-000000000032', 'product', v_p08, 'spec_sheet', 1, 'signed',
+                              current_date - 30);
 
     PERFORM private.story_end('35 days');
 END;
@@ -350,7 +592,7 @@ $$;
 -- gate_approval document of that gate with the fixed id p_id, issued and approved on the pass
 -- date (p_id is NULL exactly for a gate without customer approval, G4); then one UPDATE of the
 -- gate, so the guard and project_gate_advance run as for pass_gate. p_evidence becomes the gate's
--- evidence_document_ids (G3: the PI of a pi_approved order of the project).
+-- evidence_document_ids (a G3 on the provider's order needs none: its PI is the provider's).
 CREATE FUNCTION private.story_pass_gate (
     p_id UUID,
     p_project_id UUID,
@@ -362,7 +604,6 @@ SET
    search_path = '' AS $$
 DECLARE
     v_gate public.project_gate;
-    v_customer UUID := (SELECT p.customer_id FROM public.project p WHERE p.id = p_project_id);
 BEGIN
     SELECT * INTO v_gate FROM public.project_gate g WHERE g.project_id = p_project_id AND g.code = p_gate;
 
@@ -389,7 +630,7 @@ BEGIN
       AND t.phase <= public.phase_before(p_gate);
 
     IF v_gate.needs_customer_approval THEN
-        PERFORM private.story_doc(p_id, 'project_gate', v_gate.id, v_customer, 'gate_approval', 1, 'signed',
+        PERFORM private.story_doc(p_id, 'project_gate', v_gate.id, 'gate_approval', 1, 'signed',
                                   p_passed_at::DATE);
     END IF;
 
@@ -407,18 +648,16 @@ BEGIN
 END;
 $$;
 
--- Step 04 (25 days ago): projects, their gates without a PI rule, and tasks, as koordinator in
--- MOESA LTD. The projects come first, so that the step's audit transaction is named after the
--- project table. created_at is set in the past, before each project's first pass, so the
--- dashboard's waiting days follow a real timeline. G3 and later (they need a PI) pass in step 05;
--- the pilot of seed.sql is not touched (it waits on G1 with its blocking task todo).
+-- Step 04 (25 days ago): THO's projects, their gates without a PI rule, and tasks, as koordinator
+-- (management in THO) in THO. The projects come first, so that the step's audit transaction is
+-- named after the project table. created_at is set in the past, before each project's first pass,
+-- so the dashboard's waiting days follow a real timeline. G3 and later (they need an order at
+-- pi_approved) pass in step 05; the pilot of seed.sql is not touched (it waits on G1 with its
+-- blocking task todo).
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'MOESA LTD');
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
     v_coordinator UUID := (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.tenant_id = v_tenant AND c.code = 'THO');
-    v_krn UUID := '5eed0002-0000-4000-8000-000000000001';
-    v_cls UUID := '5eed0002-0000-4000-8000-000000000004';
     v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-TIPS-6-50');
     v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-CONES-100');
     v_pl UUID := '5eed0004-0000-4000-8000-000000000001';
@@ -427,35 +666,26 @@ DECLARE
     v_revision UUID := '5eed0004-0000-4000-8000-000000000004';
     v_cones UUID := '5eed0004-0000-4000-8000-000000000005';
     v_cancelled UUID := '5eed0004-0000-4000-8000-000000000006';
-    v_closed UUID := '5eed0004-0000-4000-8000-000000000009';
     v_rows INT;
 BEGIN
-    IF v_coordinator IS NULL OR v_tho IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL THEN
-        RAISE EXCEPTION 'story 04: koordinator, THO, THO-TIPS-6-50 or THO-CONES-100 is missing';
+    IF v_coordinator IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL THEN
+        RAISE EXCEPTION 'story 04: koordinator, THO-TIPS-6-50 or THO-CONES-100 is missing';
     END IF;
 
-    -- Nine projects: every type, path, package edge and status. Codes, starting phases, gates
+    -- Seven projects: every type, path, package edge and status. Codes, starting phases, gates
     -- and the first checklists come from the triggers.
-    INSERT INTO public.project (id, tenant_id, customer_id, display_name, type, path, packages, coordinator_id,
-                                created_at)
-    VALUES (v_pl, v_tenant, v_tho, 'OKAEI fırça private label', 'npi', 'b_private_label', ARRAY['A2', 'C'],
-            v_coordinator, now() - interval '30 days'),
-           (v_variant, v_tenant, v_tho, 'MOP40 3''lü varyant', 'variant', NULL, ARRAY['A1'], v_coordinator,
-            now() - interval '25 days'),
-           (v_reorder, v_tenant, v_tho, 'Karbon filtre tekrar siparişi', 'reorder', NULL, ARRAY['A1'], v_coordinator,
+    INSERT INTO public.project (id, tenant_id, display_name, type, path, packages, coordinator_id, created_at)
+    VALUES (v_pl, v_tenant, 'OKAEI fırça private label', 'npi', 'b_private_label', ARRAY['A2', 'C'], v_coordinator,
+            now() - interval '30 days'),
+           (v_variant, v_tenant, 'MOP40 3''lü varyant', 'variant', NULL, ARRAY['A1'], v_coordinator, now() - interval '25 days'),
+           (v_reorder, v_tenant, 'Karbon filtre tekrar siparişi', 'reorder', NULL, ARRAY['A1'], v_coordinator,
             now() - interval '20 days'),
-           (v_revision, v_tenant, v_tho, 'CONES-100 ambalaj revizyonu', 'revision', NULL, ARRAY['A1'], v_coordinator,
+           (v_revision, v_tenant, 'CONES-100 ambalaj revizyonu', 'revision', NULL, ARRAY['A1'], v_coordinator,
             now() - interval '18 days'),
-           (v_cones, v_tenant, v_tho, 'Cones ilk sipariş', 'npi', 'a_sourcing', ARRAY['A1'], v_coordinator,
-            now() - interval '130 days'),
-           (v_cancelled, v_tenant, v_tho, 'Mop 60 iptal', 'npi', 'a_sourcing', ARRAY['A1'], v_coordinator,
-            now() - interval '60 days'),
-           ('5eed0004-0000-4000-8000-000000000007', v_tenant, v_tho, 'THO lojistik Q1', 'npi', 'a_sourcing', ARRAY['B'],
-            v_coordinator, now() - interval '10 days'),
-           ('5eed0004-0000-4000-8000-000000000008', v_tenant, v_krn, 'Konsept vazo', 'npi', 'b_private_label',
-            ARRAY['A0'], v_coordinator, now() - interval '14 days'),
-           (v_closed, v_tenant, v_cls, 'CLS eski proje', 'npi', 'a_sourcing', ARRAY['A1'], v_coordinator,
-            now() - interval '200 days');
+           (v_cones, v_tenant, 'Cones ilk sipariş', 'npi', 'a_sourcing', ARRAY['A1'], v_coordinator, now() - interval '130 days'),
+           (v_cancelled, v_tenant, 'Mop 60 iptal', 'npi', 'a_sourcing', ARRAY['A1'], v_coordinator, now() - interval '60 days'),
+           ('5eed0004-0000-4000-8000-000000000007', v_tenant, 'THO lojistik Q1', 'npi', 'a_sourcing', ARRAY['B'],
+            v_coordinator, now() - interval '10 days');
 
     INSERT INTO public.project_product (project_id, product_id, tenant_id)
     VALUES (v_pl, '5eed0003-0000-4000-8000-000000000006', v_tenant),
@@ -463,8 +693,7 @@ BEGIN
            (v_reorder, v_tips50, v_tenant),
            (v_revision, v_cones100, v_tenant),
            (v_cones, v_cones100, v_tenant),
-           (v_cancelled, '5eed0003-0000-4000-8000-000000000003', v_tenant),
-           ('5eed0004-0000-4000-8000-000000000008', '5eed0003-0000-4000-8000-000000000009', v_tenant);
+           (v_cancelled, '5eed0003-0000-4000-8000-000000000003', v_tenant);
 
     -- The passes, oldest first; each approval document is 5eed0004-…-2N. G2 needs signed specs:
     -- THO-CONES-100 and THO-MOP40-3P have them since step 03.
@@ -495,25 +724,38 @@ BEGIN
     -- Status changes come after the passes (a pass needs an active project).
     UPDATE public.project SET status = 'on_hold' WHERE id = v_revision;
     UPDATE public.project SET status = 'cancelled' WHERE id = v_cancelled;
-    UPDATE public.project SET status = 'closed' WHERE id = v_closed;
 
     PERFORM private.story_end('25 days');
 END;
 $$;
 
--- Step 04, second part: baris closes CLS, now that its only project is closed.
+-- Step 04, KRN's part: koordinator (coordinator in KRN) starts Kernhaus's concept vase project; A0
+-- only, so it waits on PL_G1.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_rows INT;
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'Kernhaus Living GmbH');
 BEGIN
-    UPDATE public.customer SET status = 'closed'
-    WHERE id = '5eed0002-0000-4000-8000-000000000004' AND tenant_id = v_tenant;
-    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    INSERT INTO public.project (id, tenant_id, display_name, type, path, packages, coordinator_id, created_at)
+    VALUES ('5eed0004-0000-4000-8000-000000000008', v_tenant, 'Konsept vazo', 'npi', 'b_private_label', ARRAY['A0'],
+            (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test'), now() - interval '14 days');
 
-    IF v_rows <> 1 THEN
-        RAISE EXCEPTION 'story 04: closing CLS changed % rows', v_rows;
-    END IF;
+    INSERT INTO public.project_product (project_id, product_id, tenant_id)
+    VALUES ('5eed0004-0000-4000-8000-000000000008', '5eed0003-0000-4000-8000-000000000009', v_tenant);
+
+    PERFORM private.story_end('25 days');
+END;
+$$;
+
+-- Step 04, CLS's part: koordinator (management in CLS) records Clearstar's old project, closed.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'Clearstar Handel GmbH');
+BEGIN
+    INSERT INTO public.project (id, tenant_id, display_name, type, path, packages, coordinator_id, created_at)
+    VALUES ('5eed0004-0000-4000-8000-000000000009', v_tenant, 'CLS eski proje', 'npi', 'a_sourcing', ARRAY['A1'],
+            (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test'), now() - interval '200 days');
+
+    UPDATE public.project SET status = 'closed' WHERE id = '5eed0004-0000-4000-8000-000000000009';
 
     PERFORM private.story_end('25 days');
 END;
@@ -615,7 +857,7 @@ BEGIN
         RAISE EXCEPTION 'story: the PI of % needs a sent order', p_po_id;
     END IF;
 
-    PERFORM private.story_doc(p_id, 'purchase_order', p_po_id, v_po.customer_id, 'pi', 1, p_status, p_issued_on);
+    PERFORM private.story_doc(p_id, 'purchase_order', p_po_id, 'pi', 1, p_status, p_issued_on);
 
     UPDATE public.purchase_order po
     SET pi_document_id = p_id,
@@ -632,83 +874,80 @@ BEGIN
 END;
 $$;
 
--- Step 05 (5 days ago): purchase orders in every status and the gates that need a PI, as baris in
--- MOESA LTD. The orders come first, so that the step's audit transaction is named after the
--- purchase_order table. Each order is inserted as a draft (the code trigger forces it), walked by
--- story_po_walk, its PI from story_po_pi; codes follow the insert order (THO 001-011, KRN 001).
--- Order ids 5eed0005-…-NN, lines …-1NN, PI documents …-2NN, PSI reports …-3NN, gate approvals
--- …-4NN. Every line whose product has a signed or approved spec sheet cites it; THO-MOP40-4P (no
--- spec: the draft's "missing spec"), THO-TIPS-6-50 (a draft spec only) and THO-CONES-200 have
--- none, which needs none before spec_sheet_required_from (they are on sale or ordering).
+-- Step 05 (5 days ago): the purchase orders MOESA LTD makes for THO, in every status, as akif in
+-- MOESA LTD (management there, invited into THO, so he may link THO's products and projects). The
+-- orders come first, so that the step's audit transaction is named after the purchase_order table.
+-- Each order is inserted as a draft (the code trigger forces it; its client THO gives the code),
+-- with its project link while it is a draft (po_project_locked), walked by story_po_walk, its PI
+-- from story_po_pi; codes follow the insert order (THO 001-011). Order ids 5eed0005-…-NN, lines
+-- …-1NN, PI documents …-2NN, PSI reports …-3NN. Every line whose product has a signed or approved
+-- spec sheet cites MOESA LTD's copy on the sourcing row (step 03); THO-MOP40-4P (no spec: the
+-- draft's "missing spec"), THO-TIPS-6-50 (a draft spec only) and THO-CONES-200 have none, which
+-- needs none before spec_sheet_required_from (they are on sale or ordering). Each line takes its
+-- sell price from the sourcing row. Kernhaus orders for itself in KRN (below).
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.tenant_id = v_tenant AND c.code = 'THO');
-    v_krn UUID := '5eed0002-0000-4000-8000-000000000001';
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+    v_tho UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'THO');
     v_tr1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'TR1');
     v_cn1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'CN1');
     v_id1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'ID1');
-    v_mop UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-MOP40-2P');
-    v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-TIPS-6-50');
-    v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tenant AND p.sku = 'THO-CONES-100');
-    v_mop_spec UUID := (SELECT d.id FROM public.document d
-                        WHERE d.tenant_id = v_tenant AND d.entity_type = 'product' AND d.entity_id = v_mop
-                          AND d.type = 'spec_sheet' AND d.version = 2 AND d.status = 'signed');
+    v_mop UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tho AND p.sku = 'THO-MOP40-2P');
+    v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tho AND p.sku = 'THO-TIPS-6-50');
+    v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.tenant_id = v_tho AND p.sku = 'THO-CONES-100');
+    v_mop_spec UUID := '5eed0003-0000-4000-8000-000000000041';
+    v_cones_spec UUID := '5eed0003-0000-4000-8000-000000000044';
     v_variant UUID := '5eed0004-0000-4000-8000-000000000002';
     v_reorder UUID := '5eed0004-0000-4000-8000-000000000003';
     v_cones UUID := '5eed0004-0000-4000-8000-000000000005';
     v_pi RECORD;
 BEGIN
     IF v_tho IS NULL OR v_tr1 IS NULL OR v_cn1 IS NULL OR v_id1 IS NULL OR v_mop IS NULL OR v_tips50 IS NULL
-       OR v_cones100 IS NULL OR v_mop_spec IS NULL THEN
-        RAISE EXCEPTION 'story 05: a customer, supplier, product or the mop spec of seed.sql is missing';
+       OR v_cones100 IS NULL THEN
+        RAISE EXCEPTION 'story 05: THO, a supplier or a product of seed.sql is missing';
     END IF;
 
-    -- Twelve orders, created over the last months. Incoterm and deposit rate come from the
+    -- Eleven orders, created over the last months. Incoterm and deposit rate come from the
     -- supplier (30 %), except the order without a deposit.
-    INSERT INTO public.purchase_order (id, tenant_id, customer_id, supplier_id, project_id, currency, deposit_rate,
+    INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, project_id, currency, deposit_rate,
                                        ready_on, tolerance_pct, created_at)
-    SELECT ('5eed0005-0000-4000-8000-0000000000' || x.nn)::UUID, v_tenant, coalesce(x.customer, v_tho), x.supplier,
-           x.project, x.currency, x.deposit_rate, current_date + x.ready_in, x.tolerance,
-           now() - make_interval(days => x.age)
-    FROM (VALUES ('01', NULL::UUID, v_tr1, NULL::UUID, 'USD', NULL::NUMERIC, NULL::INT, NULL::NUMERIC, 3),
-                 ('02', NULL, v_cn1, NULL, 'USD', NULL, 60, NULL, 9),
-                 ('03', NULL, v_tr1, NULL, 'USD', NULL, 50, NULL, 16),
-                 ('04', NULL, v_cn1, v_reorder, 'USD', NULL, 45, NULL, 22),
-                 ('05', NULL, v_tr1, v_variant, 'USD', NULL, 30, NULL, 24),
-                 ('06', NULL, v_cn1, NULL, 'USD', NULL, 12, NULL, 45),
-                 ('07', NULL, v_id1, NULL, 'USD', NULL, -5, NULL, 60),
-                 ('08', NULL, v_tr1, NULL, 'USD', NULL, -20, 2, 75),
-                 ('09', NULL, v_id1, v_cones, 'USD', NULL, -68, NULL, 110),
-                 ('10', NULL, v_id1, NULL, 'USD', NULL, NULL, NULL, 30),
-                 ('11', NULL, v_tr1, NULL, 'USD', 0, 20, NULL, 40),
-                 ('12', v_krn, v_tr1, NULL, 'EUR', NULL, 40, NULL, 7))
-         x (nn, customer, supplier, project, currency, deposit_rate, ready_in, tolerance, age)
+    SELECT ('5eed0005-0000-4000-8000-0000000000' || x.nn)::UUID, v_tenant, v_tho, x.supplier, x.project, 'USD',
+           x.deposit_rate, current_date + x.ready_in, x.tolerance, now() - make_interval(days => x.age)
+    FROM (VALUES ('01', v_tr1, NULL::UUID, NULL::NUMERIC, NULL::INT, NULL::NUMERIC, 3),
+                 ('02', v_cn1, NULL, NULL, 60, NULL, 9),
+                 ('03', v_tr1, NULL, NULL, 50, NULL, 16),
+                 ('04', v_cn1, v_reorder, NULL, 45, NULL, 22),
+                 ('05', v_tr1, v_variant, NULL, 30, NULL, 24),
+                 ('06', v_cn1, NULL, NULL, 12, NULL, 45),
+                 ('07', v_id1, NULL, NULL, -5, NULL, 60),
+                 ('08', v_tr1, NULL, NULL, -20, 2, 75),
+                 ('09', v_id1, v_cones, NULL, -68, NULL, 110),
+                 ('10', v_id1, NULL, NULL, NULL, NULL, 30),
+                 ('11', v_tr1, NULL, 0, 20, NULL, 40))
+         x (nn, supplier, project, deposit_rate, ready_in, tolerance, age)
     ORDER BY x.nn;
 
-    -- One line each.
-    INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, customer_id, position, product_id,
-                                            quantity, unit_price, spec_document_id)
+    -- One line each, on THO's products.
+    INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, position, product_id, quantity, unit_price,
+                                            spec_document_id)
     SELECT ('5eed0005-0000-4000-8000-0000000001' || x.nn)::UUID, v_tenant,
-           ('5eed0005-0000-4000-8000-0000000000' || x.nn)::UUID, coalesce(x.customer, v_tho), 1, x.product, x.quantity,
-           x.unit_price, x.spec
-    FROM (VALUES ('01', NULL::UUID, '5eed0003-0000-4000-8000-000000000002'::UUID, 500, 3.50, NULL::UUID),
-                 ('02', NULL, '5eed0003-0000-4000-8000-000000000004', 1000, 0.85, '5eed0003-0000-4000-8000-000000000024'),
-                 ('03', NULL, v_mop, 2000, 1.90, v_mop_spec),
-                 ('04', NULL, v_tips50, 5000, 0.48, NULL),
-                 ('05', NULL, '5eed0003-0000-4000-8000-000000000001', 800, 2.70, '5eed0003-0000-4000-8000-000000000022'),
-                 ('06', NULL, v_tips50, 3000, 0.48, NULL),
-                 ('07', NULL, v_cones100, 4000, 0.62, '5eed0003-0000-4000-8000-000000000025'),
-                 ('08', NULL, v_mop, 1000, 1.90, v_mop_spec),
-                 ('09', NULL, v_cones100, 2000, 0.62, '5eed0003-0000-4000-8000-000000000025'),
-                 ('10', NULL, '5eed0003-0000-4000-8000-000000000005', 1000, 1.15, NULL),
-                 ('11', NULL, v_mop, 1500, 1.90, v_mop_spec),
-                 ('12', v_krn, '5eed0003-0000-4000-8000-000000000008', 300, 6.40, '5eed0003-0000-4000-8000-000000000032'))
-         x (nn, customer, product, quantity, unit_price, spec);
+           ('5eed0005-0000-4000-8000-0000000000' || x.nn)::UUID, 1, x.product, x.quantity, x.unit_price, x.spec
+    FROM (VALUES ('01', '5eed0003-0000-4000-8000-000000000002'::UUID, 500, 3.50, NULL::UUID),
+                 ('02', '5eed0003-0000-4000-8000-000000000004', 1000, 0.85, '5eed0003-0000-4000-8000-000000000043'),
+                 ('03', v_mop, 2000, 1.90, v_mop_spec),
+                 ('04', v_tips50, 5000, 0.48, NULL),
+                 ('05', '5eed0003-0000-4000-8000-000000000001', 800, 2.70, '5eed0003-0000-4000-8000-000000000042'),
+                 ('06', v_tips50, 3000, 0.48, NULL),
+                 ('07', v_cones100, 4000, 0.62, v_cones_spec),
+                 ('08', v_mop, 1000, 1.90, v_mop_spec),
+                 ('09', v_cones100, 2000, 0.62, v_cones_spec),
+                 ('10', '5eed0003-0000-4000-8000-000000000005', 1000, 1.15, NULL),
+                 ('11', v_mop, 1500, 1.90, v_mop_spec))
+         x (nn, product, quantity, unit_price, spec);
 
     -- Everything but the draft is sent; the cancelled order is cancelled once sent.
     PERFORM private.story_po_walk(('5eed0005-0000-4000-8000-0000000000' || nn)::UUID, 'sent')
-    FROM unnest(ARRAY['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']) nn;
+    FROM unnest(ARRAY['02', '03', '04', '05', '06', '07', '08', '09', '10', '11']) nn;
 
     PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000010', 'cancelled');
 
@@ -766,19 +1005,145 @@ BEGIN
     -- PSI reports: approved on the order in production, only a draft on the ready one (the PSI
     -- warning before its balance).
     PERFORM private.story_doc('5eed0005-0000-4000-8000-000000000306', 'purchase_order',
-                              '5eed0005-0000-4000-8000-000000000006', v_tho, 'psi_report', 1, 'approved', current_date - 3);
+                              '5eed0005-0000-4000-8000-000000000006', 'psi_report', 1, 'approved', current_date - 3);
     PERFORM private.story_doc('5eed0005-0000-4000-8000-000000000307', 'purchase_order',
-                              '5eed0005-0000-4000-8000-000000000007', v_tho, 'psi_report', 1, 'draft', NULL);
+                              '5eed0005-0000-4000-8000-000000000007', 'psi_report', 1, 'draft', NULL);
 
-    -- The gates that need a PI, by the real rules (the bypass is off again), oldest first. The
-    -- cones project's G5 (on its shipment's delivery receipt) and its close are in step 06.
-    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000403', v_cones, 'G3', now() - interval '80 days',
-                                    ARRAY['5eed0005-0000-4000-8000-000000000209'::UUID]);
+    PERFORM private.story_end('5 days');
+END;
+$$;
+
+-- Step 05, KRN's part: kerstin orders the vase from Kernhaus's own supplier PT1 (an own order: no
+-- client, coded under KRN), sends it with the vase's signed spec sheet, receives the supplier's PI
+-- and approves it two days ago. PI document …-212.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('kerstin@moesa-panel.test', 'Kernhaus Living GmbH');
+BEGIN
+    INSERT INTO public.purchase_order (id, tenant_id, supplier_id, currency, ready_on, created_at)
+    VALUES ('5eed0005-0000-4000-8000-000000000012', v_tenant, '5eed0002-0000-4000-8000-000000000010', 'EUR',
+            current_date + 40, now() - INTERVAL '7 days');
+
+    INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, position, product_id, quantity, unit_price,
+                                            spec_document_id)
+    VALUES ('5eed0005-0000-4000-8000-000000000112', v_tenant, '5eed0005-0000-4000-8000-000000000012', 1,
+            '5eed0003-0000-4000-8000-000000000008', 300, 6.40, '5eed0003-0000-4000-8000-000000000032');
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000012', 'sent');
+    PERFORM private.story_po_pi('5eed0005-0000-4000-8000-000000000212', '5eed0005-0000-4000-8000-000000000012', 'approved',
+                                current_date - 3);
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000012', 'pi_approved', now() - INTERVAL '2 days');
+
+    PERFORM private.story_end('5 days');
+END;
+$$;
+
+-- Step 05, CLS's part, before its relationship ends: koordinator (management in CLS) adds Clearstar's
+-- one product, akif (management in MOESA LTD, invited into CLS) records its sourcing and the two
+-- orders MOESA LTD made for CLS: one closed (approved PI, both payments paid, a production note),
+-- one cancelled once sent. Product …-0a, sourcing …-10a; orders …-13 and …-14, lines …-113/114,
+-- PI document …-213. Orders and sourcing age 130 days: CLS's story is over (step 05, last part).
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'Clearstar Handel GmbH');
+BEGIN
+    INSERT INTO public.product (id, tenant_id, sku, display_name, brand, gtin, status, compliance_status)
+    VALUES ('5eed0003-0000-4000-8000-00000000000a', v_tenant, 'CLS-LAMP-01', 'LED Tischlampe, 30 cm', 'Clearstar',
+            '4260696025930', 'on_sale', 'complete');
+
+    PERFORM private.story_end('130 days');
+END;
+$$;
+
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+    v_cls UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'CLS');
+    v_id1 UUID := (SELECT s.id FROM public.supplier s WHERE s.tenant_id = v_tenant AND s.code = 'ID1');
+BEGIN
+    IF v_cls IS NULL OR v_id1 IS NULL THEN
+        RAISE EXCEPTION 'story 05: CLS or supplier ID1 is missing';
+    END IF;
+
+    INSERT INTO public.sourcing (id, tenant_id, client_tenant_id, product_id, supplier_id, purchase_price, purchase_currency,
+                                 purchase_incoterm, sell_price_eur)
+    SELECT '5eed0003-0000-4000-8000-00000000010a', v_tenant, v_cls, '5eed0003-0000-4000-8000-00000000000a', s.id, 1.40, 'USD',
+           s.default_incoterm, 6.90
+    FROM public.supplier s WHERE s.id = v_id1;
+
+    INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, ready_on, created_at)
+    VALUES ('5eed0005-0000-4000-8000-000000000013', v_tenant, v_cls, v_id1, 'USD', current_date - 160, now() - INTERVAL '200 days'),
+           ('5eed0005-0000-4000-8000-000000000014', v_tenant, v_cls, v_id1, 'USD', current_date - 150, now() - INTERVAL '170 days');
+
+    INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, position, product_id, quantity, unit_price)
+    VALUES ('5eed0005-0000-4000-8000-000000000113', v_tenant, '5eed0005-0000-4000-8000-000000000013', 1,
+            '5eed0003-0000-4000-8000-00000000000a', 1200, 1.40),
+           ('5eed0005-0000-4000-8000-000000000114', v_tenant, '5eed0005-0000-4000-8000-000000000014', 1,
+            '5eed0003-0000-4000-8000-00000000000a', 400, 1.40);
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'sent');
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000014', 'sent');
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000014', 'cancelled');
+    PERFORM private.story_po_pi('5eed0005-0000-4000-8000-000000000213', '5eed0005-0000-4000-8000-000000000013', 'approved',
+                                current_date - 190);
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'pi_approved', now() - INTERVAL '188 days');
+
+    INSERT INTO public.purchase_order_payment (tenant_id, purchase_order_id, kind, amount, currency, planned_on, paid_on, paid_by)
+    SELECT v_tenant, po.id, x.kind::public.payment_kind,
+           CASE x.kind WHEN 'deposit' THEN po.pi_deposit_amount ELSE po.pi_balance_amount END, po.currency,
+           current_date + x.planned_in, current_date + x.planned_in + 1, 'company'
+    FROM (VALUES ('deposit', -186), ('balance', -150)) x (kind, planned_in)
+    JOIN public.purchase_order po ON po.id = '5eed0005-0000-4000-8000-000000000013';
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'balance_paid');
+
+    INSERT INTO public.purchase_order_update (tenant_id, purchase_order_id, happened_on, note)
+    VALUES (v_tenant, '5eed0005-0000-4000-8000-000000000013', current_date - 175, 'Üretim tamamlandı, parti Clearstar deposuna teslim edildi');
+
+    PERFORM private.story_po_walk('5eed0005-0000-4000-8000-000000000013', 'closed');
+
+    PERFORM private.story_end('130 days');
+END;
+$$;
+
+-- Step 05, CLS's last part: baris closes Clearstar's contract, now that its only project is closed and
+-- its orders are done, and ends the relationship (public.end_provider_relationship, as the panel
+-- does). The ended relationship keeps its shared history (decision 13): the orders above stay
+-- readable to CLS, masked and read-only.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
+    v_rows INT;
+BEGIN
+    UPDATE public.provider_relationship SET contract_status = 'closed'
+    WHERE id = '5eed0002-0000-4000-8000-000000000004' AND tenant_id = v_tenant;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF v_rows <> 1 THEN
+        RAISE EXCEPTION 'story 04: closing CLS changed % rows', v_rows;
+    END IF;
+
+    PERFORM public.end_provider_relationship('5eed0002-0000-4000-8000-000000000004');
+
+    PERFORM private.story_end('25 days');
+END;
+$$;
+
+-- Step 05, THO's part: the gates that need an order at pi_approved, by the real rules, as
+-- koordinator in THO, oldest first. Each G3 passes on MOESA LTD's order of the project (a
+-- provider's order needs no evidence: its PI is the provider's); gate approvals …-4NN. The cones
+-- project's G5 and its close are in step 06.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
+    v_variant UUID := '5eed0004-0000-4000-8000-000000000002';
+    v_reorder UUID := '5eed0004-0000-4000-8000-000000000003';
+    v_cones UUID := '5eed0004-0000-4000-8000-000000000005';
+BEGIN
+    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000403', v_cones, 'G3', now() - interval '80 days');
     PERFORM private.story_pass_gate(NULL, v_cones, 'G4', now() - interval '70 days');
-    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000402', v_reorder, 'G3', now() - interval '12 days',
-                                    ARRAY['5eed0005-0000-4000-8000-000000000204'::UUID]);
-    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000401', v_variant, 'G3', now() - interval '6 days',
-                                    ARRAY['5eed0005-0000-4000-8000-000000000205'::UUID]);
+    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000402', v_reorder, 'G3', now() - interval '12 days');
+    PERFORM private.story_pass_gate('5eed0005-0000-4000-8000-000000000401', v_variant, 'G3', now() - interval '6 days');
 
     PERFORM private.story_end('5 days');
 END;
@@ -874,37 +1239,34 @@ BEGIN
 END;
 $$;
 
--- Step 06 (yesterday): shipments in every status, as koordinator in MOESA LTD, all to THO's
--- Rosbach warehouse. Each shipment is inserted (the code trigger forces planned; codes follow the
--- insert order, SHP-THO-<year>-001..011), gets its order and lines while it is planned (the line
--- cap is the order line's quantity plus the order's tolerance, over all shipments), its dates, then
--- story_shipment_walk takes it to its status. Shipment ids 5eed0006-…-NN, lines …-1NN, shipment
--- documents …-2NN, the G5 approval …-301, events …-4NN.
+-- Step 06 (yesterday): the shipments MOESA LTD makes for THO, in every status, as koordinator in
+-- MOESA LTD (invited into THO, so he may name THO's warehouse), all to THO's Rosbach warehouse.
+-- Each shipment is inserted (the code trigger forces planned; its client THO gives the code,
+-- SHP-THO-<year>-001..011), gets its order and lines while it is planned (the line cap is the order
+-- line's quantity plus the order's tolerance, over all shipments), its dates, then
+-- story_shipment_walk takes it to its status. The links, lines and events take THO as their client
+-- from the shipment. Shipment ids 5eed0006-…-NN, lines …-1NN, shipment documents …-2NN, events
+-- …-4NN.
 --   PO-008 is partially received: 08 accepted 600 of its 1000, 01 (planned) carries the other 400.
---   PO-009 (closed in step 05) went out in two shipments: 11, accepted a month ago, is the cones
---   project's G5 evidence (its signed delivery receipt), and the project closes here; 09, the rest,
---   arrived damaged four days ago and is disputed. The order closed before 09 was linked, so its
---   links are made under the bypass (Ruling P1: shipment_po_not_open; the order closed after the
---   dispute in the story's time).
--- The incidents on 06 (OL-08) and 09 (OL-05) come with step 08, the damage photo of 09 with the
--- media step.
+--   PO-009 (closed in step 05) went out in two shipments: 11, accepted a month ago, closed the
+--   cones project (THO's G5, below); 09, the rest, arrived damaged four days ago and is disputed.
+--   The order closed before 09 was linked, so its links are made under the bypass (Ruling P1:
+--   shipment_po_not_open; the order closed after the dispute in the story's time).
+-- THO's incidents about these deliveries come with step 08, the damage photo of 09 with the media
+-- step.
 DO $$
 DECLARE
     v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.tenant_id = v_tenant AND c.code = 'THO');
-    v_rosbach UUID := (SELECT w.id FROM public.customer_warehouse w
-                       JOIN public.customer c ON c.id = w.customer_id AND c.tenant_id = w.tenant_id AND c.code = 'THO'
-                       WHERE w.tenant_id = v_tenant AND w.display_name = 'Rosbach');
+    v_tho UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'THO');
+    v_rosbach UUID := (SELECT w.id FROM public.warehouse w WHERE w.tenant_id = v_tho AND w.display_name = 'Rosbach');
     v_acceptor TEXT := (SELECT u.user_metadata ->> 'display_name' FROM public.user u WHERE u.email = 'baris@moesa-panel.test');
-    v_cones UUID := '5eed0004-0000-4000-8000-000000000005';
-    v_rows INT;
 BEGIN
     IF v_tho IS NULL OR v_rosbach IS NULL OR v_acceptor IS NULL THEN
         RAISE EXCEPTION 'story 06: THO, its Rosbach warehouse or baris of seed.sql is missing';
     END IF;
 
     -- Eleven shipments, in code order.
-    INSERT INTO public.shipment (id, tenant_id, customer_id, mode, delivery_warehouse_id, created_at)
+    INSERT INTO public.shipment (id, tenant_id, client_tenant_id, mode, delivery_warehouse_id, created_at)
     SELECT ('5eed0006-0000-4000-8000-0000000000' || x.nn)::UUID, v_tenant, v_tho, x.mode::public.shipment_mode, v_rosbach,
            now() - make_interval(days => x.age)
     FROM (VALUES ('01', 'road', 3), ('02', 'fcl20', 6), ('03', 'lcl', 12), ('04', 'fcl40', 15), ('05', 'fcl40', 40),
@@ -958,7 +1320,7 @@ BEGIN
 
     -- The documents of the shipments, the delivery receipts before the acceptances they allow.
     PERFORM private.story_doc(('5eed0006-0000-4000-8000-000000000' || x.nn)::UUID, 'shipment',
-                              ('5eed0006-0000-4000-8000-0000000000' || x.ship)::UUID, v_tho, x.type::public.document_type, 1,
+                              ('5eed0006-0000-4000-8000-0000000000' || x.ship)::UUID, x.type::public.document_type, 1,
                               x.st::public.document_status, current_date + x.issued_in)
     FROM (VALUES ('201', '04', 'packing_list', 'draft', NULL::INT), ('202', '04', 'commercial_invoice', 'signed', -6),
                  ('203', '05', 'bill_of_lading', 'signed', -30), ('204', '06', 'customs', 'draft', NULL),
@@ -988,10 +1350,25 @@ BEGIN
            ('5eed0006-0000-4000-8000-000000000404', v_tenant, '5eed0006-0000-4000-8000-000000000005', now() - INTERVAL '5 days', 4,
             'MOESA', 'Müşteri', 'e-mail', 'Yeni ETA belirsiz, müşteri bilgilendirildi');
 
-    -- The cones project's G5 on 11's delivery receipt, three days after the delivery, by the real
-    -- rules; then the project closes, its last gate passed.
+    PERFORM private.story_end('1 day');
+END;
+$$;
+
+-- Step 06, THO's part: the cones arrived (shipment 11 above). koordinator passes the cones
+-- project's G5 in THO a month ago, three days after the delivery, on the receipt THO's Rosbach
+-- warehouse signed (a document of the project: MOESA LTD's delivery receipt is the provider's, which
+-- a client gate may not cite), by the real rules; then the project closes, its last gate passed.
+-- The G5 approval …-301, the warehouse receipt …-302.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
+    v_cones UUID := '5eed0004-0000-4000-8000-000000000005';
+    v_rows INT;
+BEGIN
+    PERFORM private.story_doc('5eed0006-0000-4000-8000-000000000302', 'project', v_cones, 'delivery_receipt', 1, 'signed',
+                              current_date - 33);
     PERFORM private.story_pass_gate('5eed0006-0000-4000-8000-000000000301', v_cones, 'G5', now() - INTERVAL '30 days',
-                                    ARRAY['5eed0006-0000-4000-8000-000000000206'::UUID]);
+                                    ARRAY['5eed0006-0000-4000-8000-000000000302'::UUID]);
 
     UPDATE public.project SET status = 'closed' WHERE id = v_cones AND current_phase = 'closed';
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -999,6 +1376,27 @@ BEGIN
     IF v_rows <> 1 THEN
         RAISE EXCEPTION 'story 06: the cones project did not reach its closed phase';
     END IF;
+
+    PERFORM private.story_end('1 day');
+END;
+$$;
+
+-- Step 06, KRN's part: kerstin plans the vase's road shipment from PT1 to Kernhaus's Vienna
+-- warehouse, an own shipment coded under KRN, with its approved order and all 300 vases.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('kerstin@moesa-panel.test', 'Kernhaus Living GmbH');
+BEGIN
+    INSERT INTO public.shipment (id, tenant_id, mode, delivery_warehouse_id, created_at)
+    SELECT '5eed0006-0000-4000-8000-000000000012', v_tenant, 'road', w.id, now() - INTERVAL '1 day'
+    FROM public.warehouse w WHERE w.tenant_id = v_tenant AND w.display_name = 'Wien';
+
+    INSERT INTO public.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id)
+    VALUES ('5eed0006-0000-4000-8000-000000000012', '5eed0005-0000-4000-8000-000000000012', v_tenant);
+
+    INSERT INTO public.shipment_line (id, tenant_id, shipment_id, purchase_order_id, purchase_order_line_id, quantity)
+    VALUES ('5eed0006-0000-4000-8000-000000000112', v_tenant, '5eed0006-0000-4000-8000-000000000012',
+            '5eed0005-0000-4000-8000-000000000012', '5eed0005-0000-4000-8000-000000000112', 300);
 
     PERFORM private.story_end('1 day');
 END;
@@ -1026,10 +1424,10 @@ BEGIN
         RAISE EXCEPTION 'story 07: no product %', p_sku;
     END IF;
 
-    INSERT INTO public.market_cell (id, tenant_id, customer_id, product_id, platform_id, country, compliance, compliance_note,
+    INSERT INTO public.market_cell (id, tenant_id, product_id, platform_id, country, compliance, compliance_note,
                                     platform_product_id, platform_sku, price, currency, stock_source, content_status,
                                     target_launch_on, last_checked_on, open_issue, notes)
-    VALUES (p_id, v_tenant, v_product.customer_id, v_product.id, p_platform, p_country, coalesce(v_rec.compliance, 'pending'),
+    VALUES (p_id, v_tenant, v_product.id, p_platform, p_country, coalesce(v_rec.compliance, 'pending'),
             v_rec.compliance_note, v_rec.platform_product_id, v_rec.platform_sku, v_rec.price, v_rec.currency, v_rec.stock_source,
             coalesce(v_rec.content_status, 'none'), v_rec.target_launch_on, v_rec.last_checked_on, v_rec.open_issue, v_rec.notes);
 
@@ -1040,20 +1438,20 @@ BEGIN
 END;
 $$;
 
--- Step 07 (3 days ago): market cells in every status, as koordinator in MOESA LTD. THO's mop in
--- DE and FR is live (FR with a yellow compliance note), IT is being prepared, ES uploaded and NL
--- suppressed by the platform; the tips are planned (ES), stopped (IT) and live on Kaufland; the
--- cones sit as a red candidate (PL), paused (eBay DE) and removed (Otto). KRN's vase is live on
--- bol and planned on Kaufland AT. Cell ids 5eed0007-…-NN.
+-- Step 07 (3 days ago): market cells in every status, each in the tenant of its product, as
+-- koordinator in THO and then in KRN. THO's mop in DE and FR is live (FR with a yellow compliance
+-- note), IT is being prepared, ES uploaded and NL suppressed by the platform; the tips are planned
+-- (ES), stopped (IT) and live on Kaufland; the cones sit as a red candidate (PL), paused (eBay DE)
+-- and removed (Otto). KRN's vase is live on bol and planned on Kaufland AT. Cell ids 5eed0007-…-NN.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'MOESA LTD');
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
 BEGIN
     -- THO: the mop
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000001', 'THO-MOP40-2P', 'amazon', 'DE',
         ARRAY['planned', 'preparing', 'uploaded', 'live']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY001', 'platform_sku', 'THO-MOP40-2P-DE', 'price', 24.90,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 12, 'last_checked_on', current_date - 1));
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000002', 'THO-MOP40-2P', 'amazon', 'FR',
         ARRAY['planned', 'preparing', 'uploaded', 'live']::public.market_cell_status[],
@@ -1070,7 +1468,7 @@ BEGIN
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000005', 'THO-MOP40-2P', 'amazon', 'NL',
         ARRAY['planned', 'preparing', 'uploaded', 'live', 'suppressed']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY005', 'platform_sku', 'THO-MOP40-2P-NL', 'price', 26.50,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 6, 'last_checked_on', current_date - 1,
                            'open_issue', 'OA-06: ilan platform tarafından askıya alındı, eksik ürün bilgisi bekleniyor'));
 
@@ -1081,7 +1479,7 @@ BEGIN
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000007', 'THO-TIPS-6-50', 'amazon', 'IT',
         ARRAY['planned', 'preparing', 'uploaded', 'live', 'stopped']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'platform_product_id', 'B0STORY007', 'platform_sku', 'THO-TIPS-6-50-IT', 'price', 12.90,
-                           'currency', 'EUR', 'stock_source', 'customer_warehouse', 'content_status', 'approved',
+                           'currency', 'EUR', 'stock_source', 'own_warehouse', 'content_status', 'approved',
                            'launched_on', current_date - 30, 'last_checked_on', current_date - 4,
                            'notes', 'Düşük satış nedeniyle bu pazarda durduruldu'));
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000008', 'THO-TIPS-6-50', 'kaufland', 'DE',
@@ -1101,6 +1499,14 @@ BEGIN
         ARRAY['removed']::public.market_cell_status[],
         jsonb_build_object('compliance', 'green', 'notes', 'Otto satış koşulları uygun değil, hedeften çıkarıldı'));
 
+    PERFORM private.story_end('3 days');
+END;
+$$;
+
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'Kernhaus Living GmbH');
+BEGIN
     -- KRN: the vase
     PERFORM private.story_cell('5eed0007-0000-4000-8000-000000000012', 'KRN-VASE-01', 'bol', 'NL',
         ARRAY['planned', 'preparing', 'uploaded', 'live']::public.market_cell_status[],
@@ -1115,10 +1521,11 @@ BEGIN
 END;
 $$;
 
--- Opens an incident of the story (the fixed id p_id) in the request's tenant, for the customer of
--- the linked record, by the real rules: the code trigger forces open and the code, the notice
--- trigger sets customer_notice_due_at from p_opened_at. p_fields carries the optional opening
--- columns (reported_by, current_state, immediate_action, affected_parties).
+-- Opens an incident of the story (the fixed id p_id) in the request's tenant, on a record of that
+-- tenant or on none (p_entity_type NULL), by the real rules: the code trigger forces open and the
+-- code, the guard checks the record, the notice trigger sets customer_notice_due_at from
+-- p_opened_at. p_fields carries the optional opening columns (reported_by, current_state,
+-- immediate_action, affected_parties).
 CREATE FUNCTION private.story_incident (p_id UUID, p_family public.incident_family, p_type TEXT, p_severity public.incident_severity,
                                         p_opened_at TIMESTAMPTZ, p_entity_type public.document_entity, p_entity_id UUID,
                                         p_title TEXT, p_what_happened TEXT, p_fields JSONB DEFAULT '{}') RETURNS VOID LANGUAGE plpgsql
@@ -1126,22 +1533,18 @@ SET
    search_path = '' AS $$
 DECLARE
     v_tenant UUID := private.requested_tenant();
-    v_customer UUID := private.entity_customer(p_entity_type, p_entity_id, v_tenant);
     v_rec public.incident := jsonb_populate_record(NULL::public.incident, p_fields);
 BEGIN
-    IF v_customer IS NULL THEN
-        RAISE EXCEPTION 'story 08: no % %', p_entity_type, p_entity_id;
-    END IF;
-
-    INSERT INTO public.incident (id, tenant_id, customer_id, family, incident_type, severity, title, what_happened, reported_by,
-                                 current_state, immediate_action, entity_type, entity_id, opened_at, affected_parties)
-    VALUES (p_id, v_tenant, v_customer, p_family, p_type, p_severity, p_title, p_what_happened, v_rec.reported_by,
-            v_rec.current_state, v_rec.immediate_action, p_entity_type, p_entity_id, p_opened_at,
+    INSERT INTO public.incident (id, tenant_id, family, incident_type, severity, title, what_happened, reported_by,
+                                 current_state, immediate_action, entity_type, entity_id, entity_tenant_id, opened_at,
+                                 affected_parties)
+    VALUES (p_id, v_tenant, p_family, p_type, p_severity, p_title, p_what_happened, v_rec.reported_by,
+            v_rec.current_state, v_rec.immediate_action, p_entity_type, p_entity_id, v_rec.entity_tenant_id, p_opened_at,
             coalesce(v_rec.affected_parties, '{}'));
 END;
 $$;
 
--- Opens a change request of the story (the fixed id p_id) for THO in the request's tenant, by the
+-- Opens a change request of the story (the fixed id p_id) in the request's tenant, by the
 -- real rules: the code trigger forces open, the due trigger sets created_at to now and
 -- decision_due_on from it. p_fields carries the optional columns (project_id, affected_gate_code,
 -- affected_document_id, other_documents, cost_impact, cost_payer, delay_days, quality_impact,
@@ -1153,19 +1556,18 @@ SET
    search_path = '' AS $$
 DECLARE
     v_tenant UUID := private.requested_tenant();
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.code = 'THO' AND c.tenant_id = private.requested_tenant());
     v_rec public.change_request := jsonb_populate_record(NULL::public.change_request, p_fields);
     v_rows INT;
 BEGIN
-    INSERT INTO public.change_request (id, tenant_id, customer_id, project_id, title, source, urgency, change_kinds, current_value,
+    INSERT INTO public.change_request (id, tenant_id, project_id, purchase_order_id, order_tenant_id, title, source, urgency, change_kinds, current_value,
                                        requested_value, reason, affected_gate_code, affected_document_id, other_documents,
                                        cost_impact, cost_payer, delay_days, quality_impact, listing_impact)
-    VALUES (p_id, v_tenant, v_tho, v_rec.project_id, p_title, p_source, p_urgency, p_kinds, p_current_value, p_requested_value,
+    VALUES (p_id, v_tenant, v_rec.project_id, v_rec.purchase_order_id, v_rec.order_tenant_id, p_title, p_source, p_urgency, p_kinds, p_current_value, p_requested_value,
             p_reason, v_rec.affected_gate_code, v_rec.affected_document_id, v_rec.other_documents, v_rec.cost_impact,
             v_rec.cost_payer, v_rec.delay_days, v_rec.quality_impact, v_rec.listing_impact);
 
-    INSERT INTO public.change_request_product (change_request_id, product_id, tenant_id, customer_id)
-    SELECT p_id, p.id, v_tenant, v_tho
+    INSERT INTO public.change_request_product (change_request_id, product_id, tenant_id)
+    SELECT p_id, p.id, v_tenant
     FROM public.product p
     WHERE p.tenant_id = v_tenant AND p.sku = ANY (p_skus);
 
@@ -1176,9 +1578,13 @@ BEGIN
 END;
 $$;
 
--- Step 08 (today): incidents of every family, severity and status, the variant's G3 rolled back
--- through the OT-04 incident, and change requests in every status, as akif (management) in MOESA
--- LTD. Everything meets the real rules, with the rules bypass off: incidents are opened at their
+-- Step 08 (today): THO's incidents of every family, severity and status, the variant's G3 rolled
+-- back through the OT-04 incident, and change requests in every status, as akif (management) in
+-- THO: incidents and change requests stay in the client's tenant. In Plan 1 an incident links only
+-- to a record of its own tenant (incident_entity_invalid), so the incidents about MOESA LTD's
+-- deliveries name none and the PI mismatch names the variant project it holds back; Plan 2 links
+-- them to the provider's orders and shipments. Everything meets the real rules, with the rules
+-- bypass off: incidents are opened at their
 -- past opened_at and walked open → contained → closed one UPDATE at a time (management told before
 -- an s1/s2 leaves open; the guard sets closed_on and closed_by on closing); the rollback goes
 -- through public.rollback_gate while its incident is contained; requests go open → approved |
@@ -1188,8 +1594,8 @@ $$;
 -- 5eed0008-…-0N, change request ids …-1N, documents …-2N; codes come from the triggers.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.code = 'THO' AND c.tenant_id = private.requested_tenant());
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
+    v_moesa UUID := (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD');
     v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-TIPS-6-50' AND p.tenant_id = private.requested_tenant());
     v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-CONES-100' AND p.tenant_id = private.requested_tenant());
     v_pilot UUID := (SELECT p.id FROM public.project p WHERE p.display_name = 'Mop ailesi çok ülke pilotu' AND p.tenant_id = private.requested_tenant());
@@ -1197,22 +1603,27 @@ DECLARE
     v_gate public.project_gate;
     v_rows INT;
 BEGIN
-    IF v_tho IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL OR v_pilot IS NULL OR v_variant_g3 IS NULL THEN
+    IF v_tips50 IS NULL OR v_cones100 IS NULL OR v_pilot IS NULL OR v_variant_g3 IS NULL OR v_moesa IS NULL THEN
         RAISE EXCEPTION 'story 08: a seed or story row is missing';
     END IF;
+
+    -- akif works in THO with MOESA LTD in his scope (as the panel's tenant switcher sends both): the
+    -- incidents and requests cite MOESA LTD's shared orders and shipments, and their cost fields
+    -- belong to the provider (the guard wants his cost right in MOESA LTD).
+    PERFORM set_config('request.headers', json_build_object('x-tenant-id', v_tenant, 'x-tenant-ids', v_moesa || ',' || v_tenant)::TEXT, TRUE);
 
     -- 01 OL-02 s1, open five hours: management not told yet, the customer's 4-hour notice is late.
     PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000001', 'ol', 'OL-02', 's1', now() - INTERVAL '5 hours', 'shipment',
         '5eed0006-0000-4000-8000-000000000002', 'Tır depoda kabul edilmedi',
         'Rosbach deposu randevusuz gelen aracı geri çevirdi; yük araçta bekliyor.',
-        jsonb_build_object('reported_by', 'Forwarder operasyon (telefon)', 'current_state', 'Araç depo önünde bekliyor',
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Forwarder operasyon (telefon)', 'current_state', 'Araç depo önünde bekliyor',
                            'affected_parties', ARRAY['customer', 'forwarder', 'warehouse']));
 
     -- 02 OL-05 s2, contained: hasarlı teslimat; the 48-hour supplier damage notice ran out two days ago.
     PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000002', 'ol', 'OL-05', 's2', now() - INTERVAL '4 days', 'shipment',
         '5eed0006-0000-4000-8000-000000000009', 'Teslimatta hasarlı koliler',
         'Hava kargo teslimatında koliler ezik geldi; teslim tutanağına hasar notu düşüldü.',
-        jsonb_build_object('reported_by', 'Müşteri deposu (e-posta)', 'immediate_action', 'Hasarlı koliler ayrıldı, fotoğraflandı',
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Müşteri deposu (e-posta)', 'immediate_action', 'Hasarlı koliler ayrıldı, fotoğraflandı',
                            'affected_parties', ARRAY['customer', 'supplier', 'forwarder']));
     INSERT INTO public.incident_deadline (tenant_id, incident_id, kind, label)
     VALUES (v_tenant, '5eed0008-0000-4000-8000-000000000002', 'supplier_damage', 'Tedarikçiye hasar bildirimi');
@@ -1230,8 +1641,8 @@ BEGIN
 
     -- 03 OL-09 s3, closed: eksik koli, fully recovered.
     PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000003', 'ol', 'OL-09', 's3', now() - INTERVAL '60 days', 'shipment',
-        '5eed0006-0000-4000-8000-000000000006', 'Eksik koli',
-        'Gümrük sayımında iki koli eksik çıktı.', jsonb_build_object('reported_by', 'Gümrük müşaviri (e-posta)'));
+        '5eed0006-0000-4000-8000-000000000011', 'Eksik koli',
+        'Gümrük sayımında iki koli eksik çıktı.', jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Gümrük müşaviri (e-posta)'));
     UPDATE public.incident SET status = 'contained' WHERE id = '5eed0008-0000-4000-8000-000000000003';
     UPDATE public.incident
     SET status = 'closed', outcome = 'full_recovery', root_cause = 'carrier',
@@ -1241,14 +1652,18 @@ BEGIN
 
     -- 04 OL-09 s3, open: the same card again within 90 days (a repeat).
     PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000004', 'ol', 'OL-09', 's3', now() - INTERVAL '10 days', 'shipment',
-        '5eed0006-0000-4000-8000-000000000007', 'Eksik koli (tekrar)',
-        'Kara yolu teslimatında bir koli eksik sayıldı.', jsonb_build_object('reported_by', 'Müşteri deposu (e-posta)'));
+        '5eed0006-0000-4000-8000-000000000010', 'Eksik koli (tekrar)',
+        'Kara yolu teslimatında bir koli eksik sayıldı.', jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Müşteri deposu (e-posta)'));
 
     -- 05 OT-04 s2, contained: the supplier's PI does not match the order; it rolls back the variant's G3.
     PERFORM private.story_incident('5eed0008-0000-4000-8000-000000000005', 'ot', 'OT-04', 's2', now() - INTERVAL '3 days', 'purchase_order',
         '5eed0005-0000-4000-8000-000000000003', 'PI tutarsızlığı',
         'Tedarikçinin PI toplamı sipariş tutarından farklı; onaylı varyant fiyatları da etkileniyor.',
-        jsonb_build_object('reported_by', 'Satın alma (e-posta)', 'affected_parties', ARRAY['customer', 'supplier']));
+        jsonb_build_object('entity_tenant_id', v_moesa, 'reported_by', 'Satın alma (e-posta)', 'affected_parties', ARRAY['customer', 'supplier']));
+    -- The expertise fee of the mismatch is a provider-guarded cost (the incident cites MOESA LTD's order).
+    INSERT INTO public.incident_log (tenant_id, incident_id, logged_at, note, counterparty, decision, cost_amount, cost_currency, cost_payer)
+    VALUES (v_tenant, '5eed0008-0000-4000-8000-000000000005', now() - INTERVAL '2 days', 'PI farkı için bağımsız hesap kontrolü yaptırıldı.',
+            'Denetim firması (e-posta)', 'Fark tedarikçiden talep edilecek', 120, 'EUR', 'supplier');
     UPDATE public.incident
     SET management_notified_at = opened_at + INTERVAL '30 minutes', customer_notified_at = least(opened_at + INTERVAL '2 hours', customer_notice_due_at)
     WHERE id = '5eed0008-0000-4000-8000-000000000005';
@@ -1307,7 +1722,7 @@ BEGIN
         'Fırça kıl sertliği ve ürün metni', 'Orta sertlik', 'Sert kıl, ürün metninde belirtilecek', 'Müşteri geri bildirimi',
         jsonb_build_object('project_id', '5eed0004-0000-4000-8000-000000000001', 'affected_gate_code', 'PL_G1',
                            'quality_impact', 'Numune yeniden onaylanacak', 'listing_impact', 'Ürün metni güncellenecek'));
-    PERFORM private.story_doc('5eed0008-0000-4000-8000-000000000021', 'change_request', '5eed0008-0000-4000-8000-000000000013', v_tho,
+    PERFORM private.story_doc('5eed0008-0000-4000-8000-000000000021', 'change_request', '5eed0008-0000-4000-8000-000000000013',
                               'change_request', 1, 'signed', current_date - 3);
     UPDATE public.change_request
     SET customer_approved_on = current_date - 3, customer_approval_document_id = '5eed0008-0000-4000-8000-000000000021'
@@ -1317,8 +1732,10 @@ BEGIN
 
     -- 14 rejected: the supplier's price rise.
     PERFORM private.story_cr('5eed0008-0000-4000-8000-000000000014', 'supplier', 'normal', ARRAY['price', 'supplier']::public.change_kind[],
-        'Tedarikçi fiyat artışı', 'Birim fiyat 1,90 USD', 'Birim fiyat 2,10 USD', 'Hammadde maliyeti arttı',
-        jsonb_build_object('cost_impact', 'Birim başına 0,20 USD', 'cost_payer', 'company'));
+        'Tedarikçi kaynaklı fiyat artışı', 'Birim satış fiyatı 9,40 EUR', 'Birim satış fiyatı 9,90 EUR',
+        'Tedarikçinin hammadde maliyeti arttı',
+        jsonb_build_object('purchase_order_id', '5eed0005-0000-4000-8000-000000000004', 'cost_impact', 'Birim başına 0,50 EUR',
+                           'cost_payer', 'company'));
     UPDATE public.change_request SET status = 'rejected', decision_note = 'Sözleşme fiyatı yıl sonuna kadar geçerli; artış kabul edilmedi'
     WHERE id = '5eed0008-0000-4000-8000-000000000014';
 
@@ -1328,7 +1745,7 @@ BEGIN
         jsonb_build_object('project_id', '5eed0004-0000-4000-8000-000000000004',
                            'affected_document_id', '5eed0003-0000-4000-8000-000000000030'));
     UPDATE public.change_request SET status = 'approved' WHERE id = '5eed0008-0000-4000-8000-000000000015';
-    PERFORM private.story_doc('5eed0008-0000-4000-8000-000000000022', 'product', v_cones100, v_tho, 'label_artwork', 2, 'signed',
+    PERFORM private.story_doc('5eed0008-0000-4000-8000-000000000022', 'product', v_cones100, 'label_artwork', 2, 'signed',
                               current_date);
     UPDATE public.change_request SET status = 'applied', result_document_id = '5eed0008-0000-4000-8000-000000000022'
     WHERE id = '5eed0008-0000-4000-8000-000000000015';
@@ -1347,22 +1764,37 @@ BEGIN
 END;
 $$;
 
+-- Step 08, MOESA LTD's part (today): the provider's own feed is not empty today. As akif in MOESA LTD:
+-- a production note on the order in production and the incident's expert fee on the PI-mismatch order
+-- (a provider's reaction to THO's incident), both of today.
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
+BEGIN
+    INSERT INTO public.purchase_order_update (tenant_id, purchase_order_id, happened_on, note)
+    VALUES (v_tenant, '5eed0005-0000-4000-8000-000000000006', current_date, 'Dolum tamamlandı, final ambalaj ve yükleme planlanıyor'),
+           (v_tenant, '5eed0005-0000-4000-8000-000000000003', current_date, 'Tedarikçiden düzeltilmiş PI istendi (tutar farkı)');
+
+    PERFORM private.story_end('0');
+END;
+$$;
+
 -- The media row of a file scripts/seed-story.mjs uploaded (the fixed id p_id, from its MEDIA list)
 -- in the request's tenant: the file <tenant>/<id>/<p_file_name>, and the thumbnail
 -- <tenant>/<id>/thumb/thumb.webp when it was uploaded too. media_check_file takes the type and
--- size from Storage's record, so they are left to it. p_customer_id NULL is a shared file.
-CREATE FUNCTION private.story_media (p_id UUID, p_customer_id UUID, p_title TEXT, p_file_name TEXT) RETURNS UUID LANGUAGE plpgsql
+-- size from Storage's record, so they are left to it.
+CREATE FUNCTION private.story_media (p_id UUID, p_title TEXT, p_file_name TEXT) RETURNS UUID LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 DECLARE
     v_folder TEXT := private.requested_tenant() || '/' || p_id || '/';
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id = 'media' AND o.name = v_folder || p_file_name) THEN
-        RAISE EXCEPTION 'story: media % not uploaded', p_id;
+        RAISE EXCEPTION 'story: media % not uploaded under %', p_id, v_folder;
     END IF;
 
-    INSERT INTO public.media (id, tenant_id, customer_id, storage_path, thumbnail_path, file_name, title)
-    VALUES (p_id, private.requested_tenant(), p_customer_id, v_folder || p_file_name,
+    INSERT INTO public.media (id, tenant_id, storage_path, thumbnail_path, file_name, title)
+    VALUES (p_id, private.requested_tenant(), v_folder || p_file_name,
             (SELECT o.name FROM storage.objects o WHERE o.bucket_id = 'media' AND o.name = v_folder || 'thumb/thumb.webp'),
             p_file_name, p_title);
 
@@ -1371,61 +1803,90 @@ END;
 $$;
 
 -- Step 09 (30 days ago): the media library and the documents of the kinds the earlier steps left
--- out, as baris in MOESA LTD. The media rows come first, so that the step's audit transaction is
--- named after the media table; every file was uploaded by the script before this file ran (media
--- ids 5eed0009-…-NN, documents …-2NN). THO's files go only to THO's records and documents; the
--- catalogue photo (09) and the certificate PDF (12) have no customer, so the photo shows on THO's
--- and KRN's products and the PDF backs a supplier's certificate (a supplier's document has no
--- customer, so it may cite no customer's file). The 12 MB catalogue (11) fits MOESA LTD's 25 MB
--- cap and not MOESA Trading GmbH's 5 MB: the transfer's media_too_large edge.
+-- out, each in the tenant of the records they belong to; every file was uploaded by the script,
+-- under that tenant, before this file ran (media ids 5eed0009-…-NN, documents …-2NN). The media
+-- rows come first in each part, so that its audit transaction is named after the media table.
+-- First THO's, as akif in THO: the product images and files, the change request's artwork, the
+-- unused shot and the 12 MB catalogue (11), which fits THO's 25 MB cap and not MOESA Trading GmbH's
+-- 5 MB (the oversized-copy edge). The catalogue photo (09) shows on two of THO's products.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
-    v_tho UUID := (SELECT c.id FROM public.customer c WHERE c.code = 'THO' AND c.tenant_id = private.requested_tenant());
-    v_krn UUID := (SELECT c.id FROM public.customer c WHERE c.code = 'KRN' AND c.tenant_id = private.requested_tenant());
-    v_cn1 UUID := (SELECT s.id FROM public.supplier s WHERE s.code = 'CN1' AND s.tenant_id = private.requested_tenant());
+    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
     v_mop40_2p UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-MOP40-2P' AND p.tenant_id = private.requested_tenant());
     v_mop40_3p UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-MOP40-3P' AND p.tenant_id = private.requested_tenant());
     v_mop60_2p UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-MOP60-2P' AND p.tenant_id = private.requested_tenant());
     v_tips50 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-TIPS-6-50' AND p.tenant_id = private.requested_tenant());
     v_cones100 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-CONES-100' AND p.tenant_id = private.requested_tenant());
     v_cones200 UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'THO-CONES-200' AND p.tenant_id = private.requested_tenant());
-    v_vase UUID := (SELECT p.id FROM public.product p WHERE p.sku = 'KRN-VASE-01' AND p.tenant_id = private.requested_tenant());
-    v_rows INT;
 BEGIN
-    IF v_tho IS NULL OR v_krn IS NULL OR v_cn1 IS NULL OR v_mop40_2p IS NULL OR v_mop40_3p IS NULL OR v_mop60_2p IS NULL
-       OR v_tips50 IS NULL OR v_cones100 IS NULL OR v_cones200 IS NULL OR v_vase IS NULL THEN
-        RAISE EXCEPTION 'story 09: a seed or story row is missing';
+    IF v_mop40_2p IS NULL OR v_mop40_3p IS NULL OR v_mop60_2p IS NULL OR v_tips50 IS NULL OR v_cones100 IS NULL
+       OR v_cones200 IS NULL THEN
+        RAISE EXCEPTION 'story 09: a seed or story product is missing';
     END IF;
 
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000001', v_tho, 'Mop 40 cm, 2''li paket: ana görsel', 'mop-primary.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000002', v_tho, 'Mop 40 cm, 2''li paket: detay', 'mop-gallery.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000003', v_tho, 'Üretim hattı fotoğrafı', 'production.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000004', v_tho, 'Teslimatta hasarlı koliler', 'damage.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000005', v_tho, 'Proforma fatura (PDF)', 'pi.pdf');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000006', v_tho, 'Ambalaj baskı dosyası', 'artwork.pdf');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000007', v_tho, 'Uç seti kullanım videosu', 'demo.mp4');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000008', v_tho, 'Kullanılmayan çekim', 'orphan.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000009', NULL, 'Ortak katalog fotoğrafı', 'catalogue.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000010', v_krn, 'Vazo: ana görsel', 'vase.png');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000011', v_tho, 'Ürün kataloğu (yüksek çözünürlük)', 'big-catalogue.pdf');
-    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000012', NULL, 'Tedarikçi sertifikası (PDF)', 'certificate.pdf');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000001', 'Mop 40 cm, 2''li paket: ana görsel', 'mop-primary.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000002', 'Mop 40 cm, 2''li paket: detay', 'mop-gallery.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000006', 'Ambalaj baskı dosyası', 'artwork.pdf');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000007', 'Uç seti kullanım videosu', 'demo.mp4');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000008', 'Kullanılmayan çekim', 'orphan.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000009', 'Ortak katalog fotoğrafı', 'catalogue.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000011', 'Ürün kataloğu (yüksek çözünürlük)', 'big-catalogue.pdf');
 
-    -- The links; 08 (the orphan) and the PDFs that only documents cite (05, 12) stay unlinked.
+    -- The links; 08 (the orphan) stays unlinked.
     INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role, position)
     VALUES (v_tenant, '5eed0009-0000-4000-8000-000000000001', 'product', v_mop40_2p, 'primary_image', 0),
            (v_tenant, '5eed0009-0000-4000-8000-000000000002', 'product', v_mop40_2p, 'gallery', 1),
-           (v_tenant, '5eed0009-0000-4000-8000-000000000003', 'purchase_order', '5eed0005-0000-4000-8000-000000000006', 'evidence_photo', 0),
-           (v_tenant, '5eed0009-0000-4000-8000-000000000004', 'shipment', '5eed0006-0000-4000-8000-000000000009', 'evidence_photo', 0),
            (v_tenant, '5eed0009-0000-4000-8000-000000000006', 'change_request', '5eed0008-0000-4000-8000-000000000015', 'attachment', 0),
            (v_tenant, '5eed0009-0000-4000-8000-000000000007', 'product', v_tips50, 'gallery', 0),
            (v_tenant, '5eed0009-0000-4000-8000-000000000009', 'product', v_cones100, 'gallery', 0),
-           (v_tenant, '5eed0009-0000-4000-8000-000000000010', 'product', v_vase, 'primary_image', 0),
-           (v_tenant, '5eed0009-0000-4000-8000-000000000009', 'product', v_vase, 'gallery', 1),
+           (v_tenant, '5eed0009-0000-4000-8000-000000000009', 'product', v_cones200, 'gallery', 0),
            (v_tenant, '5eed0009-0000-4000-8000-000000000011', 'product', v_mop60_2p, 'attachment', 0);
 
-    -- PO-011's approved PI (step 05, the order's pi_document_id, v1) gains the PDF next to its Drive
-    -- link: the "both" kind, and the file a document cites. A v2 would supersede the order's own PI.
+    -- The document types, records and file kinds the earlier steps left out.
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000201', 'product', v_mop40_3p, 'tech_pack', 1, 'draft',
+                              current_date - 31, 'https://drive.google.com/example/5eed0009-0000-4000-8000-000000000201',
+                              '5eed0009-0000-4000-8000-000000000006');
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000202', 'product', v_cones200, 'sample_report', 1, 'approved',
+                              current_date - 45);
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000204', 'product', v_tips50, 'technical_file', 1, 'approved',
+                              current_date - 60);
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000205', 'incident', '5eed0008-0000-4000-8000-000000000002', 'other',
+                              1, 'draft', current_date - 3);
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000207', 'market_cell', '5eed0007-0000-4000-8000-000000000005', 'other',
+                              1, 'draft', current_date - 2);
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000208', 'project', '5eed0004-0000-4000-8000-000000000003', 'other',
+                              1, 'signed', current_date - 20);
+
+    PERFORM private.story_end('30 days');
+END;
+$$;
+
+-- Step 09, MOESA LTD's part, as baris: the files of the orders and shipments MOESA LTD procures,
+-- and of its supplier. PO-011's approved PI (step 05, the order's pi_document_id, v1) gains the
+-- PDF next to its Drive link (the "both" kind; a v2 would supersede the order's own PI); CN1's
+-- renewed certificate supersedes the one of step 02 and cites its PDF; the packing list of SHP-008
+-- is a scan in the library only (the "media only" kind).
+DO $$
+DECLARE
+    v_tenant UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
+    v_cn1 UUID := (SELECT s.id FROM public.supplier s WHERE s.code = 'CN1' AND s.tenant_id = private.requested_tenant());
+    v_rows INT;
+BEGIN
+    IF v_cn1 IS NULL THEN
+        RAISE EXCEPTION 'story 09: CN1 is missing';
+    END IF;
+
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000003', 'Üretim hattı fotoğrafı', 'production.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000004', 'Teslimatta hasarlı koliler', 'damage.png');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000005', 'Proforma fatura (PDF)', 'pi.pdf');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000012', 'Tedarikçi sertifikası (PDF)', 'certificate.pdf');
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000013', 'Çeki listesi taraması (PDF)', 'packing-list.pdf');
+
+    -- The links; the PDFs that only documents cite (05, 12, 13) stay unlinked.
+    INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role, position)
+    VALUES (v_tenant, '5eed0009-0000-4000-8000-000000000003', 'purchase_order', '5eed0005-0000-4000-8000-000000000006', 'evidence_photo', 0),
+           (v_tenant, '5eed0009-0000-4000-8000-000000000004', 'shipment', '5eed0006-0000-4000-8000-000000000009', 'evidence_photo', 0);
+
     UPDATE public.document SET media_id = '5eed0009-0000-4000-8000-000000000005'
     WHERE id = (SELECT o.pi_document_id FROM public.purchase_order o WHERE o.id = '5eed0005-0000-4000-8000-000000000011');
     GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -1433,106 +1894,36 @@ BEGIN
         RAISE EXCEPTION 'story 09: PO-011 has no PI document';
     END IF;
 
-    -- The document types, records and file kinds the earlier steps left out.
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000201', 'product', v_mop40_3p, v_tho, 'tech_pack', 1, 'draft',
-                              current_date - 31, 'https://drive.google.com/example/5eed0009-0000-4000-8000-000000000201',
-                              '5eed0009-0000-4000-8000-000000000006');
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000202', 'product', v_cones200, v_tho, 'sample_report', 1, 'approved',
-                              current_date - 45);
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000203', 'purchase_order', '5eed0005-0000-4000-8000-000000000002', v_tho,
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000203', 'purchase_order', '5eed0005-0000-4000-8000-000000000002',
                               'po', 1, 'signed', current_date - 6);
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000204', 'product', v_tips50, v_tho, 'technical_file', 1, 'approved',
-                              current_date - 60);
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000205', 'incident', '5eed0008-0000-4000-8000-000000000002', v_tho,
-                              'other', 1, 'draft', current_date - 3);
-    -- CN1's renewed certificate supersedes the one of step 02; a supplier's, so the shared PDF.
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000206', 'supplier', v_cn1, NULL, 'certificate', 2, 'signed',
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000206', 'supplier', v_cn1, 'certificate', 2, 'signed',
                               current_date - 30, 'https://drive.google.com/example/5eed0009-0000-4000-8000-000000000206',
                               '5eed0009-0000-4000-8000-000000000012');
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000207', 'market_cell', '5eed0007-0000-4000-8000-000000000005', v_tho,
-                              'other', 1, 'draft', current_date - 2);
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000208', 'project', '5eed0004-0000-4000-8000-000000000003', v_tho,
-                              'other', 1, 'signed', current_date - 20);
-    -- The packing list of SHP-008, a scan in the library only: the "media only" kind.
-    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000209', 'shipment', '5eed0006-0000-4000-8000-000000000008', v_tho,
-                              'packing_list', 1, 'approved', current_date - 12, NULL, '5eed0009-0000-4000-8000-000000000006');
+    PERFORM private.story_doc('5eed0009-0000-4000-8000-000000000209', 'shipment', '5eed0006-0000-4000-8000-000000000008',
+                              'packing_list', 1, 'approved', current_date - 12, NULL, '5eed0009-0000-4000-8000-000000000013');
 
     PERFORM private.story_end('30 days');
 END;
 $$;
 
--- Step 10 (today): akif (management in MOESA LTD and MOESA Europe) copies KRN into MOESA Europe
--- through the real public.transfer_customer, as the panel does: rehearsals until every conflict
--- has a decision, then the run on the last rehearsal's report_hash. The decision of each conflict
--- the rehearsal lists without one: gtin → clear_gtin (the copy's GTINs stay with MOESA LTD's
--- products), code → new_code, media_link → demote, anything else → map onto the existing row.
--- No client copies the files afterwards, so the transfer keeps files_status 'pending': Europe's
--- KRN shows the pending-files notice, and transferring it onward is refused
--- (transfer_files_pending). No story_end: the transfer's audit transactions stay at now(), and the
--- feed shows them as cannot be reverted (audit_transfer_locked). The transfer row's id comes from
--- the RPC; it is found by its source and target customer.
+-- Step 09, KRN's part: kerstin adds the vase's main image.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('akif@moesa-panel.test', 'MOESA LTD');
-    v_europe UUID := (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA Europe');
-    v_krn UUID := (SELECT c.id FROM public.customer c WHERE c.code = 'KRN' AND c.tenant_id = private.requested_tenant());
-    v_decisions JSONB := '{}';
-    v_added JSONB;
-    v_report JSONB;
-    v_round INT := 0;
-    v_run public.transfer;
+    v_tenant UUID := private.story_begin('kerstin@moesa-panel.test', 'Kernhaus Living GmbH');
 BEGIN
-    IF v_europe IS NULL OR v_krn IS NULL THEN
-        RAISE EXCEPTION 'story 10: MOESA Europe or KRN is missing';
-    END IF;
+    PERFORM private.story_media('5eed0009-0000-4000-8000-000000000010', 'Vazo: ana görsel', 'vase.png');
 
-    LOOP
-        v_report := public.transfer_customer(v_tenant, v_europe, v_krn, 'copy', decisions => v_decisions);
+    INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role, position)
+    VALUES (v_tenant, '5eed0009-0000-4000-8000-000000000010', 'product', '5eed0003-0000-4000-8000-000000000008', 'primary_image', 0);
 
-        SELECT coalesce(jsonb_object_agg(c ->> 'key', CASE c ->> 'kind'
-                   WHEN 'gtin' THEN '{"action": "clear_gtin"}'::JSONB
-                   WHEN 'code' THEN '{"action": "new_code"}'::JSONB
-                   WHEN 'media_link' THEN '{"action": "demote"}'::JSONB
-                   ELSE jsonb_build_object('action', 'map', 'target_id', c -> 'existing_id')
-               END), '{}')
-        INTO v_added
-        FROM jsonb_array_elements(v_report -> 'conflicts') c
-        WHERE NOT (c -> 'actions') ? coalesce(v_decisions -> (c ->> 'key') ->> 'action', '');
-
-        EXIT WHEN v_added = '{}';
-
-        v_round := v_round + 1;
-        IF v_round > 5 THEN
-            RAISE EXCEPTION 'story 10: the rehearsals still add decisions after 5 rounds';
-        END IF;
-        v_decisions := v_decisions || v_added;
-    END LOOP;
-
-    IF (v_report ->> 'unresolved')::INT IS DISTINCT FROM 0 THEN
-        RAISE EXCEPTION 'story 10: % conflicts left undecided', v_report ->> 'unresolved';
-    END IF;
-
-    v_run := jsonb_populate_record(NULL::public.transfer, public.transfer_customer(
-        v_tenant, v_europe, v_krn, 'copy', decisions => v_decisions, dry_run => FALSE, report_hash => v_report ->> 'report_hash'
-    ));
-
-    IF v_run.tenant_id IS DISTINCT FROM v_europe OR v_run.mode IS DISTINCT FROM 'copy' OR v_run.path IS DISTINCT FROM 'copy'
-       OR v_run.files_status IS DISTINCT FROM 'pending' OR coalesce(jsonb_array_length(v_run.files), 0) = 0 THEN
-        RAISE EXCEPTION 'story 10: the copy is not a pending copy into MOESA Europe (%, %, %)', v_run.mode, v_run.path, v_run.files_status;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM public.customer c WHERE c.id = v_run.target_customer_id AND c.tenant_id = v_europe AND c.code = 'KRN') THEN
-        RAISE EXCEPTION 'story 10: the copy has no KRN in MOESA Europe';
-    END IF;
-
-    IF coalesce(cardinality(v_run.audit_transaction_ids), 0) = 0
-       OR EXISTS (SELECT 1 FROM unnest(v_run.audit_transaction_ids) a WHERE public.audit_transfer_locked(a) IS NOT TRUE) THEN
-        RAISE EXCEPTION 'story 10: an audit transaction of the copy could be reverted';
-    END IF;
+    PERFORM private.story_end('30 days');
 END;
 $$;
 
--- Step 11 (2 days ago): Amazon listing, as koordinator in MOESA LTD. THO's amazon account is
+-- Step 10 (the copy of a customer into MOESA Europe) is gone with the customer transfer; the copy
+-- tool's step comes with it.
+
+-- Step 11 (2 days ago): Amazon listing, as koordinator in THO. THO's amazon account is
 -- connected (the sandbox uses the self-authorized token, so no Vault secret holds one); the R3
 -- fixture (scripts/seed-story.mjs hands it over as the story.amazon_* settings) is the cached
 -- LUGGAGE definition of every marketplace the step 07 cells use, and THO-MOP40-2P (a variation
@@ -1542,7 +1933,7 @@ $$;
 -- business status of the cells does not move (R2). Submission ids 5eed0011-…-NN.
 DO $$
 DECLARE
-    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'MOESA LTD');
+    v_tenant UUID := private.story_begin('koordinator@moesa-panel.test', 'THOMETZKI ONLINE HANDEL');
     v_definition JSONB := current_setting('story.amazon_definition')::JSONB;
     -- The property groups in Amazon's order: read as json (jsonb would reorder the keys), stored as
     -- an array of {key, title, description, propertyNames}.
@@ -1565,10 +1956,9 @@ BEGIN
            v_definition ->> 'displayName', v_definition -> 'schema', v_groups
     FROM unnest(ARRAY['A1PA6795UKMFR9', 'A13V1IB3VIYZZH', 'APJ6JRA9NG5V4', 'A1RKKUPIHCS9HS', 'A1805IZSGTT6HS']) m;
 
-    UPDATE public.customer_platform_account a
+    UPDATE public.platform_account a
     SET api_connection = 'connected', seller_id = v_seller, authorized_at = now() - INTERVAL '2 days'
-    FROM public.customer c
-    WHERE c.id = a.customer_id AND c.code = 'THO' AND c.tenant_id = v_tenant AND a.platform_id = 'amazon'
+    WHERE a.tenant_id = v_tenant AND a.platform_id = 'amazon'
     RETURNING a.id INTO v_account;
     IF v_account IS NULL THEN
         RAISE EXCEPTION 'story 11: THO has no amazon account';
@@ -1634,7 +2024,11 @@ $$;
 DROP FUNCTION private.story_begin (TEXT, TEXT),
 private.story_bypass (BOOLEAN),
 private.story_end (INTERVAL),
-private.story_doc (UUID, public.document_entity, UUID, UUID, public.document_type, INT, public.document_status, DATE, TEXT, UUID),
+private.story_doc (UUID, public.document_entity, UUID, public.document_type, INT, public.document_status, DATE, TEXT, UUID),
+private.story_user (TEXT, TEXT),
+private.story_role (UUID, TEXT),
+private.story_member (UUID, TEXT, TEXT),
+private.story_company (UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT),
 private.story_pass_gate (UUID, UUID, public.gate_code, TIMESTAMPTZ, UUID[]),
 private.story_po_walk (UUID, public.purchase_order_status, TIMESTAMPTZ),
 private.story_po_pi (UUID, UUID, public.document_status, DATE, NUMERIC),
@@ -1642,7 +2036,7 @@ private.story_shipment_walk (UUID, public.shipment_status, TIMESTAMPTZ, DATE),
 private.story_cell (UUID, TEXT, TEXT, TEXT, public.market_cell_status[], JSONB),
 private.story_incident (UUID, public.incident_family, TEXT, public.incident_severity, TIMESTAMPTZ, public.document_entity, UUID, TEXT, TEXT, JSONB),
 private.story_cr (UUID, public.change_request_source, public.change_request_urgency, public.change_kind[], TEXT, TEXT, TEXT, TEXT, JSONB, TEXT[]),
-private.story_media (UUID, UUID, TEXT, TEXT);
+private.story_media (UUID, TEXT, TEXT);
 
 -- The last block: no step may leave the rules bypass on, and no claims outlive the story.
 DO $$

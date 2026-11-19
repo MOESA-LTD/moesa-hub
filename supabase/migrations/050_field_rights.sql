@@ -480,6 +480,7 @@ BEGIN
     SELECT coalesce(jsonb_agg(jsonb_build_object(
         'id', t.id,
         'display_name', t.display_name,
+        'code', t.code,
         -- Its own logo, else the nearest tenant's above it (branches show the company's), also
         -- when the user may not use that tenant.
         'logo_path', (
@@ -556,10 +557,9 @@ GRANT EXECUTE ON FUNCTION private.sensitive_fields_map () TO authenticated;
 GRANT EXECUTE ON FUNCTION private.can_grant_field (UUID, TEXT, TEXT, BOOLEAN) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.field_guard_bypassed () TO authenticated;
 
--- field_guard_bypassed is not a definer, so whoever may call it needs its three parts; each answers
+-- field_guard_bypassed is not a definer, so whoever may call it needs its two parts; each answers
 -- only about the caller's own session.
 GRANT EXECUTE ON FUNCTION private.rules_bypassed () TO authenticated;
-GRANT EXECUTE ON FUNCTION private.transferring () TO authenticated;
 GRANT EXECUTE ON FUNCTION private.service_call () TO authenticated;
 
 -- Tests: private.impersonate (015) with a scope of several tenants. No SET clause (it would undo the
@@ -576,6 +576,8 @@ BEGIN
         pg_catalog.json_build_object('x-tenant-id', p_active, 'x-tenant-ids', pg_catalog.array_to_string(p_scope, ','))::TEXT,
         true
     );
+    -- A sign-in reads afresh (067's permitted_tenants cache), also within one statement.
+    PERFORM pg_catalog.set_config('access.permitted_tenants', '', true);
     PERFORM pg_catalog.set_config('role', 'authenticated', true);
 END;
 $$;
@@ -674,7 +676,10 @@ $$;
 -- Tests: the field-permission fixtures, as postgres with the rules bypassed. Returns the ids by key
 -- and sets test.<key> to each (transaction-local). pi_object is the Storage object's name;
 -- shipment_purchase_order has no id, so shp_po has no key. elif leaves Nova Yazılım, so the fixture roles
--- are her only access.
+-- are her only access. tho is the client tenant of code THO (seed) and rel MOESA LTD's relationship
+-- to it, which holds the contract secrets; the company rows (contact, brand, platform account,
+-- warehouse) are MOESA LTD's own, and every business row is MOESA LTD's own work (no client named),
+-- so each secret is read and written within one tenant.
 CREATE OR REPLACE FUNCTION private.field_test_fixtures () RETURNS JSONB LANGUAGE plpgsql
 SET
    search_path = '' AS $$
@@ -688,7 +693,8 @@ DECLARE
     baris UUID := (SELECT id FROM public.user WHERE email = 'baris@moesa-panel.test');
     portal UUID := (SELECT id FROM public.user WHERE email = 'portal@moesa-panel.test');
     elif UUID := (SELECT id FROM public.user WHERE email = 'elif@moesa-panel.test');
-    tho UUID;
+    tho UUID := (SELECT id FROM public.tenant WHERE code = 'THO');
+    rel UUID;
     tho_contact UUID := gen_random_uuid();
     brand UUID := gen_random_uuid();
     acct UUID;
@@ -696,8 +702,9 @@ DECLARE
     tsp UUID := gen_random_uuid();
     tsp_contact UUID := gen_random_uuid();
     secret UUID := gen_random_uuid();
-    euc UUID := gen_random_uuid();
+    secret_sourcing UUID := gen_random_uuid();
     spike_eu UUID := gen_random_uuid();
+    spike_eu_sourcing UUID := gen_random_uuid();
     po_draft UUID := gen_random_uuid();
     line_draft UUID := gen_random_uuid();
     po_approved UUID := gen_random_uuid();
@@ -721,7 +728,7 @@ DECLARE
     supplier_media UUID := gen_random_uuid();
     t_restricted UUID := gen_random_uuid();
     t_cost UUID := gen_random_uuid();
-    ops_groups TEXT[] := ARRAY['customer', 'supplier', 'product', 'purchase_order', 'shipment', 'project', 'incident',
+    ops_groups TEXT[] := ARRAY['client', 'ops_setting', 'supplier', 'product', 'purchase_order', 'shipment', 'project', 'incident',
                                'change_request', 'market_matrix', 'document', 'media', 'listing', 'audit_log'];
 BEGIN
     PERFORM set_config('moesa.rules_bypass', '1', TRUE);
@@ -734,40 +741,40 @@ BEGIN
     DELETE FROM public.user_role ur USING public.role r WHERE r.id = ur.role_id AND ur.user_id = elif AND r.tenant_id = nova;
     DELETE FROM public.tenant_user WHERE user_id = elif AND tenant_id = nova;
 
-    -- Customers.
-    SELECT id INTO tho FROM public.customer WHERE tenant_id = moesa AND code = 'THO';
-    UPDATE public.customer
-    SET deposit_rate = 0.4, restricted_drive_url = 'https://drive.example/THO', notes = 'customer secret'
-    WHERE id = tho;
-    INSERT INTO public.customer_contact (id, tenant_id, customer_id, name, email)
-    VALUES (tho_contact, moesa, tho, 'Ana Buyer', 'buyer@tho.example');
-    INSERT INTO public.customer_brand (id, tenant_id, customer_id, name) VALUES (brand, moesa, tho, 'Fixture Brand');
-    SELECT id INTO acct FROM public.customer_platform_account WHERE customer_id = tho AND platform_id = 'amazon';
+    -- The relationship to THO, and MOESA LTD's company rows.
+    UPDATE public.provider_relationship
+    SET deposit_rate = 0.4, restricted_drive_url = 'https://drive.example/THO', notes = 'relationship secret'
+    WHERE tenant_id = moesa AND client_tenant_id = tho
+    RETURNING id INTO rel;
+    INSERT INTO public.contact (id, tenant_id, name, email)
+    VALUES (tho_contact, moesa, 'Ana Buyer', 'buyer@tho.example');
+    INSERT INTO public.brand (id, tenant_id, name) VALUES (brand, moesa, 'Fixture Brand');
+    SELECT id INTO acct FROM public.platform_account WHERE tenant_id = moesa AND platform_id = 'amazon';
     IF acct IS NULL THEN
         acct := gen_random_uuid();
-        INSERT INTO public.customer_platform_account (id, tenant_id, customer_id, platform_id) VALUES (acct, moesa, tho, 'amazon');
+        INSERT INTO public.platform_account (id, tenant_id, platform_id) VALUES (acct, moesa, 'amazon');
     END IF;
-    UPDATE public.customer_platform_account SET account_holder = 'Jane Doe', notes = 'acct secret' WHERE id = acct;
-    INSERT INTO public.customer_warehouse (id, tenant_id, customer_id, display_name) VALUES (wh, moesa, tho, 'W1');
-    INSERT INTO public.customer (id, tenant_id, code, display_name, commercial_model)
-    VALUES (euc, europe, 'EUC', 'EU Customer', 'trading_partner');
+    UPDATE public.platform_account SET account_holder = 'Jane Doe', notes = 'acct secret' WHERE id = acct;
+    INSERT INTO public.warehouse (id, tenant_id, display_name) VALUES (wh, moesa, 'W1');
 
     -- Supplier (TS1: a supplier code is two letters and a number).
     INSERT INTO public.supplier (id, tenant_id, code, display_name, country, deposit_rate, payment_terms, default_incoterm, notes)
     VALUES (tsp, moesa, 'TS1', 'Test Supplier', 'CN', 0.3, 'net 30', 'FOB', 'supplier secret');
     INSERT INTO public.supplier_contact (id, tenant_id, supplier_id, name, phone) VALUES (tsp_contact, moesa, tsp, 'Li Wei', '+86 100');
 
-    -- Products.
-    INSERT INTO public.product (id, tenant_id, customer_id, sku, display_name, supplier_id, purchase_price, purchase_currency,
-                                landed_cost_eur, target_price_eur, company_price_eur, supplier_product_code, notes)
-    VALUES (secret, moesa, tho, 'SPIKE-SECRET', 'Spike secret', tsp, 12.5, 'USD', 14.25, 20, 25, 'SPC-1', 'secret note');
-    INSERT INTO public.product (id, tenant_id, customer_id, sku, display_name, purchase_price)
-    VALUES (spike_eu, europe, euc, 'SPIKE-EU', 'Spike EU', 77.7);
+    -- Products, and their sourcing (cost, supplier and sell price).
+    INSERT INTO public.product (id, tenant_id, sku, display_name, notes)
+    VALUES (secret, moesa, 'SPIKE-SECRET', 'Spike secret', 'secret note');
+    INSERT INTO public.sourcing (id, tenant_id, product_id, supplier_id, purchase_price, purchase_currency,
+                                 landed_cost_eur, target_price_eur, sell_price_eur, supplier_product_code, notes)
+    VALUES (secret_sourcing, moesa, secret, tsp, 12.5, 'USD', 14.25, 20, 25, 'SPC-1', 'sourcing secret');
+    INSERT INTO public.product (id, tenant_id, sku, display_name) VALUES (spike_eu, europe, 'SPIKE-EU', 'Spike EU');
+    INSERT INTO public.sourcing (id, tenant_id, product_id, purchase_price) VALUES (spike_eu_sourcing, europe, spike_eu, 77.7);
 
     -- Purchase orders.
-    INSERT INTO public.purchase_order (id, tenant_id, customer_id, supplier_id, currency, incoterm, deposit_rate, pi_total, pi_number, notes)
-    VALUES (po_draft, moesa, tho, tsp, 'USD', 'FOB', 0.3, 1000, 'PI-T1', 'po secret'),
-           (po_approved, moesa, tho, tsp, 'USD', 'FOB', 0.3, 1000, 'PI-T1', 'po secret');
+    INSERT INTO public.purchase_order (id, tenant_id, supplier_id, currency, incoterm, deposit_rate, pi_total, pi_number, notes)
+    VALUES (po_draft, moesa, tsp, 'USD', 'FOB', 0.3, 1000, 'PI-T1', 'po secret'),
+           (po_approved, moesa, tsp, 'USD', 'FOB', 0.3, 1000, 'PI-T1', 'po secret');
     INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, product_id, quantity, unit_price, pi_line_total)
     VALUES (line_draft, moesa, po_draft, secret, 10, 12.5, 125);
     INSERT INTO public.purchase_order_line (id, tenant_id, purchase_order_id, product_id, quantity, unit_price)
@@ -777,8 +784,8 @@ BEGIN
     VALUES (payment, moesa, po_approved, 'deposit', 300, 'USD');
 
     -- Shipment.
-    INSERT INTO public.shipment (id, tenant_id, customer_id, mode, delivery_warehouse_id, incoterm_buy, notes)
-    VALUES (shp, moesa, tho, 'road', wh, 'FOB', 'shipment secret');
+    INSERT INTO public.shipment (id, tenant_id, mode, delivery_warehouse_id, incoterm_buy, notes)
+    VALUES (shp, moesa, 'road', wh, 'FOB', 'shipment secret');
     INSERT INTO public.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id) VALUES (shp, po_approved, moesa);
     INSERT INTO public.shipment_line (id, tenant_id, shipment_id, purchase_order_id, purchase_order_line_id, quantity)
     VALUES (shp_line, moesa, shp, po_approved, line_approved, 5);
@@ -786,8 +793,8 @@ BEGIN
     VALUES (shp_event, moesa, shp, 'Test Supplier', 'Forwarder X', 'event secret');
 
     -- Project; its gates come with it.
-    INSERT INTO public.project (id, tenant_id, customer_id, display_name, type, path, notes)
-    VALUES (project, moesa, tho, 'T project', 'npi', 'a_sourcing', 'project secret');
+    INSERT INTO public.project (id, tenant_id, display_name, type, path, notes)
+    VALUES (project, moesa, 'T project', 'npi', 'a_sourcing', 'project secret');
     SELECT id INTO gate FROM public.project_gate WHERE project_id = project AND code = 'G1';
     UPDATE public.project_gate SET position = 1, needs_customer_approval = FALSE, note = 'gate secret' WHERE id = gate;
 
@@ -797,24 +804,24 @@ BEGIN
            (live_cell, moesa, secret, 'amazon', 'FR', 'live', NULL);
 
     -- Incident and change request.
-    INSERT INTO public.incident (id, tenant_id, customer_id, family, severity, title, what_happened, root_cause_note, affected_parties)
-    VALUES (inc, moesa, tho, 'ol', 's2', 'T', 'visible', 'rc secret', '{supplier}');
+    INSERT INTO public.incident (id, tenant_id, family, severity, title, what_happened, root_cause_note, affected_parties)
+    VALUES (inc, moesa, 'ol', 's2', 'T', 'visible', 'rc secret', '{supplier}');
     INSERT INTO public.incident_log (id, tenant_id, incident_id, note, cost_amount, cost_currency, cost_payer)
     VALUES (inc_log, moesa, inc, 'log secret', 50, 'EUR', 'supplier');
-    INSERT INTO public.change_request (id, tenant_id, customer_id, title, source, change_kinds, current_value, requested_value, reason, cost_impact, decision_note)
-    VALUES (cr, moesa, tho, 'T', 'customer', '{price}', 'a', 'b', 'r', '99', 'cr secret');
+    INSERT INTO public.change_request (id, tenant_id, title, source, change_kinds, current_value, requested_value, reason, cost_impact, decision_note)
+    VALUES (cr, moesa, 'T', 'customer', '{price}', 'a', 'b', 'r', '99', 'cr secret');
 
     -- Files and documents.
     pi_object := moesa || '/' || pi_media || '/pi.pdf';
     INSERT INTO storage.objects (bucket_id, name, metadata)
     VALUES ('media', pi_object, '{"mimetype": "application/pdf", "size": 10}'::JSONB);
-    INSERT INTO public.media (id, tenant_id, customer_id, storage_path, file_name, mime_type, size_bytes)
-    VALUES (pi_media, moesa, tho, pi_object, 'pi.pdf', 'application/pdf', 10);
-    INSERT INTO public.document (id, tenant_id, customer_id, entity_type, entity_id, type, media_id, notes)
-    VALUES (pi_doc, moesa, tho, 'purchase_order', po_draft, 'pi', pi_media, 'doc secret');
-    INSERT INTO public.document (id, tenant_id, customer_id, entity_type, entity_id, type, url)
-    VALUES (po_doc, moesa, tho, 'project', project, 'po', 'https://example.test/po.pdf'),
-           (spec_doc, moesa, tho, 'product', secret, 'spec_sheet', 'https://example.test/spec.pdf');
+    INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
+    VALUES (pi_media, moesa, pi_object, 'pi.pdf', 'application/pdf', 10);
+    INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, media_id, notes)
+    VALUES (pi_doc, moesa, 'purchase_order', po_draft, 'pi', pi_media, 'doc secret');
+    INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, url)
+    VALUES (po_doc, moesa, 'project', project, 'po', 'https://example.test/po.pdf'),
+           (spec_doc, moesa, 'product', secret, 'spec_sheet', 'https://example.test/spec.pdf');
     INSERT INTO storage.objects (bucket_id, name, metadata)
     VALUES ('media', moesa || '/' || supplier_media || '/s.png', '{"mimetype": "image/png", "size": 10}'::JSONB);
     INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
@@ -842,8 +849,10 @@ BEGIN
     fx := jsonb_build_object(
         'moesa', moesa, 'europe', europe, 'nova', nova,
         'akif', akif, 'koordinator', koordinator, 'baris', baris, 'portal', portal, 'elif', elif,
-        'tho', tho, 'tho_contact', tho_contact, 'brand', brand, 'acct', acct, 'wh', wh,
-        'tsp', tsp, 'tsp_contact', tsp_contact, 'secret', secret, 'euc', euc, 'spike_eu', spike_eu,
+        'tho', tho, 'rel', rel, 'tho_contact', tho_contact, 'brand', brand, 'acct', acct, 'wh', wh,
+        'tsp', tsp, 'tsp_contact', tsp_contact, 'secret', secret, 'secret_sourcing', secret_sourcing,
+        'spike_eu', spike_eu, 'spike_eu_sourcing', spike_eu_sourcing,
+
         'po_draft', po_draft, 'line_draft', line_draft, 'po_approved', po_approved, 'line_approved', line_approved,
         'payment', payment, 'shp', shp, 'shp_line', shp_line, 'shp_event', shp_event,
         'project', project, 'gate', gate, 'cell', cell, 'live_cell', live_cell, 'inc', inc, 'inc_log', inc_log,
@@ -927,8 +936,10 @@ BEGIN
     ) affected
     WHERE affected.user_id IS NOT NULL;
 
-    -- What the transaction's later statements may use is no longer what private.tenant_scope kept.
+    -- What the transaction's later statements may use is no longer what private.tenant_scope (and
+    -- 067's private.permitted_tenants) kept.
     PERFORM set_config('access.tenant_scope', '', true);
+    PERFORM set_config('access.permitted_tenants', '', true);
 
     PERFORM realtime.send(
         jsonb_build_object('table', TG_TABLE_NAME),

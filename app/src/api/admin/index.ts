@@ -2,6 +2,7 @@ import type { PlanLimits } from '@/api/access';
 import { invalidateTables, queryKeys } from '@/api/queryKeys';
 import { LIMIT_KEYS } from '@/api/subscription';
 import { useTenantKey } from '@/api/useTenantKey';
+import { allValues } from '@/lib/enumValues';
 import { requiredText } from '@/lib/form/fields';
 import { publicSchema, supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/store/auth';
@@ -82,10 +83,20 @@ export const useSavePlan = () => useAdminMutation(planRepository.save, PLAN_TABL
 
 const count = () => z.number().int().min(0);
 
+/** Whom a plan is offered to (public.plan_target, decision 21). */
+export const PLAN_TARGETS = allValues<Db['public']['Enums']['plan_target']>()([
+   'client',
+   'provider',
+   'all'
+]);
+
 export const planSchema = z.object({
    id: z.string().optional(),
    display_name: requiredText(),
    description: z.string().nullish(),
+   audience: z.string().nullish(),
+   // Decision 21: whom the plan is offered to; audience stays its description.
+   target: z.enum(PLAN_TARGETS),
    price: z.number().min(0).nullable(),
    currency: z.string().length(3).nullable(),
    billing_period: z.enum(['month', 'year']).nullable(),
@@ -108,6 +119,8 @@ export const toPlanFormValues = (plan?: Partial<PlanWithTerms> | null): PlanForm
       id: plan?.id ?? undefined,
       display_name: plan?.display_name ?? '',
       description: plan?.description ?? null,
+      audience: plan?.audience ?? null,
+      target: plan?.target ?? 'all',
       price: plan?.price ?? null,
       currency: plan?.currency ?? null,
       billing_period: (plan?.billing_period as 'month' | 'year' | null) ?? null,
@@ -126,9 +139,10 @@ export const toPlanPayload = ({
    max_branches,
    max_users,
    description,
+   audience,
    ...plan
 }: z.output<typeof planSchema>): PlanInput => ({
-   plan: { ...plan, description: description || null },
+   plan: { ...plan, description: description || null, audience: audience || null },
    moduleIds: modules,
    limits: Object.fromEntries(
       LIMIT_KEYS.map((key) => [key, { max_branches, max_users }[key]])

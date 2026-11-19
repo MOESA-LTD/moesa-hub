@@ -92,11 +92,7 @@ const titleOf = (name: string) => name.replace(/\.[^.]*$/, '') || name;
  */
 export async function uploadMedia(
    file: File,
-   {
-      tenantId,
-      customerId,
-      maxBytes
-   }: { tenantId: string; customerId: string | null; maxBytes: number }
+   { tenantId, maxBytes }: { tenantId: string; maxBytes: number }
 ): Promise<MediaRow> {
    const refused = validateMediaFile(file, maxBytes);
    if (refused) throw new MediaFileError(refused, maxBytes);
@@ -132,7 +128,6 @@ export async function uploadMedia(
       .insert({
          id,
          tenant_id: tenantId,
-         customer_id: customerId,
          storage_path: storagePath,
          thumbnail_path: thumbnailPath,
          file_name: file.name,
@@ -151,7 +146,7 @@ export async function uploadMedia(
    return data as MediaRow;
 }
 
-/** Uploads a file to the active tenant, for the customer given (null: shared by every customer). */
+/** Uploads a file to the record's tenant, or to the active one. */
 export function useUploadMedia() {
    const queryClient = useQueryClient();
    const authStore = useAuthStore();
@@ -160,18 +155,16 @@ export function useUploadMedia() {
    return useMutation({
       mutationFn: async ({
          file,
-         customerId,
          tenantId: recordTenantId
       }: {
          file: File;
-         customerId: string | null;
          /** The tenant of the record the file is for (its links must share it); else the active one. */
          tenantId?: string | null;
       }) => {
          const tenantId = recordTenantId ?? authStore.currentTenant?.id;
          if (!tenantId) throw new Error('No active tenant');
          const maxBytes = await fetchMediaMaxBytes(queryClient, tenantKey.value);
-         return uploadMedia(file, { tenantId, customerId, maxBytes });
+         return uploadMedia(file, { tenantId, maxBytes });
       },
       onSuccess: () => invalidateTables(queryClient, ['media'])
    });

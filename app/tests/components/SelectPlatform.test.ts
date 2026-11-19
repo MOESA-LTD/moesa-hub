@@ -6,7 +6,7 @@ import PrimeVue from 'primevue/config';
 import Select from 'primevue/select';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/api/customer', async () => {
+vi.mock('@/api/platform', async () => {
    const { ref } = await import('vue');
    return { usePlatformOptions: () => ({ data: ref([]) }) };
 });

@@ -20,6 +20,7 @@ import { h, ref, Suspense, type Component } from 'vue';
 // The forms are stand-ins; what is checked is that the card disables its moves while dirty.
 const api = vi.hoisted(() => ({
    dirty: null as unknown as { value: boolean },
+   shared: null as unknown as { value: boolean },
    row: null as unknown
 }));
 
@@ -33,6 +34,7 @@ const stand = vi.hoisted(() => ({
          isDirty: api.dirty,
          isSubmitting: ref(false),
          readonly: ref(false),
+         shared: api.shared,
          reset: () => {},
          save: () => Promise.resolve(),
          ready: Promise.resolve(),
@@ -48,6 +50,10 @@ const stand = vi.hoisted(() => ({
    }
 }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => 'MOESA LTD' })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
@@ -103,7 +109,6 @@ const shipment = {
    id: 's1',
    code: 'SHP-THO-2026-001',
    status: 'booked',
-   customer: { code: 'THO' },
    shipment_purchase_order: [],
    shipment_line: []
 } as unknown as ShipmentRow;
@@ -147,6 +152,7 @@ beforeEach(() => {
    setActivePinia(createPinia());
    ability.update([{ action: 'manage', subject: 'all' }]);
    api.dirty = ref(false);
+   api.shared = ref(false);
 });
 
 describe.each([
@@ -175,5 +181,27 @@ describe.each([
       expect(wrapper.get('[data-test="status-dirty-hint"]').text()).toBe(
          i18n.t('ops.status_actions.dirty_hint')
       );
+   });
+});
+
+// A provider's row shared with the client side: read-only, tagged with its provider, and only the
+// tabs of what the client reads.
+describe.each([
+   ['shipment', ShipmentCard, shipment, 'shipment', ['general', 'dates', 'orders', 'events']],
+   ['purchase order', PurchaseOrderCard, order, 'purchase_order', ['general', 'lines']]
+] as const)('shared %s card', (_, card, row, prefix, tabs) => {
+   beforeEach(() => {
+      api.row = row;
+      api.shared.value = true;
+   });
+
+   it('offers no move, names its provider and shows the client tabs only', async () => {
+      const wrapper = await mountCard(card);
+
+      expect(moves(wrapper)).toHaveLength(0);
+      expect(wrapper.get('[data-test="shared-tag"]').text()).toBe('From MOESA LTD');
+      expect(wrapper.get('[data-test="shared-hint"]').text()).toBe(i18n.t('ops.shared.read_only'));
+      const shown = wrapper.findAll('[role="tab"]').map((tab) => tab.text());
+      expect(shown).toEqual(tabs.map((key) => i18n.t(`ops.${prefix}.tabs.${key}`)));
    });
 });

@@ -22,6 +22,14 @@ const constraintColumns = (message: string | undefined, fields: string[]) => {
  * field, and appErrorHandler shows `errors.<name>`.
  */
 export const NAMED_ERRORS: { code: string; name: string; field?: string; message: string }[] = [
+   // A company's e-mail is unique whatever its case: the key is an index on lower(email), whose
+   // details name the expression rather than the column (cleanup concern 1).
+   {
+      code: '23505',
+      name: 'tenant_email_lower_key',
+      field: 'email',
+      message: 'errors.company_email_exists'
+   },
    {
       code: '23505',
       name: 'unique_document_version',
@@ -78,18 +86,6 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       field: 'media_id',
       message: 'errors.media_link_identity_immutable'
    },
-   {
-      code: '23514',
-      name: 'media_customer_mismatch',
-      field: 'media_id',
-      message: 'errors.media_customer_mismatch'
-   },
-   {
-      code: '23514',
-      name: 'media_customer_locked',
-      field: 'customer_id',
-      message: 'errors.media_customer_locked'
-   },
    { code: '23503', name: 'media_missing', field: 'media_id', message: 'errors.media_missing' },
    {
       code: '23514',
@@ -113,17 +109,11 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
    { code: '23505', name: 'product_gtin_active', field: 'gtin', message: 'errors.gtin_in_use' },
    {
       code: '23505',
-      name: 'product_customer_id_sku_key',
+      name: 'product_tenant_id_sku_key',
       field: 'sku',
       message: 'errors.sku_in_use'
    },
    // Purchase orders (029_purchase_orders.sql, 030_purchase_order_rules.sql).
-   {
-      code: '23503',
-      name: 'purchase_order_customer_missing',
-      field: 'customer_id',
-      message: 'errors.purchase_order_customer_missing'
-   },
    {
       code: '23514',
       name: 'purchase_order_immutable_field',
@@ -140,13 +130,25 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       code: '23503',
       name: 'purchase_order_project_fkey',
       field: 'project_id',
-      message: 'errors.po_project_customer'
+      message: 'errors.po_project_scope'
+   },
+   {
+      code: '23514',
+      name: 'po_project_locked',
+      field: 'project_id',
+      message: 'errors.po_project_locked'
+   },
+   {
+      code: '23514',
+      name: 'po_line_product_required',
+      field: 'product_id',
+      message: 'errors.po_line_product_required'
    },
    {
       code: '23503',
       name: 'purchase_order_line_product_fkey',
       field: 'product_id',
-      message: 'errors.po_line_product_customer'
+      message: 'errors.po_line_product_scope'
    },
    {
       code: '23505',
@@ -191,26 +193,28 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'po_deposit_unpaid',
       'po_balance_unpaid',
       'po_closed',
-      'po_line_identity_immutable'
+      'po_line_identity_immutable',
+      'purchase_order_scope_missing'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
    // Shipments (031_shipments.sql).
    {
-      code: '23503',
-      name: 'shipment_customer_missing',
-      field: 'customer_id',
-      message: 'errors.shipment_customer_missing'
+      code: '23514',
+      name: 'shipment_warehouse_required',
+      field: 'delivery_warehouse_id',
+      message: 'errors.shipment_warehouse_required'
    },
+   // A shipment's order must be one of the same client (or an own order for an own shipment).
    {
       code: '23514',
-      name: 'shipment_immutable_field',
-      field: 'customer_id',
-      message: 'errors.shipment_immutable_field'
+      name: 'client_mismatch',
+      field: 'purchase_order_id',
+      message: 'errors.client_mismatch'
    },
    {
       code: '23503',
       name: 'shipment_warehouse_fkey',
       field: 'delivery_warehouse_id',
-      message: 'errors.shipment_warehouse_customer'
+      message: 'errors.shipment_warehouse_scope'
    },
    {
       code: '23514',
@@ -234,7 +238,7 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       code: '23503',
       name: 'shipment_purchase_order_po_fkey',
       field: 'purchase_order_id',
-      message: 'errors.shipment_po_customer'
+      message: 'errors.shipment_po_scope'
    },
    {
       code: '23503',
@@ -265,7 +269,10 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'shipment_delivery_time_required',
       'shipment_delivery_receipt_required',
       'shipment_acceptance_issue',
-      'shipment_po_has_lines'
+      'shipment_po_has_lines',
+      'shipment_immutable_field',
+      'shipment_scope_missing',
+      'shipment_po_link_immutable'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
    // Market cells (034_market_matrix.sql).
    {
@@ -290,13 +297,13 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       code: '23503',
       name: 'market_cell_product_fkey',
       field: 'product_id',
-      message: 'errors.market_cell_product_customer'
+      message: 'errors.market_cell_product_scope'
    },
    {
       code: '23503',
       name: 'market_cell_project_fkey',
       field: 'project_id',
-      message: 'errors.market_cell_project_customer'
+      message: 'errors.market_cell_project_scope'
    },
    {
       code: '23514',
@@ -327,12 +334,6 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
    // Raised by passing G3 (pass_gate): shown as a toast.
    { code: '23514', name: 'gate_pi_required', message: 'errors.gate_pi_required' },
    // Incidents (035_incidents.sql) and the gate rollback through one (036).
-   {
-      code: '23503',
-      name: 'incident_customer_missing',
-      field: 'customer_id',
-      message: 'errors.incident_customer_missing'
-   },
    {
       code: '23514',
       name: 'incident_type_format',
@@ -379,7 +380,8 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'incident_closed',
       'gate_rollback_incident_required',
       'gate_incident_invalid',
-      'gate_rollback_immutable'
+      'gate_rollback_immutable',
+      'incident_scope_missing'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
    {
       code: '42501',
@@ -395,21 +397,15 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
    // Change requests (037_change_requests.sql).
    {
       code: '23503',
-      name: 'change_request_customer_missing',
-      field: 'customer_id',
-      message: 'errors.change_request_customer_missing'
-   },
-   {
-      code: '23503',
       name: 'change_request_project_fkey',
       field: 'project_id',
-      message: 'errors.cr_project_customer'
+      message: 'errors.cr_project_scope'
    },
    {
       code: '23503',
       name: 'change_request_product_product_fkey',
       field: 'product_ids',
-      message: 'errors.cr_product_customer'
+      message: 'errors.cr_product_scope'
    },
    {
       code: '23514',
@@ -435,36 +431,105 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       'change_request_status_order',
       'change_request_customer_approval_required',
       'change_request_decision_note_required',
-      'change_request_new_version_required'
+      'change_request_new_version_required',
+      'change_request_scope_missing'
    ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
-   // Raised by public.revert_audit_transaction (040_transfer_core.sql): shown as a toast.
+   // The provider relationship and the links it allows (018_tenant_relations.sql, 019_products.sql).
    {
-      code: 'P0001',
-      name: 'audit_transfer_not_revertable',
-      message: 'errors.audit_transfer_not_revertable'
+      code: '23514',
+      name: 'relationship_inactive',
+      field: 'client_tenant_id',
+      message: 'errors.relationship_inactive'
    },
-   // Raised by public.transfer_customer (042_transfer_rehearsal.sql): shown as a toast.
+   {
+      code: '23514',
+      name: 'client_tenant_immutable',
+      field: 'client_tenant_id',
+      message: 'errors.client_tenant_immutable'
+   },
+   {
+      code: '23514',
+      name: 'client_code_immutable',
+      field: 'client_code',
+      message: 'errors.client_code_immutable'
+   },
+   // Raised by a link into another tenant, a status change or a contract term: shown as a toast.
    ...[
-      'transfer_invalid_mode',
-      'transfer_same_tenant',
-      'transfer_owner_required',
-      'transfer_target_read_only',
-      'transfer_target_plan',
-      'transfer_forbidden',
-      'transfer_source_read_only',
-      'transfer_customer_missing',
-      'transfer_products_invalid',
-      'transfer_gate_invalid',
-      'transfer_report_required',
-      'transfer_report_stale',
-      'transfer_decision_required',
-      'transfer_decision_invalid',
-      'transfer_code_invalid',
-      'transfer_product_in_use',
-      'transfer_files_pending'
-   ].map((name) => ({ code: 'P0001', name, message: `errors.${name}` })),
-   // Raised by public.transfer_check_files (045_transfer_files.sql): shown as a toast.
-   { code: 'P0001', name: 'transfer_not_found', message: 'errors.transfer_not_found' }
+      'client_link_forbidden',
+      'relationship_immutable',
+      'relationship_ended_final',
+      'relationship_contract_restricted',
+      'procurement_model_widen_forbidden',
+      'sourcing_in_client_forbidden',
+      'provider_link_forbidden',
+      'order_tenant_immutable',
+      'incident_entity_tenant_immutable'
+   ].map((name) => ({ code: '23514', name, message: `errors.${name}` })),
+   {
+      code: '42501',
+      name: 'relationship_end_forbidden',
+      message: 'errors.relationship_end_forbidden'
+   },
+   // A client may not write the cost of a request or an incident line on a provider's order.
+   { code: '42501', name: 'cost_link_forbidden', message: 'errors.cost_link_forbidden' },
+   // A client tenant is not deleted while a provider relationship names it (071, F14).
+   {
+      code: '23503',
+      name: 'tenant_has_provider_relationship',
+      message: 'errors.tenant_has_provider_relationship'
+   },
+   // Provider invitations (071_provider_invitation.sql and the provider-invitation function). The
+   // codes tied to one input show on it; the others are shown as a toast.
+   {
+      code: '23505',
+      name: 'client_code_taken',
+      field: 'client_code',
+      message: 'errors.client_code_taken'
+   },
+   {
+      code: '23505',
+      name: 'invitation_pending_exists',
+      field: 'email',
+      message: 'errors.invitation_pending_exists'
+   },
+   // Decision 19: the invited e-mail is an account of the provider's own company.
+   {
+      code: '23514',
+      name: 'invitation_self_invite',
+      field: 'email',
+      message: 'errors.invitation_self_invite'
+   },
+   {
+      code: '23514',
+      name: 'plan_inactive',
+      field: 'recommended_plan_id',
+      message: 'errors.plan_inactive'
+   },
+   // Decision 21: the recommended plan is for providers only.
+   {
+      code: '23514',
+      name: 'plan_not_for_clients',
+      field: 'recommended_plan_id',
+      message: 'errors.plan_not_for_clients'
+   },
+   {
+      code: '23514',
+      name: 'invitation_staff_invalid',
+      field: 'staff',
+      message: 'errors.invitation_staff_invalid'
+   },
+   {
+      code: '23514',
+      name: 'invitation_payload_invalid',
+      message: 'errors.invitation_payload_invalid'
+   },
+   { code: '42501', name: 'invitation_forbidden', message: 'errors.invitation_forbidden' },
+   { code: 'P0001', name: 'invitation_throttled', message: 'errors.invitation_throttled' },
+   { code: 'P0001', name: 'invitation_invalid', message: 'errors.invitation_invalid' },
+   // The function's own refusals carry no database code: their HTTP status stands in for it.
+   { code: '502', name: 'invitation_mail_failed', message: 'errors.invitation_mail_failed' },
+   { code: '500', name: 'invitation_unconfigured', message: 'errors.invitation_unconfigured' },
+   { code: '500', name: 'signup_unconfigured', message: 'errors.signup_unconfigured' }
 ];
 
 /**

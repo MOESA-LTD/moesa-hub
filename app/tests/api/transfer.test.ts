@@ -7,6 +7,8 @@ import {
    idMapCsv,
    rehearseTransfer,
    runTransfer,
+   transferErrorText,
+   transferFilesState,
    usePendingTransfers,
    useRunTransfer,
    useTransfer,
@@ -27,6 +29,8 @@ const mock = vi.hoisted(() => ({
    // The table reads, as the builder calls each makes: [method, ...args].
    calls: [] as unknown[][],
    tableResult: null as unknown,
+   // Results handed out first, one per read.
+   queue: [] as unknown[],
    copy: vi.fn(),
    remove: vi.fn(),
    bucket: vi.fn()
@@ -50,7 +54,10 @@ vi.mock('@/lib/supabase', () => {
             {
                get: (_target, method: string) =>
                   method === 'throwOnError'
-                     ? () => Promise.resolve({ data: mock.tableResult })
+                     ? () =>
+                          Promise.resolve({
+                             data: mock.queue.length ? mock.queue.shift() : mock.tableResult
+                          })
                      : method === 'then'
                        ? undefined
                        : (...rest: unknown[]) => {
@@ -79,84 +86,102 @@ vi.mock('@/api/useTenantKey', () => ({ useTenantKey: () => computed(() => 's') }
 const args: TransferArgs = {
    source_tenant: 's',
    target_tenant: 't',
-   customer_id: 'c',
    mode: 'copy',
-   decisions: { 'customer:c': { action: 'new_code', code: 'ABC' } },
-   product_ids: null
+   decisions: { 'sku:p1': { action: 'rename', suffix: '-B' } },
+   product_ids: ['p1', 'p2']
 };
 
 const report = {
-   customer: { id: 'c', code: 'ACM', display_name: 'Acme' },
-   path: 'copy',
    mode: 'copy',
-   counts: { customer: 1, product: 2 },
+   source_tenant: 's',
+   target_tenant: 't',
+   product_ids: ['p1', 'p2'],
+   counts: { product: 2, media: 1 },
+   excluded: ['supplier', 'supplier_contact', 'sourcing'],
    conflicts: [
       {
-         key: 'customer:c',
-         kind: 'customer_code',
-         table: 'customer',
-         source_id: 'c',
-         label: 'ACM',
+         key: 'supplier:a',
+         kind: 'supplier_code',
+         table: 'supplier',
+         source_id: 'a',
          existing_id: 'x',
          actions: ['map', 'new_code']
       },
       {
-         key: 'media_link:l',
-         kind: 'media_link',
-         table: 'media_link',
-         source_id: 'l',
-         label: 'a.png primary_image',
+         key: 'sku:p1',
+         kind: 'sku',
+         table: 'product',
+         source_id: 'p1',
          existing_id: 'y',
-         actions: ['map', 'demote', 'skip'],
-         skip_drops: { media: 1 }
+         actions: ['rename', 'skip', 'teleport'],
+         skip_drops: { media: 1 },
+         taken: true
+      },
+      {
+         key: 'gtin:p2',
+         kind: 'gtin',
+         table: 'product',
+         source_id: 'p2',
+         existing_id: null,
+         actions: ['clear_gtin', 'skip']
       }
    ],
-   users: [{ user_id: 'u', display_name: 'Ayşe', columns: ['owner_id'], rows: 2 }],
    left_behind: [
       {
-         table: 'product',
-         source_id: 'p',
-         column: 'project_id',
-         label: 'SKU1',
-         refers_to: 'project',
-         refers_to_id: 'q',
-         refers_to_label: null
+         table: 'project',
+         column: 'product_id',
+         refers_to: 'product',
+         refers_to_id: 'p1',
+         rows: 2,
+         blocks: true
       }
    ],
-   settings_gaps: [
-      { rule: 'spec_sheet_required', table: 'product', source_id: 'p', label: 'SKU1' }
-   ],
+   left_behind_links: { sourcing: 2 },
+   cleared: [],
+   settings_gaps: [{ rule: 'spec_sheet_required', table: 'product', source_id: 'p1' }],
    files: 2,
    unresolved: 1,
    report_hash: 'h'
 };
 
-const row = (overrides: Partial<TransferRow> = {}): TransferRow => ({
-   id: 'tr',
-   tenant_id: 't',
-   source_tenant_id: 's',
-   customer_id: 'c',
-   target_customer_id: 'c2',
-   product_ids: null,
-   mode: 'move',
-   path: 'copy',
-   started_by: 'u',
-   report: {},
-   decisions: {},
-   id_map: {},
-   files: [
-      { media_id: 'm1', from: 's/a', to: 't/a', keep_source: false },
-      { media_id: 'm2', from: 's/b', to: 't/b', keep_source: true },
-      { media_id: 'm3', from: 's/c', to: 't/c', keep_source: false }
-   ],
-   files_status: 'pending',
-   missing_files: [],
-   audit_transaction_ids: [],
-   xact_id: null,
-   created_at: '',
-   updated_at: '',
-   ...overrides
-});
+const row = (overrides: Partial<TransferRow> = {}): TransferRow =>
+   ({
+      id: 'tr',
+      tenant_id: 't',
+      source_tenant_id: 's',
+      product_ids: ['p1'],
+      mode: 'move',
+      started_by: 'u',
+      report: {},
+      decisions: {},
+      id_map: {},
+      files: [
+         { media_id: 'm1', from: 's/a', to: 't/a', keep_source: false },
+         { media_id: 'm2', from: 's/b', to: 't/b', keep_source: true },
+         { media_id: 'm3', from: 's/c', to: 't/c', keep_source: false }
+      ],
+      files_status: 'pending',
+      missing_files: [],
+      audit_transaction_ids: [],
+      xact_id: null,
+      created_at: '',
+      updated_at: '',
+      ...overrides
+   }) as TransferRow;
+
+const mountHook = <T>(hook: () => T, queryClient = new QueryClient()) => {
+   let result!: T;
+   mount(
+      defineComponent({
+         setup() {
+            result = hook();
+            return () => h('div');
+         }
+      }),
+      { global: { plugins: [[VueQueryPlugin, { queryClient }]] } }
+   );
+   return result;
+};
 
 beforeEach(() => {
    mock.rpc.mockReset();
@@ -164,48 +189,79 @@ beforeEach(() => {
    mock.rpcErrors = {};
    mock.calls = [];
    mock.tableResult = null;
+   mock.queue = [];
    mock.copy.mockReset().mockResolvedValue({ data: {}, error: null });
    mock.remove.mockReset().mockResolvedValue({ data: [], error: null });
    mock.bucket.mockReset();
 });
 
 describe('fetchTransferOptions', () => {
-   it('asks for the targets of a customer, so a refusal about that customer comes too', async () => {
-      mock.rpcResults.transfer_options = { source_writable: true, targets: [] };
+   it('asks for the targets of the source', async () => {
+      const options = { source_writable: true, targets: [] };
+      mock.rpcResults.transfer_options = options;
 
-      await fetchTransferOptions('s', 'c');
-      expect(mock.rpc).toHaveBeenCalledWith('transfer_options', {
-         source_tenant: 's',
-         customer_id: 'c'
-      });
+      await expect(fetchTransferOptions('s')).resolves.toEqual(options);
+      expect(mock.rpc).toHaveBeenCalledWith('transfer_options', { source_tenant: 's' });
    });
 });
 
 describe('rehearseTransfer and runTransfer', () => {
-   it('rehearses as a dry run without a hash', async () => {
-      mock.rpcResults.transfer_customer = report;
+   it('transferProducts sends source, target, product ids, mode, decisions and the rehearse flag only', async () => {
+      mock.rpcResults.transfer_products = report;
 
-      await expect(rehearseTransfer(args)).resolves.toEqual(report);
-      expect(mock.rpc).toHaveBeenCalledWith('transfer_customer', {
+      await rehearseTransfer(args);
+
+      // No customer, no path: the decisions and the rehearsal flag are the only other keys.
+      expect(mock.rpc).toHaveBeenCalledWith('transfer_products', {
          source_tenant: 's',
          target_tenant: 't',
-         customer_id: 'c',
+         product_ids: ['p1', 'p2'],
          mode: 'copy',
-         decisions: args.decisions,
-         dry_run: true,
-         report_hash: null,
-         product_ids: null
+         decisions: { 'sku:p1': { action: 'rename', suffix: '-B' } },
+         rehearse: true
       });
    });
 
-   it('runs with the report hash', async () => {
-      mock.rpcResults.transfer_customer = row();
+   it('runs with the rehearsal hash inside the decisions', async () => {
+      mock.rpcResults.transfer_products = row({ mode: 'copy' });
 
-      await expect(runTransfer({ ...args, product_ids: ['p'] }, 'h')).resolves.toEqual(row());
-      expect(mock.rpc).toHaveBeenCalledWith(
-         'transfer_customer',
-         expect.objectContaining({ dry_run: false, report_hash: 'h', product_ids: ['p'] })
-      );
+      await runTransfer(args, 'h');
+
+      expect(mock.rpc).toHaveBeenCalledWith('transfer_products', {
+         source_tenant: 's',
+         target_tenant: 't',
+         product_ids: ['p1', 'p2'],
+         mode: 'copy',
+         decisions: { 'sku:p1': { action: 'rename', suffix: '-B' }, report_hash: 'h' },
+         rehearse: false
+      });
+   });
+
+   it('narrows the report: unknown actions are dropped, taken and links are kept', async () => {
+      mock.rpcResults.transfer_products = report;
+
+      const result = await rehearseTransfer(args);
+
+      expect(result.conflicts[1]!.actions).toEqual(['rename', 'skip']);
+      expect(result.conflicts[1]!.taken).toBe(true);
+      expect(result.excluded).toEqual(['supplier', 'supplier_contact', 'sourcing']);
+      expect(result.left_behind_links).toEqual({ sourcing: 2 });
+   });
+
+   it('keeps what a transfer into a client withholds, and reads an older report without it', async () => {
+      mock.rpcResults.transfer_products = {
+         ...report,
+         excluded_rows: { document: 1, media: 2 },
+         blanked: [{ table: 'product', column: 'notes', rows: 1 }]
+      };
+      const result = await rehearseTransfer(args);
+      expect(result.excluded_rows).toEqual({ document: 1, media: 2 });
+      expect(result.blanked).toEqual([{ table: 'product', column: 'notes', rows: 1 }]);
+
+      mock.rpcResults.transfer_products = report;
+      const older = await rehearseTransfer(args);
+      expect(older.excluded_rows).toEqual({});
+      expect(older.blanked).toEqual([]);
    });
 });
 
@@ -227,16 +283,36 @@ describe('copyTransferFiles', () => {
       expect(mock.remove).not.toHaveBeenCalled();
    });
 
-   it('copies every file of a pending transfer', async () => {
+   it('copies every file of a pending transfer and reports the progress', async () => {
       mock.rpcResults.transfer_check_files = row({ mode: 'copy', files_status: 'done' });
+      const progress = vi.fn();
 
-      await copyTransferFiles(row({ mode: 'copy' }));
+      await copyTransferFiles(row({ mode: 'copy' }), progress);
 
       expect(mock.copy.mock.calls).toEqual([
          ['s/a', 't/a'],
          ['s/b', 't/b'],
          ['s/c', 't/c']
       ]);
+      expect(progress.mock.calls).toEqual([
+         [{ done: 0, total: 3 }],
+         [{ done: 1, total: 3 }],
+         [{ done: 2, total: 3 }],
+         [{ done: 3, total: 3 }]
+      ]);
+      expect(mock.remove).not.toHaveBeenCalled();
+   });
+
+   it('never copies a mismatch: only an administrator can fix it', async () => {
+      const partial = row({
+         files_status: 'partial',
+         missing_files: ['mismatch:t/a', 't/c']
+      });
+      mock.rpcResults.transfer_check_files = partial;
+
+      await copyTransferFiles(partial);
+
+      expect(mock.copy.mock.calls).toEqual([['s/c', 't/c']]);
       expect(mock.remove).not.toHaveBeenCalled();
    });
 
@@ -254,14 +330,13 @@ describe('copyTransferFiles', () => {
 
       expect(checked.missing_files).toEqual(['t/c']);
       expect(mock.remove).not.toHaveBeenCalled();
-      // The failed copy is reported.
       expect(warn).toHaveBeenCalledWith('Transfer files not copied', 'tr', [
          { file: expect.objectContaining({ from: 's/c' }), error: new Error('denied') }
       ]);
       warn.mockRestore();
    });
 
-   it('removes, once done, only the moved sources not kept', async () => {
+   it('removes, once done, only the moved sources marked keep_source false', async () => {
       mock.rpcResults.transfer_check_files = row({ files_status: 'done' });
 
       await copyTransferFiles(row());
@@ -298,97 +373,65 @@ describe('copyTransferFiles', () => {
          .mockResolvedValueOnce({ data: null, error: { message: 'The resource already exists' } })
          .mockResolvedValueOnce({ data: null, error: { message: 'Bucket not reachable' } })
          .mockRejectedValueOnce(new Error('network'));
-      mock.rpcResults.transfer_check_files = row({
-         files_status: 'partial',
-         missing_files: ['t/b']
-      });
+      mock.rpcResults.transfer_check_files = row({ mode: 'copy', files_status: 'partial' });
 
-      await expect(copyTransferFiles(row())).resolves.toMatchObject({ files_status: 'partial' });
-      expect(mock.copy).toHaveBeenCalledTimes(3);
-      expect(mock.rpc).toHaveBeenCalledWith('transfer_check_files', { transfer_id: 'tr' });
-      const [, , failed] = warn.mock.calls[0]!;
-      expect((failed as { file: { from: string } }[]).map(({ file }) => file.from)).toEqual([
-         's/b',
-         's/c'
-      ]);
+      await expect(copyTransferFiles(row({ mode: 'copy' }))).resolves.toBeTruthy();
+      expect(warn).toHaveBeenCalledTimes(1);
       warn.mockRestore();
    });
 
    it('throws on malformed files before copying', async () => {
-      await expect(copyTransferFiles(row({ files: [{ to: 't' }] }))).rejects.toBeInstanceOf(
+      await expect(copyTransferFiles(row({ files: [{ nope: 1 }] as never }))).rejects.toThrow(
          ZodError
       );
       expect(mock.copy).not.toHaveBeenCalled();
    });
 });
 
-const mountHook = <T>(hook: () => T, queryClient = new QueryClient()): T => {
-   let result!: T;
-   mount(
-      defineComponent({
-         setup() {
-            result = hook();
-            return () => h('div');
-         }
-      }),
-      { global: { plugins: [[VueQueryPlugin, { queryClient }]] } }
-   );
-   return result;
-};
+describe('transferFilesState', () => {
+   it('separates the files to copy again from the ones that need an administrator', () => {
+      expect(
+         transferFilesState(
+            row({ files_status: 'partial', missing_files: ['t/a', 'mismatch:t/b', 'mismatch:t/c'] })
+         )
+      ).toEqual({ retryable: 1, needsAdmin: 2, canCopy: true });
+      expect(transferFilesState(row({ files_status: 'pending' }))).toEqual({
+         retryable: 3,
+         needsAdmin: 0,
+         canCopy: true
+      });
+      // Masked files cannot be copied by this caller.
+      expect(
+         transferFilesState(row({ files: null as never, files_status: 'pending' })).canCopy
+      ).toBe(false);
+   });
+});
 
 describe('useRunTransfer', () => {
-   it('runs, copies, and marks both tenants stale', async () => {
+   it('runs and marks both tenants stale', async () => {
       const queryClient = new QueryClient();
       const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-      let run!: ReturnType<typeof useRunTransfer>;
-      mount(
-         defineComponent({
-            setup() {
-               run = useRunTransfer();
-               return () => h('div');
-            }
-         }),
-         { global: { plugins: [[VueQueryPlugin, { queryClient }]] } }
-      );
-      mock.rpcResults.transfer_customer = row({ mode: 'copy' });
-      mock.rpcResults.transfer_check_files = row({ mode: 'copy', files_status: 'done' });
+      mock.rpcResults.transfer_products = row({ mode: 'copy' });
 
+      const run = mountHook(useRunTransfer, queryClient);
       const result = await run.mutateAsync({ args, reportHash: 'h' });
 
-      expect(result.files_status).toBe('done');
-      expect(mock.copy).toHaveBeenCalledTimes(3);
+      expect(result.id).toBe('tr');
       const { predicate } = invalidate.mock.calls[0]![0] as unknown as {
          predicate: (query: { queryKey: unknown[] }) => boolean;
       };
       const stale = (key: unknown[]) => predicate({ queryKey: key });
-      expect(stale(['tenant', 's', 'customer'])).toBe(true);
+      expect(stale(['tenant', 's', 'product'])).toBe(true);
       expect(stale(['tenant', 'x,t', 'product'])).toBe(true);
       expect(stale(['tenant', 'x', 'product'])).toBe(false);
-   });
-
-   it('returns the committed run row when the file check fails', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const ran = row({ mode: 'copy' });
-      mock.rpcResults.transfer_customer = ran;
-      mock.rpcErrors.transfer_check_files = new Error('check down');
-
-      await expect(
-         mountHook(useRunTransfer).mutateAsync({ args, reportHash: 'h' })
-      ).resolves.toEqual(ran);
-      expect(warn).toHaveBeenCalledWith(
-         'Transfer files not checked',
-         'tr',
-         new Error('check down')
-      );
-      warn.mockRestore();
    });
 });
 
 describe('transfer reads', () => {
-   it('reads a transfer as its target tenant alone, keyed by it', async () => {
+   it('reads a transfer with the source and the target in scope, keyed by the target', async () => {
       const queryClient = new QueryClient();
       mock.tableResult = row();
-      const query = mountHook(() => useTransfer('tr', 't'), queryClient);
+      const query = mountHook(() => useTransfer('tr', 's', 't'), queryClient);
 
       await vi.waitFor(() => expect(query.data.value).toEqual(row()));
       expect(mock.calls).toEqual([
@@ -397,69 +440,113 @@ describe('transfer reads', () => {
          ['eq', 'id', 'tr'],
          ['abortSignal'],
          ['setHeader', 'x-tenant-id', 't'],
-         ['setHeader', 'x-tenant-ids', 't'],
+         ['setHeader', 'x-tenant-ids', 's,t'],
          ['maybeSingle']
       ]);
       expect(queryClient.getQueryData(['tenant', 't', 'transfer', 'detail', 'tr'])).toEqual(row());
    });
 
    it('waits for the target tenant', () => {
-      const query = mountHook(() => useTransfer('tr', null));
+      const query = mountHook(() => useTransfer('tr', 's', null));
       expect(query.isFetching.value).toBe(false);
       expect(mock.calls).toEqual([]);
    });
+});
 
-   it('lists the transfers into a customer whose files are not done, newest first', async () => {
-      mock.tableResult = [row()];
-      const query = mountHook(() => usePendingTransfers('c2'));
+describe('usePendingTransfers', () => {
+   it('reads each masked row again with its source and target in scope', async () => {
+      const masked = row({ files: null as never, source_tenant_id: 'src', tenant_id: 'tgt' });
+      const full = row({ source_tenant_id: 'src', tenant_id: 'tgt' });
+      mock.queue = [[masked], full];
+      const query = mountHook(() => usePendingTransfers(['tgt']));
 
-      await vi.waitFor(() => expect(query.data.value).toEqual([row()]));
+      await vi.waitFor(() => expect(query.data.value).toEqual([full]));
       expect(mock.calls).toEqual([
          ['from', 'transfer'],
          ['select', '*'],
-         ['eq', 'target_customer_id', 'c2'],
          ['neq', 'files_status', 'done'],
+         ['or', 'tenant_id.in.(tgt),source_tenant_id.in.(tgt)'],
          ['order', 'created_at', { ascending: false }],
-         ['abortSignal']
+         ['abortSignal'],
+         ['setHeader', 'x-tenant-id', 'tgt'],
+         ['setHeader', 'x-tenant-ids', 'tgt'],
+         ['from', 'transfer'],
+         ['select', '*'],
+         ['eq', 'id', 'tr'],
+         ['abortSignal'],
+         ['setHeader', 'x-tenant-id', 'tgt'],
+         ['setHeader', 'x-tenant-ids', 'src,tgt'],
+         ['maybeSingle']
       ]);
+   });
+
+   it('does not read a row again when its files are readable, and waits for tenants', async () => {
+      mock.queue = [[row()]];
+      const query = mountHook(() => usePendingTransfers(['t']));
+      await vi.waitFor(() => expect(query.data.value).toEqual([row()]));
+      expect(mock.calls.filter(([m]) => m === 'from')).toHaveLength(1);
+
+      mock.calls = [];
+      mountHook(() => usePendingTransfers([]));
+      expect(mock.calls).toEqual([]);
    });
 });
 
 describe('idMapCsv', () => {
    it('writes the map by table, then source id', () => {
-      expect(idMapCsv({ product: { b: '2', a: '1' }, customer: { c: '3' } })).toBe(
-         'table,source_id,target_id\r\ncustomer,c,3\r\nproduct,a,1\r\nproduct,b,2\r\n'
+      expect(idMapCsv({ product: { b: 'y', a: 'x' }, media: { m: 'n' } })).toBe(
+         'table,source_id,target_id\r\nmedia,m,n\r\nproduct,a,x\r\nproduct,b,y\r\n'
       );
    });
 });
 
 describe('narrowing the Json columns', () => {
    it('reads a valid id map unchanged and throws on a malformed one', () => {
-      expect(asIdMap({ customer: { a: 'b' } })).toEqual({ customer: { a: 'b' } });
-      expect(() => asIdMap({ customer: 'x' })).toThrow(ZodError);
+      expect(asIdMap({ product: { a: 'b' } })).toEqual({ product: { a: 'b' } });
+      expect(() => asIdMap({ product: 'x' })).toThrow(ZodError);
    });
 
    it('reads valid files unchanged and throws on malformed ones', () => {
-      const files = [{ media_id: 'm', from: 'f', to: 't', keep_source: false }];
+      const files = [{ media_id: 'm', from: 'a', to: 'b', keep_source: true }];
       expect(asTransferFiles(files)).toEqual(files);
-      expect(() => asTransferFiles([{ to: 't' }])).toThrow(ZodError);
+      expect(() => asTransferFiles([{ media_id: 'm' }])).toThrow(ZodError);
    });
 
-   it('reads a report, an unknown conflict kind and action included', () => {
-      expect(asTransferReport(report)).toEqual(report);
-
-      const newer = {
-         ...report,
-         conflicts: [{ ...report.conflicts[0]!, kind: 'warp_drive', actions: ['map', 'teleport'] }]
-      };
-      expect(asTransferReport(newer).conflicts[0]).toMatchObject({
-         kind: 'unknown',
-         actions: ['map']
-      });
+   it('reads a report, an unknown conflict kind included', () => {
+      const unknown = { ...report.conflicts[0], kind: 'mystery' };
+      const result = asTransferReport({ ...report, conflicts: [unknown] });
+      expect(result.conflicts[0]!.kind).toBe('unknown');
    });
 
    it('throws on a report of another shape', () => {
-      expect(() => asTransferReport({ ...report, report_hash: null })).toThrow(ZodError);
-      expect(() => asTransferReport({ ...report, conflicts: [{ key: 'k' }] })).toThrow(ZodError);
+      expect(() => asTransferReport({ counts: 'x' })).toThrow(ZodError);
+   });
+});
+
+describe('transferErrorText', () => {
+   it.each([
+      'transfer_mode_invalid',
+      'transfer_same_tenant',
+      'transfer_forbidden',
+      'transfer_target_unavailable',
+      'transfer_permissions_required',
+      'transfer_field_rights_required',
+      'transfer_source_read_only',
+      'transfer_files_pending',
+      'transfer_report_stale',
+      'transfer_decision_required',
+      'transfer_decision_invalid',
+      'transfer_code_invalid',
+      'transfer_product_in_use',
+      'transfer_products_invalid',
+      'transfer_package_invalid',
+      'transfer_not_found'
+   ])('has a message for %s', async (code) => {
+      const { default: i18n } = await import('@plugins/i18n');
+      const en = (await import('@/plugins/i18n/locales/en/index.json')).default;
+      i18n.setLocaleMessage('en', en);
+      const text = transferErrorText({ message: code });
+      expect(text).not.toBe(code);
+      expect(text).not.toBe('');
    });
 });

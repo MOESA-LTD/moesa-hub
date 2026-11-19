@@ -3,28 +3,59 @@ import { AuthSessionMissingError, CustomAuthError } from '@supabase/supabase-js'
 import { useToast } from 'primevue';
 import type { NavigationGuardWithThis } from 'vue-router';
 
+/** The pages an e-mail link signs in to that set the password themselves, and the link types each accepts. */
+const LINK_PAGES: Record<string, string[]> = {
+   'auth-invitation': ['invite', 'magiclink', 'signup'],
+   'auth-register-complete': ['invite']
+};
+
 export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => {
    // Invite and recovery links sign the user in through tokens in the URL hash.
    const params = new URLSearchParams(window.location.hash?.substring(1));
    const access_token = params.get('access_token');
    const refresh_token = params.get('refresh_token');
 
-   if (access_token && refresh_token) {
+   // The pages that set the password themselves sign in only with the link types their mails use:
+   // any other tokens in the address are not the recipient's and are ignored (no login fixation).
+   // The invitation mails an invite or a magic link; self-signup only ever an invite.
+   const linkType = params.get('type');
+   const linkTypes = LINK_PAGES[String(to.name)];
+   const accepted = !linkTypes || linkTypes.includes(linkType ?? '');
+
+   // The router writes the location it lands on back to the address bar, hash included: a page that
+   // drops the link's tokens lands on itself without them, or they come back and the next
+   // navigation signs in with them again.
+   const withoutTokens = () =>
+      to.hash ? { path: to.path, query: to.query, hash: '', replace: true } : undefined;
+
+   if (linkTypes && !accepted && access_token) {
+      window.history.replaceState({}, document.title, to.path);
+      return withoutTokens();
+   }
+
+   if (access_token && refresh_token && accepted) {
       const { error } = await supabase.auth.setSession({ access_token, refresh_token });
       if (error) throw error;
 
-      // Guards run in the app's injection context (vue-router >= 4.2), so the toast works here.
-      useToast().add({
-         life: 0,
-         closable: true,
-         severity: ToastSeverity.INFO,
-         summary: i18n.t('auth.welcome.title'),
-         detail: i18n.t('auth.please_dont_forget_to_update_your_password')
-      });
-
       window.history.replaceState({}, document.title, to.path);
 
-      return { name: 'account-security' };
+      // The invitation and sign-up pages set the password themselves, in their first step: they
+      // stay where they are, signed in, and go on to the checks below.
+      if (!linkTypes) {
+         // Guards run in the app's injection context (vue-router >= 4.2), so the toast works here.
+         useToast().add({
+            life: 0,
+            closable: true,
+            severity: ToastSeverity.INFO,
+            summary: i18n.t('auth.welcome.title'),
+            detail: i18n.t('auth.please_dont_forget_to_update_your_password')
+         });
+
+         return { name: 'account-security' };
+      }
+
+      const landing = withoutTokens();
+      if (landing) return landing;
    }
 
    const authStore = useAuthStore();

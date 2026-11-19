@@ -22,8 +22,7 @@ const props = defineProps<{
    id?: string | null;
    entity_type?: DocumentEntity | null;
    entity_id?: string | null;
-   customer_id?: string | null;
-   /** The record's code (SKU, customer, supplier or project code) the file is named after. */
+   /** The record's code (SKU, supplier or project code) the file is named after. */
    code?: string | null;
 }>();
 
@@ -33,7 +32,6 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
       prefill: (): Partial<DocumentRow> => ({
          entity_type: props.entity_type ?? undefined,
          entity_id: props.entity_id ?? undefined,
-         customer_id: props.customer_id ?? null,
          type: 'other',
          version: 1,
          status: 'draft'
@@ -46,9 +44,6 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
       toPayload: (data) => toDocumentPayload(withRouteContext(data, props), props.code)
    });
 await ready;
-
-// The customer the document is saved under (that of its record), whose files it may cite.
-const customerId = computed(() => withRouteContext(values.value, props).customer_id ?? null);
 
 const flags = ['is_signed', 'is_stamped', 'sent_from_official_email'] as const;
 
@@ -147,7 +142,7 @@ const statusFixed = computed(() => !!values.value.id && values.value.status === 
             :error="errors.media_id"
             :readonly
          >
-            <DocumentFileField v-model:mediaId="values.media_id" :customerId :readonly />
+            <DocumentFileField v-model:mediaId="values.media_id" :readonly />
          </FormField>
          <FormBox class="!flex-auto">
             <span v-for="flag in flags" :key="flag" class="flex items-center gap-2">

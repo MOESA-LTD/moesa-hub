@@ -14,12 +14,13 @@ const OPS_TABLES = [
    'document',
    'supplier',
    'supplier_contact',
-   'customer',
-   'customer_contact',
-   'customer_warehouse',
-   'customer_platform_account',
-   'customer_brand',
+   'brand',
+   'contact',
+   'warehouse',
+   'platform_account',
+   'provider_relationship',
    'product',
+   'sourcing',
    'project',
    'project_product',
    'project_gate',
@@ -45,7 +46,7 @@ const OPS_MODULES = [
    'ops_setting',
    'document',
    'supplier',
-   'customer',
+   'client',
    'product',
    'project',
    'media',
@@ -62,6 +63,18 @@ describe('field names of the business modules', () => {
       const missing = [...OPS_TABLES, ...OPS_MODULES].filter(
          (key) => typeof names[key] !== 'string'
       );
+      expect(missing).toEqual([]);
+   });
+});
+
+// The role editor's field rights name each table with sensitive fields (`fields.<table>`, else the
+// raw table name): every table of the generated masked-field list (walk, Task 17:
+// provider_invitation showed raw).
+describe('field names of the tables with field rights', () => {
+   it.each(['en', 'tr'])('%s names every table the role editor lists', async (locale) => {
+      const { MASKED_FIELDS } = await import('@/@types/maskedFields.generated');
+      const names = fields(locale);
+      const missing = Object.keys(MASKED_FIELDS).filter((key) => typeof names[key] !== 'string');
       expect(missing).toEqual([]);
    });
 });

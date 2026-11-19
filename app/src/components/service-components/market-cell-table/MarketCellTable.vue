@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { withCustomerFilter } from '@/api/customerFilter';
 import {
    MARKET_CELL_STATUS_SEVERITY,
    MARKET_CELL_STATUSES,
@@ -12,10 +11,9 @@ import {
 } from '@/components/service-components/resource-table/createFilters';
 import { formatEmpty } from '@/constants/format';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 
-// The market cells (public.market_cell_overview) of the customer the lists are filtered by (every
-// customer's when none is), as a list: the matrix's other view.
+// The market cells (public.market_cell_overview) of the tenants in scope, as a list: the matrix's
+// other view.
 type Props = ResourceTableProps<'market_cell_overview'>;
 
 const router = useRouter();
@@ -47,20 +45,9 @@ const filters = ref<NonNullable<Props['filters']>>(
       sku: 'startsWith',
       product_name: 'text',
       country: 'startsWith',
-      status: equalsFilter(),
-      customer_id: equalsFilter()
+      status: equalsFilter()
    })
 );
-
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const rowActions: Props['rowActions'] = [
    {

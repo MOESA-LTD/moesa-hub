@@ -6,15 +6,15 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- supplier_media with a supplier link), so none is created in this test.
 BEGIN;
 
-SELECT plan(23);
+SELECT plan(27);
 
 SELECT private.field_test_fixtures();
 SELECT private.create_test_helpers();
 GRANT EXECUTE ON FUNCTION private.field_calls_only_in_initplans (TEXT) TO authenticated;
 
--- As portal (customer_viewer: neither supplier_terms nor supplier_identity).
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
-SELECT is((SELECT count(*)::INT FROM api.document WHERE id = current_setting('test.pi_doc')::UUID), 0, 'portal user cannot read a PI document');
+-- As elif (t_restricted: documents and media, neither supplier_terms nor supplier_identity).
+SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
+SELECT is((SELECT count(*)::INT FROM api.document WHERE id = current_setting('test.pi_doc')::UUID), 0, 'a user without the groups cannot read a PI document');
 SELECT is((SELECT count(*)::INT FROM api.media WHERE id = current_setting('test.pi_media')::UUID), 0, '... its media');
 SELECT is((SELECT count(*)::INT FROM storage.objects WHERE name = current_setting('test.pi_object')), 0, '... or its Storage object');
 SELECT ok(NOT private.can_read_media_file(current_setting('test.pi_object')), 'the Storage helper refuses it');
@@ -34,9 +34,10 @@ SELECT ok(private.field_calls_only_in_initplans('SELECT * FROM api.media ORDER B
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- Session scope gives no way round: portal working in another tenant, and with no tenant at all.
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.europe')::UUID);
-SELECT ok(NOT private.can_read_media_file(current_setting('test.pi_object')), 'portal, active tenant europe: the Storage helper refuses the PI file');
+-- Session scope gives no way round: portal (THO's viewer) working in its own tenant, and with no
+-- tenant at all.
+SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.tho')::UUID);
+SELECT ok(NOT private.can_read_media_file(current_setting('test.pi_object')), 'portal, active tenant THO: the Storage helper refuses the PI file');
 SELECT is((SELECT count(*)::INT FROM storage.objects WHERE name = current_setting('test.pi_object')), 0, '... and Storage shows none');
 RESET ROLE;
 SELECT private.unimpersonate();
@@ -54,20 +55,46 @@ SELECT is((SELECT count(*)::INT FROM pg_proc WHERE pronamespace = 'private'::reg
 SELECT private.disable_tenant_level_security(t) FROM unnest(ARRAY['document', 'media_link', 'media']) AS t;
 SELECT private.enable_tenant_level_security(t) FROM unnest(ARRAY['document', 'media_link', 'media']) AS t;
 SELECT is((SELECT count(*)::INT FROM pg_policies WHERE policyname IN ('document_field_groups', 'media_link_field_groups', 'media_field_groups')), 3, 'the policies survive a generator re-run');
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
 SELECT is((SELECT count(*)::INT FROM api.document WHERE id = current_setting('test.pi_doc')::UUID), 0, 'still hidden after the re-run');
 RESET ROLE;
 SELECT private.unimpersonate();
 
 -- A role with media select but no document or media_link select does not blind the rule.
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
-DELETE FROM public.role_permission rp USING public.role r, public.permission p
-WHERE rp.role_id = r.id AND rp.permission_id = p.id AND r.tenant_id = current_setting('test.moesa')::UUID AND r.display_name = 'customer_viewer'
+DELETE FROM public.role_permission rp USING public.permission p
+WHERE rp.role_id = current_setting('test.t_restricted')::UUID AND rp.permission_id = p.id
   AND p.resource_name IN ('public.document', 'public.media_link') AND p.command = 'select';
 SELECT set_config('moesa.rules_bypass', '', TRUE);
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
 SELECT ok(NOT private.can_read_media_file(current_setting('test.pi_object')), 'media select alone: the PI file is still refused');
 SELECT is((SELECT count(*)::INT FROM storage.objects WHERE name = current_setting('test.pi_object')), 0, '... and Storage shows none');
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- Cross-tenant (Plan 1 carry, restored with sharing): the PI document on a provider order shared with
+-- THO stays the provider's. THO's owner, even in the forged scope {THO, provider}, reads the order but
+-- neither its PI document (row, embed), its media, nor its Storage object.
+SELECT set_config('test.shared_po', gen_random_uuid()::TEXT, TRUE);
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, supplier_id, currency, incoterm, deposit_rate, pi_document_id)
+VALUES (current_setting('test.shared_po')::UUID, current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID,
+        current_setting('test.tsp')::UUID, 'USD', 'FOB', 0.3, current_setting('test.pi_doc')::UUID);
+-- Sent: a draft does not reach the client at all (decision 20).
+UPDATE public.purchase_order SET status = 'sent' WHERE id = current_setting('test.shared_po')::UUID;
+SELECT set_config('moesa.rules_bypass', '', TRUE);
+SELECT private.impersonate_scope((SELECT id FROM public.user WHERE email = 'thomas@moesa-panel.test'), current_setting('test.tho')::UUID,
+                                 ARRAY[current_setting('test.tho')::UUID, current_setting('test.moesa')::UUID]);
+SELECT results_eq($$ SELECT count(*)::INT, (SELECT count(*)::INT FROM api.purchase_order p2 CROSS JOIN LATERAL api.pi_document(p2) d
+                                            WHERE p2.id = current_setting('test.shared_po')::UUID AND d.id IS NOT NULL),
+                            bool_and(po.pi_document_id IS NULL)
+                     FROM api.purchase_order po WHERE po.id = current_setting('test.shared_po')::UUID $$,
+                  $$ VALUES (1, 0, TRUE) $$, 'client owner reads the shared order, not its PI document id or embed');
+SELECT is((SELECT count(*)::INT FROM api.document WHERE id = current_setting('test.pi_doc')::UUID), 0, '... nor the PI document row');
+SELECT is((SELECT count(*)::INT FROM api.media WHERE id = current_setting('test.pi_media')::UUID), 0, '... nor its media');
+SELECT ok(NOT private.can_read_media_file(current_setting('test.pi_object'))
+          AND (SELECT count(*) FROM storage.objects WHERE name = current_setting('test.pi_object')) = 0,
+          '... nor its Storage object');
 RESET ROLE;
 SELECT private.unimpersonate();
 

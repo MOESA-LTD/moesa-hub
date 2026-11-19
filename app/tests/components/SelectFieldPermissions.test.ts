@@ -24,12 +24,21 @@ const f = (field: string, group_name: string | null, cls = 'sensitive') => ({
    class: cls,
    group_name
 });
+const line = (field: string, client_visible: boolean) => ({
+   resource_name: 'public.purchase_order_line',
+   field,
+   class: 'sensitive',
+   group_name: null,
+   client_visible
+});
 const FIELDS = [
    f('purchase_price', 'cost'),
    f('landed_cost_eur', 'cost'),
    f('company_price_eur', 'sell_price'),
    f('notes', 'internal_note'),
-   f('sku', null, 'open')
+   f('sku', null, 'open'),
+   line('sell_price_eur', true),
+   line('unit_price', false)
 ];
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -223,6 +232,22 @@ describe('SelectFieldPermissions', () => {
       expect(
          box(w, 'field-public.product-notes-write').find('input').attributes('disabled')
       ).toBeDefined();
+   });
+
+   // Cleanup item 9: a field row shows a label, from the form the table is edited in, not its
+   // column name.
+   it('labels the field rows, also of a table edited in another form', async () => {
+      const w = await mountWith([]);
+      for (const toggle of w.findAll('.p-datatable-row-toggle-button').slice(1)) {
+         await toggle.trigger('click');
+         await flushPromises();
+      }
+      const labels = w.findAll('td.pl-6').map((td) => td.text());
+      expect(labels).toContain('Purchase price');
+      expect(labels).toContain('Sell price (EUR)');
+      expect(labels).toContain('Unit price');
+      expect(labels).not.toContain('sell_price_eur');
+      expect(labels).not.toContain('unit_price');
    });
 
    it('disables every toggle for a role of another tenant', async () => {

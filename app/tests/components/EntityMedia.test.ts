@@ -80,7 +80,6 @@ const media = (id: string, mimeType = 'image/png') =>
    ({
       id,
       tenant_id: 't-record',
-      customer_id: null,
       file_name: `${id}.${mimeType.split('/')[1]}`,
       mime_type: mimeType,
       storage_path: `t-record/${id}/${id}`,
@@ -106,7 +105,7 @@ const withoutProductUpdate = () => [
 
 const mountMedia = () =>
    mount(EntityMedia, {
-      props: { entityType: 'product', entityId: 'p1', customerId: 'c1', tenantId: 't-record' },
+      props: { entityType: 'product', entityId: 'p1', tenantId: 't-record' },
       global: { plugins: [i18NPlugin, PrimeVue] }
    });
 
@@ -304,7 +303,7 @@ describe('EntityMedia', () => {
       wrapper.findComponent(FileUpload).vm.$emit('uploader', { files: [file] });
       await flushPromises();
 
-      expect(api.upload).toHaveBeenCalledWith({ file, customerId: 'c1', tenantId: 't-record' });
+      expect(api.upload).toHaveBeenCalledWith({ file, tenantId: 't-record' });
       expect(api.link).toHaveBeenCalledOnce();
       expect(api.link).toHaveBeenCalledWith({
          entityType: 'product',
@@ -395,7 +394,6 @@ describe('MediaPickerDialog', () => {
       const wrapper = mount(MediaPickerDialog, {
          props: {
             visible: true,
-            customerId: 'c1',
             tenantId: 't1',
             excludeIds: ['b'],
             kinds: ['image', 'video']
@@ -405,8 +403,6 @@ describe('MediaPickerDialog', () => {
 
       expect(api.libraryFilters).toEqual({
          tenantId: 't1',
-         customerId: 'c1',
-         includeShared: true,
          kind: ['image', 'video']
       });
       const items = wrapper.findAll('[data-picker-item]');

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import IncidentTable from '@/components/service-components/incident-table/IncidentTable.vue';
 
-// Every incident of the customer the lists are filtered by (every customer's when none is), the
-// most severe first. A new incident is added from the menu's context menu.
+// Every incident of the tenants in scope, the most severe first. A new incident is added from the
+// menu's context menu.
 </script>
 
 <template>

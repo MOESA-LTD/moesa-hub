@@ -4,28 +4,37 @@ import {
    idMapCsv,
    transferRecordCount,
    useTransfer,
+   type TransferProgress,
    type TransferReport,
    type TransferRow
 } from '@/api/transfer';
 import TransferFilesNotice from '@/components/service-components/transfer/TransferFilesNotice.vue';
 import dayjs from 'dayjs';
 
-// The run's result: how many records it wrote (the report's count, as the confirm said), its ID map to download and its files. The row is
-// read again as the target tenant (it belongs to the target), so a retried file copy shows here.
+// The last step: what the run wrote, its ID map to download, and the copy of its files with their
+// progress. The row is read again (with the source and the target in scope, so the masked fields
+// follow the caller's rights in both), which shows a retried file copy.
 const props = defineProps<{
    transfer: TransferRow;
    report: TransferReport;
-   /** The target tenant, which the transfer row belongs to. */
-   target: string;
+   /** The file copy is running; null once it is not. */
+   progress: TransferProgress | null;
+   copying: boolean;
 }>();
 
-const { data: current } = useTransfer(
+const { data: current, isFetching } = useTransfer(
    () => props.transfer.id,
-   () => props.target
+   () => props.report.source_tenant,
+   () => props.report.target_tenant
 );
-const row = computed(() => current.value ?? props.transfer);
+// The row the wizard holds is the newest while the files copy; the read one after a retry.
+const row = computed(() => (props.copying ? props.transfer : (current.value ?? props.transfer)));
 
-const idMap = computed(() => asIdMap(row.value.id_map));
+// Masked for a caller without the rights in both tenants: nothing to download.
+const idMap = computed(() => {
+   const json = row.value.id_map;
+   return json && typeof json === 'object' && !Array.isArray(json) ? asIdMap(json) : {};
+});
 const count = computed(() => transferRecordCount(props.report));
 
 const downloadIdMap = () => {
@@ -36,7 +45,7 @@ const downloadIdMap = () => {
    const url = URL.createObjectURL(blob);
    const link = document.createElement('a');
    link.href = url;
-   link.download = `transfer_${props.report.customer.code}_${dayjs().format('YYYYMMDD')}.csv`;
+   link.download = `transfer_${dayjs().format('YYYYMMDD')}.csv`;
    link.click();
    URL.revokeObjectURL(url);
 };
@@ -47,7 +56,7 @@ const downloadIdMap = () => {
       <Message severity="success" data-done>
          {{ $t('ops.transfer.result.done', { count }) }}
       </Message>
-      <div>
+      <div v-if="Object.keys(idMap).length">
          <Button
             :label="$t('ops.transfer.result.id_map')"
             :icon="PrimeIcons.DOWNLOAD"
@@ -56,6 +65,23 @@ const downloadIdMap = () => {
             @click="downloadIdMap"
          />
       </div>
-      <TransferFilesNotice :transfer="row" />
+      <div v-if="copying" class="flex flex-col gap-2" data-progress>
+         <span>
+            {{
+               $t('ops.transfer.files.progress', {
+                  done: progress?.done ?? 0,
+                  total: progress?.total ?? report.files
+               })
+            }}
+         </span>
+         <ProgressBar
+            :value="
+               progress && progress.total ? Math.round((progress.done / progress.total) * 100) : 0
+            "
+            :showValue="false"
+         />
+      </div>
+      <ProgressSpinner v-else-if="isFetching" style="width: 1.5rem; height: 1.5rem" data-loading />
+      <TransferFilesNotice v-else :transfer="row" />
    </div>
 </template>

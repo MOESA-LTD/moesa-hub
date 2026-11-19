@@ -1,4 +1,4 @@
--- 059: the audit history and the transfer reports through api, masked per row tenant (OD4, S4), the
+-- 059: the audit history through api, masked per row tenant (OD4), the
 -- actor/reverter embeds over api.user (R9) and the revert refused when it would write a field the
 -- caller may not write (C3, R8).
 --
@@ -12,19 +12,17 @@
 -- private.mask_audit_data(table, tenant, data, readable, sensitive)
 --                        IMMUTABLE: a top-level key of `data` that is a sensitive field of `table` the
 --                        tenant's readers may not read becomes {"masked": true} ("changed", without the
---                        value); for transfer, report and decisions go through mask_json_deep. A NULL
---                        tenant masks every sensitive key.
+--                        value). A NULL tenant masks every sensitive key.
 --                        Both are SECURITY DEFINER owned by api_owner (R8) only so their bodies may call
 --                        each other by name (authenticated has no USAGE on private); they read no table.
--- private.api_json_masked  transfer.report, transfer.decisions (mask_json_deep) and audit_log.old_data,
---                        audit_log.new_data (mask_audit_data over the row's table_name).
+-- private.api_json_masked  audit_log.old_data, audit_log.new_data (mask_audit_data over the row's
+--                        table_name). Any other JSON-masked column is generated as mask_json_deep.
 -- private.api_column_expr, private.api_rights_expr
 --                        Restated (053): a JSON-masked column is generated as its mask call over the
 --                        rights map and the sensitive map of the rights subquery m (InitPlans of m, once
 --                        per query).
 -- private.api_view_drift   Restated (053): a JSON-masked column may also carry mask_audit_data; the
 --                        whole expression is still compared with api_column_expr.
--- api.transfer           Re-generated read-only (S4); api_owner keeps SELECT only on public.transfer.
 -- api.audit_transaction, api.audit_log
 --                        Generated read-only, owner api_owner: plain columns, old_data/new_data masked.
 -- api.actor, api.reverter (api.audit_transaction)
@@ -114,7 +112,6 @@ SET
 DECLARE
     hidden TEXT[];
     result JSONB;
-    k TEXT;
 BEGIN
     IF p_data IS NULL OR jsonb_typeof(p_data) <> 'object' THEN
         RETURN p_data;
@@ -129,14 +126,6 @@ BEGIN
         SELECT jsonb_object_agg(e.key, CASE WHEN e.key = ANY (hidden) THEN '{"masked": true}'::JSONB ELSE e.value END)
         FROM jsonb_each(p_data) AS e
     ), '{}'::JSONB);
-    -- S4: a transfer's report and decisions hold rows of other tables.
-    IF p_table = 'transfer' THEN
-        FOREACH k IN ARRAY ARRAY['report', 'decisions'] LOOP
-            IF result ? k AND NOT k = ANY (hidden) THEN
-                result := jsonb_set(result, ARRAY[k], private.mask_json_deep(result -> k, p_tenant, p_readable, p_sensitive));
-            END IF;
-        END LOOP;
-    END IF;
     RETURN result;
 END;
 $$;
@@ -169,8 +158,6 @@ REVOKE CREATE ON SCHEMA private FROM api_owner;
 INSERT INTO
    private.api_json_masked (resource_name, field)
 VALUES
-   ('public.transfer', 'report'),
-   ('public.transfer', 'decisions'),
    ('public.audit_log', 'old_data'),
    ('public.audit_log', 'new_data')
 ON CONFLICT DO NOTHING;
@@ -387,9 +374,6 @@ REVOKE ALL ON FUNCTION private.api_view_drift () FROM PUBLIC, anon, authenticate
 
 -- 3. The views.
 
--- S4: report and decisions masked; still read-only (api_owner keeps SELECT only on the base).
-SELECT private.enable_field_security ('transfer', TRUE);
-
 -- The audit trail: written by the audit triggers only, read through api. Giving a new view to api_owner
 -- needs its CREATE on api for these statements only (as in 057).
 GRANT CREATE ON SCHEMA api TO api_owner;
@@ -521,13 +505,6 @@ BEGIN
     IF target.reverted_at IS NOT NULL THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'audit_already_reverted')::TEXT,
-            DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
-    END IF;
-
-    -- A transfer is undone by transferring back, never from the log.
-    IF public.audit_transfer_locked(target.id) THEN
-        RAISE SQLSTATE 'PGRST' USING
-            MESSAGE = json_build_object('code', 'P0001', 'message', 'audit_transfer_not_revertable')::TEXT,
             DETAIL = json_build_object('status', 409, 'headers', json_build_object())::TEXT;
     END IF;
 

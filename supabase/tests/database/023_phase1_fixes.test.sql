@@ -1,16 +1,14 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- The Phase 1 fixes on the MOESA demo company of seed.sql: approved spec sheets need signatures,
--- superseded ones stay superseded and documents keep their identity; closed customers get no
--- projects; only management changes contract terms; the product list's evidence view. What it
+-- The Phase 1 fixes on the THOMETZKI client tenant of seed.sql (its products live in THO; akif is
+-- a management member there): approved spec sheets need signatures, superseded ones stay superseded
+-- and documents keep their identity; the product list's evidence view. (Contract terms are tested in 018_tenant_relations.test.sql.) What it
 -- writes is rolled back.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(9);
 
-SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD')::TEXT, TRUE);
-SELECT set_config('test.tho', (SELECT c.id FROM public.customer c
-                               WHERE c.tenant_id = current_setting('test.tenant_id')::UUID AND c.code = 'THO')::TEXT, TRUE);
+SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.code = 'THO')::TEXT, TRUE);
 SELECT set_config('test.tips', (SELECT p.id FROM public.product p
                                 WHERE p.tenant_id = current_setting('test.tenant_id')::UUID AND p.sku = 'THO-TIPS-6-50')::TEXT, TRUE);
 
@@ -37,8 +35,8 @@ SELECT is(
 -- Approved documents need the signature, the stamp, the official e-mail and the date.
 SELECT throws_ok(
     $$
-        INSERT INTO api.document (tenant_id, customer_id, entity_type, entity_id, type, status, url)
-        VALUES (current_setting('test.tenant_id')::UUID, current_setting('test.tho')::UUID, 'product',
+        INSERT INTO api.document (tenant_id, entity_type, entity_id, type, status, url)
+        VALUES (current_setting('test.tenant_id')::UUID, 'product',
                 current_setting('test.tips')::UUID, 'spec_sheet', 'approved', 'https://example.test/tips-v1.pdf')
     $$,
     '23514',
@@ -49,9 +47,9 @@ SELECT throws_ok(
 -- Other approved documents (a gate approval is an e-mail or e-signature record) need no flags.
 SELECT lives_ok(
     $$
-        INSERT INTO api.document (tenant_id, customer_id, entity_type, entity_id, type, status, url)
-        VALUES (current_setting('test.tenant_id')::UUID, current_setting('test.tho')::UUID, 'customer',
-                current_setting('test.tho')::UUID, 'gate_approval', 'approved', 'https://example.test/tho-ok.pdf')
+        INSERT INTO api.document (tenant_id, entity_type, entity_id, type, status, url)
+        VALUES (current_setting('test.tenant_id')::UUID, 'product',
+                current_setting('test.tips')::UUID, 'gate_approval', 'approved', 'https://example.test/tho-ok.pdf')
     $$,
     'an approved gate approval without signature flags is accepted'
 );
@@ -62,10 +60,10 @@ SELECT is(
     'the product still has no signed spec sheet'
 );
 
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, version, status, url,
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, version, status, url,
                              is_signed, is_stamped, sent_from_official_email, issued_on)
 VALUES ('00000000-0000-4000-8000-000000000231', current_setting('test.tenant_id')::UUID,
-        current_setting('test.tho')::UUID, 'product', current_setting('test.tips')::UUID, 'spec_sheet', 1, 'approved',
+        'product', current_setting('test.tips')::UUID, 'spec_sheet', 1, 'approved',
         'https://example.test/tips-v1.pdf', TRUE, TRUE, TRUE, current_date);
 
 SELECT is(
@@ -75,8 +73,8 @@ SELECT is(
 );
 
 -- Version 2 supersedes version 1, which stays superseded.
-INSERT INTO api.document (tenant_id, customer_id, entity_type, entity_id, type, version, status, url)
-VALUES (current_setting('test.tenant_id')::UUID, current_setting('test.tho')::UUID, 'product',
+INSERT INTO api.document (tenant_id, entity_type, entity_id, type, version, status, url)
+VALUES (current_setting('test.tenant_id')::UUID, 'product',
         current_setting('test.tips')::UUID, 'spec_sheet', 2, 'draft', 'https://example.test/tips-v2.pdf');
 
 SELECT throws_ok(
@@ -96,57 +94,6 @@ SELECT throws_ok(
 SELECT lives_ok(
     $$ UPDATE api.document SET notes = 'kept for the record' WHERE id = '00000000-0000-4000-8000-000000000231' $$,
     'a superseded document''s notes can still be edited'
-);
-
--- A closed customer gets no new projects.
-INSERT INTO api.customer (id, tenant_id, code, display_name, commercial_model, status)
-VALUES ('00000000-0000-4000-8000-000000000232', current_setting('test.tenant_id')::UUID, 'CLS', 'Closed Trading',
-        'trading_partner', 'closed');
-
-SELECT throws_ok(
-    $$
-        INSERT INTO api.project (tenant_id, customer_id, display_name, type, path, packages)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000232', 'Too late', 'npi',
-                'a_sourcing', ARRAY['A1'])
-    $$,
-    '23514',
-    'customer_closed',
-    'a closed customer gets no new projects'
-);
-
--- Contract terms: management only.
-SELECT lives_ok(
-    $$ UPDATE api.customer SET deposit_rate = 40 WHERE id = current_setting('test.tho')::UUID $$,
-    'management changes a customer''s deposit rate'
-);
-
--- Back to the seed's rate, then act as the coordinator.
-UPDATE api.customer SET deposit_rate = 30 WHERE id = current_setting('test.tho')::UUID;
-
-RESET ROLE;
-
-SELECT private.impersonate(
-    (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test'),
-    current_setting('test.tenant_id')::UUID
-);
-
-SELECT throws_ok(
-    $$ UPDATE api.customer SET deposit_rate = 50 WHERE id = current_setting('test.tho')::UUID $$,
-    '42501',
-    'field_write_forbidden',
-    'the coordinator cannot change a customer''s deposit rate'
-);
-
-SELECT lives_ok(
-    $$ UPDATE api.customer SET display_name = display_name || ' GmbH' WHERE id = current_setting('test.tho')::UUID $$,
-    'the coordinator changes a customer''s name'
-);
-
-SELECT throws_ok(
-    $$ UPDATE api.customer SET restricted_drive_url = 'https://drive.example.test/x' WHERE id = current_setting('test.tho')::UUID $$,
-    '23514',
-    'customer_contract_restricted',
-    'the coordinator cannot change the restricted Drive link'
 );
 
 SELECT * FROM finish();

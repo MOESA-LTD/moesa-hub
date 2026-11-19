@@ -15,10 +15,9 @@
 --
 -- Changing a record's media needs the right to change the record (the tenant-logo rule): adding,
 -- changing or removing a link checks the update permission on the record's table in the link's
--- tenant. A file of a customer (media.customer_id) goes only to that customer's records (the
--- customer itself, its products, projects and their gates; private.entity_customer); a file
--- without a customer goes anywhere. A link never moves to another file, record or tenant: a new
--- one is added instead. While a file is linked its customer stays, and it is not deleted
+-- tenant. A file goes only to records of its own tenant (the rule "record" below): a company's
+-- file is never linked to another company's record. A link never moves to another file, record or
+-- tenant: a new one is added instead. While a file is linked it is not deleted
 -- (private.media_guard_delete); deleting media is management's (024_media.sql).
 --
 -- media_library          Every media column plus its kind (image, pdf, video) and links, for the
@@ -36,10 +35,8 @@
 --   media_link_entity_missing      (foreign_key_violation) the record (or its table) is not there
 --                                  in the link's tenant, or set_primary_media got an unseen link
 --   media_link_forbidden           (insufficient_privilege) no update right on the record
---   media_customer_mismatch        (check_violation) a customer's file on another's record
 --   media_primary_not_image        (check_violation) a primary image that is not an image
 --   media_in_use                   (foreign_key_violation) deleting a linked file
---   media_customer_locked          (check_violation) a linked file's customer changed
 
 CREATE TYPE public.media_role AS ENUM ('primary_image', 'gallery', 'evidence_photo', 'attachment');
 
@@ -69,34 +66,7 @@ CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.media_link FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
--- The customer a record concerns: a customer itself; a product's or project's customer; a gate's
--- project's customer. NULL for any other record (suppliers, and the Phase 2 tables until they
--- are added here).
-CREATE OR REPLACE FUNCTION private.entity_customer (entity_type public.document_entity, entity_id UUID, tenant_id UUID) RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    CASE entity_customer.entity_type
-        WHEN 'customer' THEN
-            RETURN entity_customer.entity_id;
-        WHEN 'product' THEN
-            RETURN (SELECT p.customer_id FROM public.product p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project' THEN
-            RETURN (SELECT p.customer_id FROM public.project p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project_gate' THEN
-            RETURN (SELECT p.customer_id
-                    FROM public.project_gate g
-                    JOIN public.project p ON p.id = g.project_id AND p.tenant_id = g.tenant_id
-                    WHERE g.id = entity_customer.entity_id AND g.tenant_id = entity_customer.tenant_id);
-        ELSE
-            RETURN NULL;
-    END CASE;
-END;
-$$;
-
--- The rules of a link (see the header), in order: identity, record, right, customer, image.
+-- The rules of a link (see the header), in order: identity, record, right, image.
 CREATE OR REPLACE FUNCTION private.media_link_check () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -146,11 +116,6 @@ BEGIN
     -- No such file: the foreign key refuses it.
     IF NOT FOUND THEN
         RETURN NEW;
-    END IF;
-
-    IF file.customer_id IS NOT NULL
-       AND private.entity_customer(NEW.entity_type, NEW.entity_id, NEW.tenant_id) IS DISTINCT FROM file.customer_id THEN
-        RAISE EXCEPTION 'media_customer_mismatch' USING ERRCODE = 'check_violation';
     END IF;
 
     IF NEW.role = 'primary_image' AND file.mime_type NOT LIKE 'image/%' THEN
@@ -213,24 +178,6 @@ $$;
 CREATE OR REPLACE TRIGGER media_guard_delete BEFORE DELETE ON public.media FOR EACH ROW
 EXECUTE FUNCTION private.media_guard_delete ();
 
--- A linked file keeps its customer, which its links were checked against (Task 4 adds the
--- documents that cite it).
-CREATE OR REPLACE FUNCTION private.media_customer_lock () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id
-       AND EXISTS (SELECT 1 FROM public.media_link l WHERE l.tenant_id = OLD.tenant_id AND l.media_id = OLD.id) THEN
-        RAISE EXCEPTION 'media_customer_locked' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER media_customer_lock BEFORE
-UPDATE OF customer_id ON public.media FOR EACH ROW
-EXECUTE FUNCTION private.media_customer_lock ();
-
 -- Makes a link its record's primary image; the record's current primary becomes gallery (in the
 -- same statement, by private.media_link_demote_primary). As the caller: they must see the link
 -- and may change it.
@@ -252,15 +199,11 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION private.entity_customer (public.document_entity, UUID, UUID) FROM PUBLIC, anon, authenticated;
-
 REVOKE ALL ON FUNCTION private.media_link_check () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.media_link_demote_primary () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.media_guard_delete () FROM PUBLIC, anon, authenticated;
-
-REVOKE ALL ON FUNCTION private.media_customer_lock () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.set_primary_media (UUID) FROM PUBLIC, anon;
 

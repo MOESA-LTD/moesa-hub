@@ -32,7 +32,6 @@ vi.mock('vue-router', async (importOriginal) => ({
    useRoute: () => ({ query: {} }),
    useRouter: () => ({ push: vi.fn() })
 }));
-vi.mock('@/store/customerFilter', () => ({ useCustomerFilter: () => ({ customerId: null }) }));
 vi.mock('@/api/project', async (importOriginal) => {
    const { computed } = await import('vue');
    return {
@@ -77,8 +76,6 @@ const incident = (values: Partial<IncidentRow> = {}) =>
       id: I1,
       tenant_id: 't1',
       code: 'OL-THO-2026-001',
-      customer_id: '00000000-0000-4000-8000-000000000001',
-      customer: { code: 'THO', display_name: 'Thomas' },
       family: 'ol',
       severity: 's2',
       status: 'open',
@@ -110,8 +107,6 @@ const Slot = defineComponent({
       () =>
          h('div', slots.default?.({}))
 });
-const Stub = (name: string) =>
-   defineComponent({ name, props: ['modelValue'], setup: () => () => h('span') });
 const CustomLink = defineComponent({
    props: ['to'],
    setup:
@@ -148,7 +143,6 @@ const mountTab = (
          stubs: {
             FormBox: Slot,
             ...(realFields ? {} : { FormField: Slot }),
-            SelectCustomer: Stub('SelectCustomer'),
             CustomLink,
             teleport: true
          }

@@ -41,8 +41,7 @@ const props = defineProps<{
    productId?: string | null;
    /** The marketplace of the derived value: a listing value for another one does not override it. */
    marketplaceId?: string | null;
-   /** The media library the image slots offer: the product's customer and tenant. */
-   customerId?: string | null;
+   /** The media library the image slots offer: the product's tenant's. */
    tenantId?: string | null;
    /** Changes when the form's values are replaced (reset, reload), dropping unsaved local text. */
    resetKey?: number;
@@ -295,7 +294,6 @@ const locationAt = (index: number) => {
                   :location="locationAt(index)"
                   :inputId="slotId(slotProps.id, index)"
                   :readonly="locked"
-                  :customerId
                   :tenantId
                   @pick="writeKey(index, `media:${$event}`)"
                   @clear="write(index, null)"

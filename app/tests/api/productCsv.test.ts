@@ -2,15 +2,18 @@ import {
    DEFERRED_COLUMNS,
    S10_COLUMNS,
    S10_FIELD_OF,
+   S10_TABLE_OF,
    S10_TO_PRODUCT,
    mapS10Rows,
    toS10Csv,
+   withSourcing,
    type ProductExportRow
 } from '@/api/product/csv';
 import { parseCsv } from '@/lib/csv/parse';
 import { describe, expect, it } from 'vitest';
 
-const ALL = { canRead: () => true, canWrite: () => true };
+const FULL = { canRead: () => true, canWrite: () => true };
+const ALL = { product: FULL, sourcing: FULL };
 const mapAll = (header: readonly string[], rows: readonly (readonly string[])[]) =>
    mapS10Rows(header, rows, ALL);
 
@@ -21,7 +24,8 @@ describe('S10 columns', () => {
       const ignored = S10_COLUMNS.filter(
          (column) => !(column in S10_TO_PRODUCT) && !DEFERRED_COLUMNS.includes(column)
       );
-      expect(ignored).toEqual(['gtin_kontrol']);
+      // The file's company code is read and dropped: a product belongs to the tenant it goes to.
+      expect(ignored).toEqual(['gtin_kontrol', 'musteri_kodu']);
       expect(S10_COLUMNS).toHaveLength(69);
    });
 });
@@ -38,7 +42,6 @@ describe('mapS10Rows', () => {
          {
             display_name: 'Mop 40 cm',
             sku: 'THO-MOP40',
-            customer_code: 'THO',
             supplier_code: 'CN1',
             unit_dims_mm: '400x120x30'
          }
@@ -173,7 +176,6 @@ describe('mapS10Rows', () => {
          [['THO', 'THO-1', 'Mop', '', '']]
       );
       expect(rows[0]).toEqual({
-         customer_code: 'THO',
          sku: 'THO-1',
          display_name: 'Mop',
          brand: null,
@@ -218,7 +220,7 @@ describe('mapS10Rows', () => {
          ]
       );
       expect(warnings).toEqual([{ column: 'asin_de', code: 'deferred_column' }]);
-      expect(rows[0]).toEqual({ customer_code: 'THO', sku: 'THO-1', display_name: 'Mop' });
+      expect(rows[0]).toEqual({ sku: 'THO-1', display_name: 'Mop' });
    });
 
    it('reports a missing required value on its row and field', () => {
@@ -235,12 +237,9 @@ describe('mapS10Rows', () => {
       expect(errors).toEqual([{ row: 1, field: 'display_name', code: 'required' }]);
    });
 
-   it('checks the customer code and the SKU', () => {
+   it('checks the SKU and drops the company code', () => {
       const { errors } = mapAll(HEADER, [['THOR', 'THO 1', 'Mop']]);
-      expect(errors).toEqual([
-         { row: 1, field: 'customer_code', code: 'invalid_value' },
-         { row: 1, field: 'sku', code: 'invalid_value' }
-      ]);
+      expect(errors).toEqual([{ row: 1, field: 'sku', code: 'invalid_value' }]);
    });
 });
 
@@ -251,13 +250,11 @@ describe('toS10Csv', () => {
       sku: 'THO-MOP40',
       display_name: 'Mop, 40 cm',
       gtin: '4260696025800',
-      purchase_price: 1.9,
       is_hazmat: false,
       status: 'on_sale',
       compliance_status: 'complete',
       golden_sample_on: '2026-11-03',
-      customer: { code: 'THO' },
-      supplier: { code: 'CN1' }
+      sourcing: { purchase_price: 1.9, supplier: { code: 'CN1' } }
    } as unknown as ProductExportRow;
    const variant = {
       ...product,
@@ -265,7 +262,7 @@ describe('toS10Csv', () => {
       parent_id: 'p1',
       sku: 'THO-MOP40-2P',
       gtin: null,
-      supplier: null
+      sourcing: null
    } as unknown as ProductExportRow;
 
    it('writes the template header and the products in its columns', () => {
@@ -273,7 +270,7 @@ describe('toS10Csv', () => {
       expect(header).toEqual([...S10_COLUMNS]);
       const cell = (row: string[], column: string) =>
          row[(S10_COLUMNS as readonly string[]).indexOf(column)];
-      expect(cell(rows[0], 'musteri_kodu')).toBe('THO');
+      expect(cell(rows[0], 'musteri_kodu')).toBe('');
       expect(cell(rows[0], 'urun_adi')).toBe('Mop, 40 cm');
       expect(cell(rows[0], 'tedarikci_kodu')).toBe('CN1');
       expect(cell(rows[0], 'alis_fiyati')).toBe('1.9');
@@ -282,12 +279,52 @@ describe('toS10Csv', () => {
       expect(DEFERRED_COLUMNS.every((column) => cell(rows[0], column) === '')).toBe(true);
    });
 
+   it('exports sourcing columns from sourcing, not product', () => {
+      const stale = {
+         ...product,
+         // A product row carries no sourcing columns any more; a stale one is not exported.
+         purchase_price: 99,
+         supplier_product_code: 'OLD',
+         sourcing: {
+            client_code: 'THO',
+            supplier: { code: 'CN1' },
+            supplier_product_code: 'SPC-1',
+            manufacturer_art_no: 'ART-1',
+            purchase_price: 1.9,
+            purchase_currency: 'USD',
+            purchase_incoterm: 'FOB',
+            landed_cost_eur: 2.4,
+            landed_cost_on: '2026-11-01',
+            target_price_eur: 9.99,
+            sell_price_eur: 4.5,
+            price_list_version: 'v2'
+         }
+      } as unknown as ProductExportRow;
+      const { header, rows } = parseCsv(toS10Csv([stale], ALL));
+      const cell = (column: string) => rows[0]![header.indexOf(column)];
+      expect(cell('musteri_kodu')).toBe('THO');
+      expect(cell('tedarikci_kodu')).toBe('CN1');
+      expect(cell('tedarikci_urun_kodu')).toBe('SPC-1');
+      expect(cell('art_no')).toBe('ART-1');
+      expect(cell('alis_fiyati')).toBe('1.9');
+      expect(cell('alis_para_birimi')).toBe('USD');
+      expect(cell('alis_incoterm')).toBe('FOB');
+      expect(cell('landed_cost_eur')).toBe('2.4');
+      expect(cell('landed_cost_tarihi')).toBe('2026-11-01');
+      expect(cell('satis_fiyati_hedef_eur')).toBe('9.99');
+      expect(cell('moesa_fiyat_eur')).toBe('4.5');
+      expect(cell('fiyat_listesi_surumu')).toBe('v2');
+
+      const without = parseCsv(toS10Csv([{ ...stale, sourcing: null }], ALL));
+      expect(without.rows[0]![without.header.indexOf('alis_fiyati')]).toBe('');
+      expect(without.rows[0]![without.header.indexOf('tedarikci_urun_kodu')]).toBe('');
+   });
+
    it('reads back into the same rows', () => {
       const { header, rows } = parseCsv(toS10Csv([product], ALL));
       const mapped = mapAll(header, rows);
       expect(mapped.errors).toEqual([]);
       expect(mapped.rows[0]).toMatchObject({
-         customer_code: 'THO',
          sku: 'THO-MOP40',
          display_name: 'Mop, 40 cm',
          supplier_code: 'CN1',
@@ -304,8 +341,8 @@ describe('field rights', () => {
       id: 'p1',
       sku: 'S1',
       display_name: 'A',
-      supplier_product_code: 'SPC-1',
-      purchase_price: 12.5
+      category: 'Mops',
+      sourcing: { supplier_product_code: 'SPC-1', purchase_price: 12.5 }
    } as unknown as ProductExportRow;
 
    it('maps every header to a product field or null', () => {
@@ -317,13 +354,32 @@ describe('field rights', () => {
       expect(S10_FIELD_OF.spec_dosya).toBeNull();
    });
 
-   it('drops columns the reader cannot read from the export', () => {
+   it('drops columns the reader cannot read from the export, by their table', () => {
       const header = toS10Csv([ROW], {
-         canRead: (f) => !['purchase_price', 'supplier_product_code'].includes(f)
+         product: FULL,
+         sourcing: { canRead: (f) => !['purchase_price', 'supplier_product_code'].includes(f) }
       }).split('\n')[0];
       expect(header).not.toContain('tedarikci_urun_kodu');
       expect(header).not.toContain('alis_fiyati');
       expect(header).toContain('sku');
+      expect(header).toContain('kategori');
+
+      // The product's rights do not decide a sourcing column, nor the other way round.
+      const productDenied = toS10Csv([ROW], {
+         product: { canRead: (f) => f !== 'purchase_price' && f !== 'category' },
+         sourcing: FULL
+      }).split('\n')[0];
+      expect(productDenied).toContain('alis_fiyati');
+      expect(productDenied).not.toContain('kategori');
+   });
+
+   it('names the table of each field column', () => {
+      expect(S10_TABLE_OF.alis_fiyati).toBe('sourcing');
+      expect(S10_TABLE_OF.tedarikci_kodu).toBe('sourcing');
+      expect(S10_TABLE_OF.art_no).toBe('sourcing');
+      expect(S10_TABLE_OF.moesa_fiyat_eur).toBe('sourcing');
+      expect(S10_TABLE_OF.kategori).toBe('product');
+      expect(S10_TABLE_OF.spec_dosya).toBeNull();
    });
 
    const file = (fill: Record<string, string>) => [
@@ -334,7 +390,8 @@ describe('field rights', () => {
    it('refuses an import that fills a column the writer cannot write', () => {
       const [header, row] = file({ sku: 'S1', tedarikci_urun_kodu: 'SPC-9' });
       const result = mapS10Rows(header, [row], {
-         canWrite: (f) => f !== 'supplier_product_code'
+         product: FULL,
+         sourcing: { canWrite: (f) => f !== 'supplier_product_code' }
       });
       expect(result.errors).toContainEqual({
          row: 0,
@@ -345,17 +402,42 @@ describe('field rights', () => {
 
    it('accepts an empty cell in a column the writer cannot write, and the same file with the right', () => {
       const [header, row] = file({ sku: 'S1' });
-      const deny = (f: string) => f !== 'supplier_product_code';
+      const deny = { canWrite: (f: string) => f !== 'supplier_product_code' };
       expect(
-         mapS10Rows(header, [row], { canWrite: deny }).errors.filter(
+         mapS10Rows(header, [row], { product: FULL, sourcing: deny }).errors.filter(
             (e) => e.code === 'csv_column_not_writable'
          )
       ).toEqual([]);
       const [h2, r2] = file({ sku: 'S1', tedarikci_urun_kodu: 'SPC-9' });
       expect(
-         mapS10Rows(h2, [r2], { canWrite: () => true }).errors.filter(
-            (e) => e.code === 'csv_column_not_writable'
-         )
+         mapS10Rows(h2, [r2], ALL).errors.filter((e) => e.code === 'csv_column_not_writable')
       ).toEqual([]);
+   });
+});
+
+describe('withSourcing', () => {
+   const products = [
+      { id: 'p1', tenant_id: 'client' },
+      { id: 'p2', tenant_id: 'provider' },
+      { id: 'p3', tenant_id: 'client' }
+   ] as unknown as Parameters<typeof withSourcing>[0];
+   const sourcing = [
+      { id: 's-own', tenant_id: 'client', product_id: 'p1', client_tenant_id: null },
+      { id: 's-prov', tenant_id: 'provider', product_id: 'p1', client_tenant_id: 'client' },
+      { id: 's-p2', tenant_id: 'provider', product_id: 'p2', client_tenant_id: null }
+   ];
+   const relationships = [
+      { tenant_id: 'provider', client_tenant_id: 'client', client_code: 'THO' }
+   ];
+
+   it("takes the active tenant's row, else the product's own, naming the client by its code", () => {
+      const rows = withSourcing(products, sourcing, relationships, 'provider');
+      expect(rows.map((row) => row.sourcing?.id ?? null)).toEqual(['s-prov', 's-p2', null]);
+      expect(rows[0]!.sourcing?.client_code).toBe('THO');
+      expect(rows[1]!.sourcing?.client_code).toBeNull();
+
+      expect(withSourcing(products, sourcing, relationships, 'client')[0]!.sourcing?.id).toBe(
+         's-own'
+      );
    });
 });

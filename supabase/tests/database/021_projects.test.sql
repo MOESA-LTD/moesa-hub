@@ -4,51 +4,56 @@ BEGIN;
 
 SELECT plan(46);
 
-SELECT set_config('test.tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Danışmanlık')::TEXT, TRUE);
+-- Fixture, built here as postgres (the seed is not on the new model yet): a company with an owner,
+-- and another company with its own owner.
+INSERT INTO public.plan (display_name, is_active) VALUES ('Projects test plan', TRUE);
 
-SELECT set_config('test.other_tenant_id', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Nova Yazılım')::TEXT, TRUE);
+INSERT INTO public.tenant (id, display_name) VALUES
+    ('00000000-0000-4000-8000-000000000201', 'Thor Trading'),
+    ('00000000-0000-4000-8000-000000000202', 'Nova Yazılım');
 
--- Another company's customer, made before signing in (the signed-in user cannot write there).
-INSERT INTO public.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000211', current_setting('test.other_tenant_id')::UUID, 'NOV', 'Nova Customer',
-        'trading_partner');
+INSERT INTO public.user (id, email) VALUES
+    ('00000000-0000-4000-8000-000000000203', 'owner@projects.test'),
+    ('00000000-0000-4000-8000-000000000204', 'other@projects.test');
 
--- The rest runs as a signed-in owner of Atlas.
+INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000000203', '00000000-0000-4000-8000-000000000201'),
+    ('00000000-0000-4000-8000-000000000204', '00000000-0000-4000-8000-000000000202');
+
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000000203', '00000000-0000-4000-8000-000000000201'),
+    ('00000000-0000-4000-8000-000000000204', '00000000-0000-4000-8000-000000000202');
+
+SELECT set_config('test.tenant_id', '00000000-0000-4000-8000-000000000201', TRUE);
+
+SELECT set_config('test.other_tenant_id', '00000000-0000-4000-8000-000000000202', TRUE);
+
+-- The rest runs as the signed-in owner of the first company.
 SELECT private.impersonate(
-    (SELECT u.id FROM public.user u WHERE u.email = 'ayse@moesa-panel.test'),
+    '00000000-0000-4000-8000-000000000203',
     current_setting('test.tenant_id')::UUID
 );
 
-INSERT INTO api.customer (id, tenant_id, code, display_name, commercial_model)
-VALUES ('00000000-0000-4000-8000-000000000212', current_setting('test.tenant_id')::UUID, 'THO', 'Thor Trading',
-        'trading_partner');
-
-INSERT INTO api.product (id, tenant_id, customer_id, sku, display_name)
-VALUES ('00000000-0000-4000-8000-000000000213', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'THO-001', 'Garden Hose 15 m');
+INSERT INTO api.product (id, tenant_id, sku, display_name)
+VALUES ('00000000-0000-4000-8000-000000000213', current_setting('test.tenant_id')::UUID, 'THO-001', 'Garden Hose 15 m');
 
 -- A brand sourcing project (path A, package A1), one with listing (A1 + C), a reorder, a variant
 -- and a private label project (path B, package A2).
-INSERT INTO api.project (id, tenant_id, customer_id, display_name, type, path, packages)
-VALUES ('00000000-0000-4000-8000-000000000214', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'Garden hose', 'npi', 'a_sourcing', ARRAY['A1']),
-       ('00000000-0000-4000-8000-000000000215', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'Garden hose with listing', 'npi', 'a_sourcing', ARRAY['A1', 'C']),
-       ('00000000-0000-4000-8000-000000000218', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'Hose reorder', 'reorder', NULL, ARRAY['A1']),
-       ('00000000-0000-4000-8000-000000000219', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'Hose 20 m variant', 'variant', NULL, ARRAY['A1']),
-       ('00000000-0000-4000-8000-000000000220', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'Own brand hose', 'npi', 'b_private_label', ARRAY['A2']);
+INSERT INTO api.project (id, tenant_id, display_name, type, path, packages)
+VALUES ('00000000-0000-4000-8000-000000000214', current_setting('test.tenant_id')::UUID, 'Garden hose', 'npi', 'a_sourcing', ARRAY['A1']),
+       ('00000000-0000-4000-8000-000000000215', current_setting('test.tenant_id')::UUID, 'Garden hose with listing', 'npi', 'a_sourcing', ARRAY['A1', 'C']),
+       ('00000000-0000-4000-8000-000000000218', current_setting('test.tenant_id')::UUID, 'Hose reorder', 'reorder', NULL, ARRAY['A1']),
+       ('00000000-0000-4000-8000-000000000219', current_setting('test.tenant_id')::UUID, 'Hose 20 m variant', 'variant', NULL, ARRAY['A1']),
+       ('00000000-0000-4000-8000-000000000220', current_setting('test.tenant_id')::UUID, 'Own brand hose', 'npi', 'b_private_label', ARRAY['A2']);
 
 INSERT INTO api.project_product (project_id, product_id, tenant_id)
 VALUES ('00000000-0000-4000-8000-000000000214', '00000000-0000-4000-8000-000000000213',
         current_setting('test.tenant_id')::UUID);
 
 -- The incident the rollbacks below cite (036: a gate rolls back only through an open incident of
--- the project's customer).
-INSERT INTO api.incident (id, tenant_id, customer_id, family, severity, title, what_happened)
-VALUES ('00000000-0000-4000-8000-000000036901', current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000212',
+-- the project's tenant).
+INSERT INTO api.incident (id, tenant_id, family, severity, title, what_happened)
+VALUES ('00000000-0000-4000-8000-000000036901', current_setting('test.tenant_id')::UUID,
         'om', 's3', 'Brief changed', 'The customer changed the brief.');
 
 -- The gates the checks below use.
@@ -63,10 +68,10 @@ FROM (VALUES ('g1', '00000000-0000-4000-8000-000000000214'::UUID, 'G1'::public.g
              ('v2', '00000000-0000-4000-8000-000000000219', 'G2'),
              ('b1', '00000000-0000-4000-8000-000000000220', 'G1')) AS x (name, project_id, code);
 
--- The customer's written approvals, one approval-like document of the wrong type, and the
+-- The written approvals, one approval-like document of the wrong type, and the
 -- product's signed spec sheet (added later).
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, status, url)
-SELECT x.id, current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000212', 'project_gate',
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, status, url)
+SELECT x.id, current_setting('test.tenant_id')::UUID, 'project_gate',
        current_setting('test.' || x.gate)::UUID, x.type, 'approved', 'https://example.test/' || x.gate || '.pdf'
 FROM (VALUES ('00000000-0000-4000-8000-000000000216'::UUID, 'g1', 'gate_approval'::public.document_type),
              ('00000000-0000-4000-8000-000000000217', 'g2', 'gate_approval'),
@@ -80,7 +85,7 @@ SELECT is(
     (SELECT count(*)::INT FROM api.project p
      WHERE p.id = '00000000-0000-4000-8000-000000000214' AND p.tenant_id = current_setting('test.tenant_id')::UUID),
     1,
-    'Atlas sees its own project'
+    'the company sees its own project'
 );
 
 SELECT is(
@@ -94,7 +99,7 @@ SELECT is(
     (SELECT array_agg(g.code ORDER BY g.position)::TEXT FROM api.project_gate g
      WHERE g.project_id = '00000000-0000-4000-8000-000000000214' AND NOT g.needs_customer_approval),
     '{G4}',
-    'every gate but G4 needs the customer''s approval'
+    'every gate but G4 needs the client''s approval'
 );
 
 SELECT is(
@@ -107,7 +112,7 @@ SELECT is(
 SELECT is(
     (SELECT p.code FROM api.project p WHERE p.id = '00000000-0000-4000-8000-000000000214'),
     'THO-' || extract(year FROM now())::INT || '-001',
-    'the project code is the customer code, the year and a number'
+    'the project code is the tenant code, the year and a number'
 );
 
 SELECT throws_ok(
@@ -126,13 +131,12 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $$
-        INSERT INTO api.project (tenant_id, customer_id, display_name, type, path, packages)
-        VALUES (current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000211', 'Foreign', 'npi',
-                'a_sourcing', ARRAY['A1'])
+        INSERT INTO api.project (tenant_id, display_name, type, path, packages)
+        VALUES (current_setting('test.other_tenant_id')::UUID, 'Foreign', 'npi', 'a_sourcing', ARRAY['A1'])
     $$,
-    '23503',
+    '42501',
     NULL,
-    'a project cannot point at another tenant''s customer'
+    'a project cannot be made in another company''s tenant'
 );
 
 SELECT is(
@@ -269,10 +273,10 @@ SELECT throws_ok(
     'G2 cannot pass while a product of the project has no signed spec sheet'
 );
 
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, version, status, issued_on,
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, version, status, issued_on,
                              is_signed, is_stamped, sent_from_official_email, url)
 VALUES ('00000000-0000-4000-8000-000000000225', current_setting('test.tenant_id')::UUID,
-        '00000000-0000-4000-8000-000000000212', 'product', '00000000-0000-4000-8000-000000000213', 'spec_sheet', 1,
+        'product', '00000000-0000-4000-8000-000000000213', 'spec_sheet', 1,
         'signed', '2026-11-01', TRUE, TRUE, TRUE, 'https://example.test/spec-v1.pdf');
 
 SELECT lives_ok(
@@ -341,17 +345,17 @@ WHERE project_id = '00000000-0000-4000-8000-000000000214' AND phase = 'P3' AND b
 -- is approved, seeded past the PO rules.
 INSERT INTO api.supplier (id, tenant_id, code, display_name, country, status)
 VALUES ('00000000-0000-4000-8000-000000021901', current_setting('test.tenant_id')::UUID, 'AT1', 'Atlas Hose Works', 'Türkiye', 'approved');
-INSERT INTO api.purchase_order (id, tenant_id, customer_id, supplier_id, project_id, currency, incoterm)
-VALUES ('00000000-0000-4000-8000-000000021902', current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000212', '00000000-0000-4000-8000-000000021901', '00000000-0000-4000-8000-000000000214', 'USD', 'FOB');
+INSERT INTO api.purchase_order (id, tenant_id, supplier_id, project_id, currency, incoterm)
+VALUES ('00000000-0000-4000-8000-000000021902', current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000021901', '00000000-0000-4000-8000-000000000214', 'USD', 'FOB');
 INSERT INTO api.purchase_order_line (id, tenant_id, purchase_order_id, product_id, quantity, unit_price)
 VALUES ('00000000-0000-4000-8000-000000021903', current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000021902', '00000000-0000-4000-8000-000000000213', 10, 1);
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, url)
-VALUES ('00000000-0000-4000-8000-000000021904', current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000212', 'purchase_order', '00000000-0000-4000-8000-000000021902', 'pi', 'https://example.test/pi.pdf');
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, url)
+VALUES ('00000000-0000-4000-8000-000000021904', current_setting('test.tenant_id')::UUID, 'purchase_order', '00000000-0000-4000-8000-000000021902', 'pi', 'https://example.test/pi.pdf');
 RESET ROLE;
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
 UPDATE public.purchase_order SET pi_document_id = '00000000-0000-4000-8000-000000021904', status = 'pi_approved' WHERE id = '00000000-0000-4000-8000-000000021902';
 SELECT set_config('moesa.rules_bypass', '', TRUE);
-SELECT private.impersonate((SELECT u.id FROM public.user u WHERE u.email = 'ayse@moesa-panel.test'), current_setting('test.tenant_id')::UUID);
+SELECT private.impersonate('00000000-0000-4000-8000-000000000203', current_setting('test.tenant_id')::UUID);
 
 SELECT public.pass_gate(current_setting('test.g3')::UUID, 'PI ok', '2026-11-05',
                         '00000000-0000-4000-8000-000000000221',
@@ -424,8 +428,8 @@ UPDATE api.project SET status = 'active' WHERE id = '00000000-0000-4000-8000-000
 UPDATE api.project_task SET status = 'done'
 WHERE project_id = '00000000-0000-4000-8000-000000000215' AND blocks_gate;
 
-INSERT INTO api.document (id, tenant_id, customer_id, entity_type, entity_id, type, status, url)
-SELECT x.id, current_setting('test.tenant_id')::UUID, '00000000-0000-4000-8000-000000000212', 'project_gate',
+INSERT INTO api.document (id, tenant_id, entity_type, entity_id, type, status, url)
+SELECT x.id, current_setting('test.tenant_id')::UUID, 'project_gate',
        current_setting('test.' || x.gate)::UUID, 'gate_approval', 'approved', 'https://example.test/' || x.gate || '.pdf'
 FROM (VALUES ('00000000-0000-4000-8000-000000000227'::UUID, 'c1'),
              ('00000000-0000-4000-8000-000000000228', 'c2')) AS x (id, gate);
@@ -472,21 +476,21 @@ SELECT is(
 RESET ROLE;
 
 SELECT private.impersonate(
-    (SELECT u.id FROM public.user u WHERE u.email = 'ali@moesa-panel.test'),
+    '00000000-0000-4000-8000-000000000204',
     current_setting('test.other_tenant_id')::UUID
 );
 
 SELECT is(
     (SELECT count(*)::INT FROM api.project_gate g WHERE g.project_id = '00000000-0000-4000-8000-000000000214'),
     0,
-    'Nova sees none of Atlas''s gates'
+    'the other company sees none of the gates'
 );
 
 SELECT throws_ok(
     $$ SELECT public.pass_gate(current_setting('test.c1')::UUID, 'not mine') $$,
     'PGRST',
     NULL,
-    'Nova cannot pass Atlas''s gate'
+    'the other company cannot pass the gate'
 );
 
 RESET ROLE;

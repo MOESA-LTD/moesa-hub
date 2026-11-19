@@ -66,6 +66,24 @@ const checkRef = ref<unknown>(undefined);
 const checkUpdatedRef = ref(0);
 const checkingRef = ref(false);
 
+// The sourcing rows the previews read for the article number (F24), and the cards they derive from.
+const sourcingRef = ref<unknown[]>([]);
+const derivedFrom = vi.hoisted(() => [] as Record<string, unknown>[]);
+vi.mock('@/api/sourcing', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/api/sourcing')>()),
+   useListingSourcing: () => ({ data: sourcingRef })
+}));
+vi.mock('@edge-shared/listingCompleteness', async (importOriginal) => {
+   const actual = await importOriginal<typeof import('@edge-shared/listingCompleteness')>();
+   return {
+      ...actual,
+      providedAttributes: (...args: Parameters<typeof actual.providedAttributes>) => {
+         derivedFrom.push(args[0] as Record<string, unknown>);
+         return actual.providedAttributes(...args);
+      }
+   };
+});
+
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/api/media', async (importOriginal) => ({
    ...(await importOriginal<typeof import('@/api/media')>()),
@@ -142,7 +160,7 @@ const NOW = new Date().toISOString();
 
 const CELL = {
    id: 'c1',
-   customer_id: 'k1',
+   tenant_id: 'k1',
    product_id: 'p1',
    platform_id: 'amazon',
    country: 'DE',
@@ -162,7 +180,6 @@ const CELL = {
 
 const PRODUCT = {
    id: 'p1',
-   customer_id: 'k1',
    tenant_id: 't1',
    gtin: '4260696025909',
    amazon_product_type: 'LUGGAGE',
@@ -172,7 +189,7 @@ const PRODUCT = {
 
 const ACCOUNT = {
    id: 'a1',
-   customer_id: 'k1',
+   tenant_id: 'k1',
    platform_id: 'amazon',
    api_connection: 'connected',
    authorized_at: NOW,
@@ -230,9 +247,6 @@ type Wrapper = Awaited<ReturnType<typeof mountDrawer>>;
 const action = (wrapper: Wrapper, name: string) => wrapper.find(`[data-action="${name}"]`);
 const isDisabled = (wrapper: Wrapper, name: string) =>
    action(wrapper, name).attributes('disabled') !== undefined;
-const links = (wrapper: Wrapper) =>
-   wrapper.findAllComponents(RouterLinkStub).map((link) => link.props('to'));
-
 enableAutoUnmount(afterEach);
 beforeAll(() => i18n.setLocaleMessage('en', en));
 beforeEach(() => {
@@ -308,6 +322,19 @@ describe('CellAmazonDrawer', () => {
       expect(isDisabled(carded, 'publish')).toBe(false);
    });
 
+   it('derives from the article number of the sourcing row it reads (F24)', async () => {
+      sourcingRef.value = [
+         { product_id: 'p1', tenant_id: 'provider', manufacturer_art_no: 'ART-PROVIDER' }
+      ];
+      derivedFrom.length = 0;
+      await mountDrawer();
+      expect(derivedFrom.at(-1)).toMatchObject({
+         id: 'p1',
+         manufacturer_art_no: 'ART-PROVIDER'
+      });
+      sourcingRef.value = [];
+   });
+
    it('counts the identifier and the offer of a variation parent as provided (R7)', async () => {
       // A parent: no GTIN, no price; its children carry them.
       productRef.value = { ...PRODUCT, gtin: null };
@@ -371,6 +398,16 @@ describe('CellAmazonDrawer', () => {
       expect(entry.text()).toContain(en.ops.amazon.submission.status.unknown);
    });
 
+   it('links the not-connected notice to the platform accounts of the company profile', async () => {
+      accountsRef.value = [{ ...ACCOUNT, api_connection: 'none' }];
+      const wrapper = await mountDrawer();
+      const link = wrapper.get('[data-open-platforms]');
+      expect(link.text()).toBe(en.ops.amazon.cell.open_platforms);
+      expect(link.getComponent(RouterLinkStub).props('to')).toEqual({
+         name: 'ops-company-platforms'
+      });
+   });
+
    it('Publish is disabled until connected and ready', async () => {
       // N2: the stored state is live, but the account is not connected: shown as draft.
       cellRef.value = { ...CELL, listing_state: 'live' };
@@ -382,10 +419,6 @@ describe('CellAmazonDrawer', () => {
       expect(wrapper.get('[data-blocked]').text()).toBe(
          en.ops.amazon.cell.publish_blocked.not_connected
       );
-      expect(links(wrapper)).toContainEqual({
-         name: 'ops-customer-manage-platforms',
-         params: { id: 'k1' }
-      });
 
       // Connected, but not checked ready yet.
       cellRef.value = { ...CELL, listing_state: 'draft' };
@@ -896,7 +929,7 @@ describe('CellAmazonDrawer content tab', () => {
          productType: 'LUGGAGE',
          country: 'DE',
          locale: 'en_GB',
-         customerId: 'k1'
+         tenantId: 't1'
       });
       expect(content(wrapper).getComponent(AutoComplete).props('modelValue')).toBe('LUGGAGE');
       expect(content(wrapper).get('[data-content-notice]').text()).toBe(

@@ -1,4 +1,4 @@
-import { PACKAGES } from '@/api/customer';
+import { PACKAGES } from '@/api/project';
 import SelectEnum from '@/components/service-components/select-enum/SelectEnum.vue';
 import { stripTerms } from '@/constants/terms';
 import en from '@/plugins/i18n/locales/en/index.json';

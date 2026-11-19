@@ -2,7 +2,7 @@
 import { AMAZON_COUNTRIES, amazonErrorText, usePublishBulk, type BulkResult } from '@/api/amazon';
 import type { ProductRow } from '@/api/product';
 
-// Publishes the selected products (one customer's) to one Amazon marketplace: each product's cell
+// Publishes the selected products (one tenant's) to one Amazon marketplace: each product's cell
 // in that country is published by the function, which reports a result per product (submitted,
 // skipped, rejected). `products` names them in the result table.
 const props = defineProps<{

@@ -92,7 +92,7 @@ describe('market cell enums', () => {
          'removed'
       ]);
       expect(MARKET_COMPLIANCES).toEqual(['green', 'yellow', 'red', 'pending']);
-      expect(STOCK_SOURCES).toEqual(['customer_warehouse', '3pl', 'platform', 'pan_eu']);
+      expect(STOCK_SOURCES).toEqual(['own_warehouse', '3pl', 'platform', 'pan_eu']);
       expect(CONTENT_STATUSES).toEqual(['none', 'en_master', 'translated', 'approved']);
       expect(TARGET_STATUSES).toEqual([
          'planned',
@@ -229,19 +229,19 @@ describe('buildMatrix', () => {
 });
 
 describe('matrixCounts', () => {
-   it('counts the live and the target cells per customer', () => {
+   it('counts the live and the target cells per tenant', () => {
       expect(
          matrixCounts([
-            { customer_id: 'k', status: 'live' },
-            { customer_id: 'k', status: 'candidate' },
-            { customer_id: 'k', status: 'paused' }
+            { tenant_id: 'k', status: 'live' },
+            { tenant_id: 'k', status: 'candidate' },
+            { tenant_id: 'k', status: 'paused' }
          ])
       ).toEqual({ k: { live: 1, target: 2 } });
       expect(
          matrixCounts([
-            { customer_id: 'a', status: 'removed' },
-            { customer_id: 'b', status: 'suppressed' },
-            { customer_id: 'b', status: 'stopped' }
+            { tenant_id: 'a', status: 'removed' },
+            { tenant_id: 'b', status: 'suppressed' },
+            { tenant_id: 'b', status: 'stopped' }
          ])
       ).toEqual({ a: { live: 0, target: 0 }, b: { live: 0, target: 1 } });
    });
@@ -324,19 +324,18 @@ describe('marketCellSchema', () => {
 });
 
 describe('toMarketCellPayload', () => {
-   it('sends the identity only with a new cell, never the customer or the status', () => {
+   it('sends the identity only with a new cell, never the status', () => {
       const values = marketCellSchema.parse(
          toMarketCellFormValues({ product_id: P, platform_id: 'amazon', country: 'DE' })
       );
       const payload = toMarketCellPayload(values, 'c1');
-      for (const key of ['product_id', 'platform_id', 'country', 'customer_id', 'status'])
+      for (const key of ['product_id', 'platform_id', 'country', 'status'])
          expect(payload).not.toHaveProperty(key);
       expect(payload).toHaveProperty('id', 'c1');
 
       const created = toMarketCellPayload(values);
       expect(created).toMatchObject({ product_id: P, platform_id: 'amazon', country: 'DE' });
       expect(created).not.toHaveProperty('id');
-      expect(created).not.toHaveProperty('customer_id');
       expect(created).not.toHaveProperty('status');
    });
 
@@ -424,15 +423,15 @@ describe('MARKET_CELL_SELECT', () => {
 });
 
 describe('useMarketCells', () => {
-   it('reads the overview of one customer and platform', async () => {
+   it('reads the overview of one tenant and platform', async () => {
       response = [{ id: 'c1' }];
-      const query = withSetup(() => useMarketCells({ customerId: 'k1', platformId: 'amazon' }));
+      const query = withSetup(() => useMarketCells({ tenantId: 'k1', platformId: 'amazon' }));
       await flushPromises();
 
       expect(recorded).toEqual([
          ['from', 'market_cell_overview'],
          ['select', '*'],
-         ['eq', 'customer_id', 'k1'],
+         ['eq', 'tenant_id', 'k1'],
          ['eq', 'platform_id', 'amazon'],
          ['abortSignal', expect.anything()],
          ['throwOnError']
@@ -442,7 +441,7 @@ describe('useMarketCells', () => {
 
    it('reads every cell without a filter', async () => {
       response = [];
-      withSetup(() => useMarketCells({ customerId: null, platformId: null }));
+      withSetup(() => useMarketCells({ tenantId: null, platformId: null }));
       await flushPromises();
 
       expect(recorded[0]).toEqual(['from', 'market_cell_overview']);

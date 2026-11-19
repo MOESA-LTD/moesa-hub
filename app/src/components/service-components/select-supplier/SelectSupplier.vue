@@ -2,8 +2,8 @@
 import { useLookup } from '@/api/useLookup';
 
 /**
- * Picks a supplier by id; suppliers are shared, so every customer's forms see them all. A pick by
- * the user also emits the supplier with its order defaults (incoterm, deposit rate).
+ * Picks one of the tenant's suppliers by id. A pick by the user also emits the supplier with its
+ * order defaults (incoterm, deposit rate).
  */
 type SupplierOption = Pick<
    Tables['supplier']['Row'],

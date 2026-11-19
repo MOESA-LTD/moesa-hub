@@ -287,9 +287,83 @@ export type ProductCard = {
    pack_gross_g?: number | string | null;
    pack_qty?: number | string | null;
    origin_country?: string | null;
+   /**
+    * Not a product column: the manufacturer article number of the sourcing row the caller reads for
+    * the product (its own, else its provider's shared row; client-visible, ruling Q3). The caller
+    * supplies it (amazon-listing: sourcingArtNo); left out or NULL (masked), nothing is derived.
+    */
    manufacturer_art_no?: string | null;
    is_hazmat?: boolean | null;
 };
+/**
+ * The sourcing columns the listing reads: the manufacturer article number (client-visible, ruling
+ * Q3) and what picks the row (its tenant, the client it is shared with, its age), nothing
+ * sensitive. Read through the caller's client on api, so the masking applies: a number the caller
+ * may not read is NULL and derives nothing.
+ */
+export const SOURCING_LISTING_COLUMNS =
+   'id, product_id, tenant_id, client_tenant_id, manufacturer_art_no, updated_at';
+
+export type SourcingArtNoRow = {
+   /** The last tie-break: two rows of one tenant with the same updated_at. */
+   id?: string | null;
+   product_id: string | null;
+   tenant_id: string;
+   client_tenant_id?: string | null;
+   manufacturer_art_no: string | null;
+   updated_at?: string | null;
+   /** The row's provider has an active relationship with the client it shares it with. */
+   active_provider?: boolean;
+};
+
+/** A relationship as the article number's choice reads it (tenant = the provider). */
+export type SourcingRelationship = {
+   tenant_id: string;
+   client_tenant_id: string;
+   status: string;
+};
+
+/** The rows, each marked with whether its provider's relationship with the client is active. */
+export const markActiveProviders = <R extends SourcingArtNoRow>(
+   rows: readonly R[],
+   relationships: readonly SourcingRelationship[]
+): R[] =>
+   rows.map((row) => ({
+      ...row,
+      active_provider: relationships.some(
+         (r) =>
+            r.status === 'active' &&
+            r.tenant_id === row.tenant_id &&
+            r.client_tenant_id === row.client_tenant_id
+      )
+   }));
+
+/**
+ * The manufacturer article number of a product of `tenantId`, from the sourcing rows the caller
+ * reads (the listing loader and the app's Amazon previews). The row is chosen whatever their order
+ * (final review M5): the tenant's own row (the client procures), else a row of a provider with an
+ * active relationship (markActiveProviders), else the newest; ties by tenant, then by id. The model and part
+ * number are derived from it (Q3); NULL derives nothing.
+ */
+export function sourcingArtNo(
+   rows: readonly SourcingArtNoRow[],
+   tenantId: string,
+   productId: string
+): string | null {
+   const rank = (row: SourcingArtNoRow) =>
+      row.tenant_id === tenantId ? 0 : row.active_provider ? 1 : 2;
+   const [row] = rows
+      .filter((r) => r.product_id === productId)
+      .sort(
+         (a, b) =>
+            rank(a) - rank(b) ||
+            (b.updated_at ?? '').localeCompare(a.updated_at ?? '') ||
+            a.tenant_id.localeCompare(b.tenant_id) ||
+            (a.id ?? '').localeCompare(b.id ?? '')
+      );
+   return row?.manufacturer_art_no ?? null;
+}
+
 export type ProductCardColumn = Exclude<keyof ProductCard, 'gtin'>;
 /** Where a provided attribute comes from: the server on publish, or a product card column. */
 export type ProvidedSource = 'server' | `product.${ProductCardColumn}`;

@@ -13,7 +13,7 @@ import Select from 'primevue/select';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 
-// Bulk publishing from the product list: the selection action (one customer's products) and the
+// Bulk publishing from the product list: the selection action (one tenant's products) and the
 // dialog that publishes them to one Amazon marketplace and reports each product's result.
 const api = vi.hoisted(() => ({ publishBulk: vi.fn(), push: vi.fn() }));
 
@@ -168,7 +168,7 @@ describe('product list: publish selected to Amazon', () => {
          }
       });
 
-   it('needs one customer and opens the dialog with the selected products', async () => {
+   it('needs one tenant and opens the dialog with the selected products', async () => {
       const wrapper = mountList();
       const table = wrapper.findComponent(Table);
       const button = () => wrapper.find('[data-amazon-bulk] button');
@@ -185,31 +185,31 @@ describe('product list: publish selected to Amazon', () => {
       expect(hint()).toBe(en.ops.amazon.bulk.open_disabled_empty);
 
       await select([
-         { id: 'p1', customer_id: 'k1', sku: 'A', display_name: 'a' },
-         { id: 'p2', customer_id: 'k2', sku: 'B', display_name: 'b' }
+         { id: 'p1', tenant_id: 'k1', sku: 'A', display_name: 'a' },
+         { id: 'p2', tenant_id: 'k2', sku: 'B', display_name: 'b' }
       ]);
       expect(button().attributes('disabled')).toBeDefined();
       expect(hint()).toBe(en.ops.amazon.bulk.open_disabled_mixed);
 
       await select([
-         { id: 'p1', customer_id: 'k1', sku: 'A', display_name: 'a' },
-         { id: 'p2', customer_id: 'k1', sku: 'B', display_name: 'b' }
+         { id: 'p1', tenant_id: 'k1', sku: 'A', display_name: 'a' },
+         { id: 'p2', tenant_id: 'k1', sku: 'B', display_name: 'b' }
       ]);
       expect(button().attributes('disabled')).toBeUndefined();
       expect(button().text()).toBe('Publish 2 products to Amazon');
 
       // One product reads in the singular (B3).
-      await select([{ id: 'p1', customer_id: 'k1', sku: 'A', display_name: 'a' }]);
+      await select([{ id: 'p1', tenant_id: 'k1', sku: 'A', display_name: 'a' }]);
       expect(button().text()).toBe('Publish 1 product to Amazon');
       await select([
-         { id: 'p1', customer_id: 'k1', sku: 'A', display_name: 'a' },
-         { id: 'p2', customer_id: 'k1', sku: 'B', display_name: 'b' }
+         { id: 'p1', tenant_id: 'k1', sku: 'A', display_name: 'a' },
+         { id: 'p2', tenant_id: 'k1', sku: 'B', display_name: 'b' }
       ]);
 
       await button().trigger('click');
       const dialog = wrapper.getComponent({ name: 'AmazonBulkPublish' });
       expect(dialog.props('productIds')).toEqual(['p1', 'p2']);
-      // The selection is cleared, as after a transfer; the dialog keeps its products.
+      // The selection is cleared; the dialog keeps its products.
       await nextTick();
       expect(table.props('selection')).toEqual([]);
       expect(wrapper.getComponent({ name: 'AmazonBulkPublish' }).props('productIds')).toEqual([

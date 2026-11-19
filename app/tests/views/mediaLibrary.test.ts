@@ -35,9 +35,6 @@ vi.mock('@/store/auth', async () => {
       })
    };
 });
-vi.mock('@/store/customerFilter', () => ({
-   useCustomerFilter: () => ({ customerId: 'c-global' })
-}));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRoute: () => ({ query: api.query }),
@@ -74,16 +71,11 @@ vi.mock('@/api/media/signedUrls', async () => {
 });
 
 const Stub = (name: string) =>
-   defineComponent({ name, props: ['customerId'], setup: () => () => h('div', { [name]: '' }) });
-const SelectCustomer = defineComponent({
-   props: ['modelValue'],
-   setup: (props) => () => h('span', { 'data-filter': 'customer' }, props.modelValue)
-});
+   defineComponent({ name, props: ['tenantId'], setup: () => () => h('div', { [name]: '' }) });
 
 const row = (id: string, usage: { link_count?: number; document_count?: number } = {}) => ({
    id,
    tenant_id: 't1',
-   customer_id: 'c1',
    file_name: `${id}.png`,
    title: null,
    alt_text: null,
@@ -101,7 +93,7 @@ const mountIndex = () =>
       global: {
          plugins: [i18NPlugin, PrimeVue, [abilitiesPlugin, ability, { useGlobalProperties: true }]],
          directives: { tooltip: Tooltip },
-         stubs: { MediaDropzone: Stub('data-dropzone'), SelectCustomer }
+         stubs: { MediaDropzone: Stub('data-dropzone') }
       }
    });
 
@@ -122,13 +114,11 @@ describe('media library', () => {
       );
    });
 
-   it('starts on the global customer and presets the linked record from the route', () => {
+   it('presets the linked record from the route', () => {
       api.query = { entity_type: 'product', entity_id: 'p1' };
-      const wrapper = mountIndex();
+      mountIndex();
 
-      expect(wrapper.get('[data-filter="customer"]').text()).toBe('c-global');
       expect(lastFilters()).toMatchObject({
-         customerId: 'c-global',
          kind: null,
          tag: null,
          linkedType: 'product',
@@ -154,7 +144,7 @@ describe('media library', () => {
       const options = select.props('options') as { value: string; label: string }[];
 
       expect(options.at(-1)).toEqual({ value: 'none', label: 'Not linked' });
-      expect(options[0]).toEqual({ value: 'customer', label: 'Customer' });
+      expect(options[0]).toEqual({ value: 'provider_relationship', label: 'Client relationship' });
 
       select.vm.$emit('update:modelValue', 'none');
       await flushPromises();

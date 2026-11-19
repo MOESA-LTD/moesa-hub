@@ -1,9 +1,7 @@
 import { queryKeys, type TableName } from '@/api/queryKeys';
 import { useTenantKey } from '@/api/useTenantKey';
 import { supabase } from '@/lib/supabase';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { useQuery } from '@tanstack/vue-query';
-import { storeToRefs } from 'pinia';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 
@@ -28,21 +26,17 @@ type DashboardView = Extract<
    | 'dashboard_change_request'
 >;
 
-/** A dashboard view's rows, narrowed to the customer of the global customer filter when one is set. */
+/** A dashboard view's rows, of the tenants in scope. */
 function useDashboardView<Row>(
    view: DashboardView,
    order?: { column: string; ascending: boolean }
 ) {
    const tenantKey = useTenantKey();
-   const { customerId } = storeToRefs(useCustomerFilter());
 
    return useQuery({
-      queryKey: computed(() =>
-         queryKeys.list(tenantKey.value, view, { customerId: customerId.value })
-      ),
+      queryKey: computed(() => queryKeys.list(tenantKey.value, view)),
       queryFn: async ({ signal }) => {
          let query = supabase.from(view).select('*').abortSignal(signal);
-         if (customerId.value) query = query.eq('customer_id', customerId.value);
          if (order) query = query.order(order.column, { ascending: order.ascending });
          const { data } = await query.throwOnError();
          return (data ?? []) as Row[];
@@ -61,11 +55,14 @@ export const useDashboardGates = () =>
 export const useDashboardTasks = () =>
    useDashboardView<DashboardTaskRow>('dashboard_task_due', { column: 'due_on', ascending: true });
 
-/** Per customer, the evidence behind its active products. */
+/** Per tenant, the evidence behind its active products. */
 export const useDashboardEvidence = () =>
    useDashboardView<DashboardEvidenceRow>('dashboard_product_evidence');
 
-/** The open purchase orders (neither draft, closed nor cancelled), the earliest ready date first. */
+/**
+ * The open purchase orders (neither draft, closed nor cancelled; a shared order on the client side
+ * neither delivered nor cancelled), the earliest ready date first.
+ */
 export const useDashboardPurchaseOrders = () =>
    useDashboardView<DashboardPurchaseOrderRow>('dashboard_purchase_order', {
       column: 'ready_on',
@@ -79,7 +76,7 @@ export const useDashboardShipments = () =>
       ascending: true
    });
 
-/** Per customer, its market cells by status (live, preparing, suppressed) and its target. */
+/** Per tenant, its market cells by status (live, preparing, suppressed) and its target. */
 export const useDashboardMarket = () => useDashboardView<DashboardMarketRow>('dashboard_market');
 
 /** The incidents that are not closed, S1 first (the spec's "S1/S2 öne"). */
@@ -121,23 +118,18 @@ export function splitTasks<Row extends Pick<DashboardTaskRow, 'overdue'>>(rows: 
 }
 
 /**
- * Where an evidence row leads: the product list narrowed to the row's customer, which the list
- * reads from the global customer filter (no customer, as for a row of all customers, clears it).
- * The unsigned SKU card (`unsigned_spec`) also narrows it to products without a signed spec sheet
- * (`?spec=false`, see specFilterFromQuery).
+ * Where an evidence card leads: the product list; the unsigned SKU card (`unsigned_spec`) narrows
+ * it to products without a signed spec sheet (`?spec=false`, see specFilterFromQuery).
  */
 export const evidenceTarget = (
-   row: Pick<DashboardEvidenceRow, 'customer_id'>,
    card: 'unsigned_spec' | 'compliance' = 'compliance'
-): { customerId: string | null; route: RouteLocationRaw } => ({
-   customerId: row.customer_id ?? null,
-   route:
-      card === 'unsigned_spec'
-         ? { name: 'ops-product-list', query: { spec: 'false' } }
-         : { name: 'ops-product-list' }
-});
+): RouteLocationRaw =>
+   card === 'unsigned_spec'
+      ? { name: 'ops-product-list', query: { spec: 'false' } }
+      : { name: 'ops-product-list' };
 
 type PurchaseOrderStatus = NonNullable<DashboardPurchaseOrderRow['status']>;
+type ClientStatus = NonNullable<DashboardPurchaseOrderRow['client_status']>;
 type ShipmentStatus = NonNullable<DashboardShipmentRow['status']>;
 
 /** The order statuses that wait for an action of ours (send, chase or approve the PI, pay). */
@@ -149,16 +141,32 @@ const PO_PRODUCTION: readonly PurchaseOrderStatus[] = [
    'ready',
    'balance_paid'
 ];
+/**
+ * A shared order on the client side reads no raw status (Q1), only its client status: one not yet
+ * in production waits on the provider, so it shows with the orders waiting for action.
+ */
+const PO_CLIENT_WAITING: readonly ClientStatus[] = ['pending', 'confirmed'];
 /** The shipment statuses of goods on the way, from the loading to customs. */
 const SHIPMENT_IN_TRANSIT: readonly ShipmentStatus[] = ['loaded', 'in_transit', 'at_customs'];
 
-/** The open orders waiting for action, and those in production. Each group keeps the rows' order. */
-export function groupPurchaseOrders<Row extends Pick<DashboardPurchaseOrderRow, 'status'>>(
-   rows: readonly Row[]
-) {
-   const has = (statuses: readonly PurchaseOrderStatus[]) => (row: Row) =>
-      !!row.status && statuses.includes(row.status);
-   return { action: rows.filter(has(PO_ACTION)), production: rows.filter(has(PO_PRODUCTION)) };
+/**
+ * The open orders waiting for action, and those in production. Each group keeps the rows' order. A
+ * shared order on the client side is grouped by its client status.
+ */
+export function groupPurchaseOrders<
+   Row extends Pick<DashboardPurchaseOrderRow, 'status'> &
+      Partial<Pick<DashboardPurchaseOrderRow, 'client_status'>>
+>(rows: readonly Row[]) {
+   const has =
+      (statuses: readonly PurchaseOrderStatus[], clientStatuses: readonly ClientStatus[]) =>
+      (row: Row) =>
+         row.status
+            ? statuses.includes(row.status)
+            : !!row.client_status && clientStatuses.includes(row.client_status);
+   return {
+      action: rows.filter(has(PO_ACTION, PO_CLIENT_WAITING)),
+      production: rows.filter(has(PO_PRODUCTION, ['in_production']))
+   };
 }
 
 /**
@@ -175,8 +183,8 @@ export function groupShipments<Row extends Pick<DashboardShipmentRow, 'status' |
 }
 
 /**
- * The market matrix box: the live cells of every customer, and the customers with a target (a
- * cell in TARGET_STATUSES), the most live first.
+ * The market matrix box: the live cells of every tenant, and the tenants with a target (a cell in
+ * TARGET_STATUSES), the most live first.
  */
 export function marketSummary<Row extends Pick<DashboardMarketRow, 'live_count' | 'target_count'>>(
    rows: readonly Row[]

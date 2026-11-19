@@ -35,7 +35,7 @@ vi.mock('@/api/project', async (importOriginal) => {
       ...original,
       projectResource: {
          ...original.projectResource,
-         useOne: () => ({ data: ref({ id: 'p', customer_id: 'c' }) })
+         useOne: () => ({ data: ref({ id: 'p', tenant_id: 't' }) })
       }
    };
 });
@@ -124,13 +124,13 @@ describe('useProjectOperations', () => {
 });
 
 describe('history tabs', () => {
-   it("embeds the project's orders, with a new order for the project and its customer", async () => {
+   it("embeds the project's orders, with a new order for the project", async () => {
       const wrapper = await mountTab(ProjectPurchaseOrders);
 
       expect(filtersOf(wrapper, 'PurchaseOrderTable')).toEqual({ projectId: 'p' });
       const link = JSON.parse(wrapper.get('[data-to]').attributes('data-to')!);
       expect(link.name).toBe('ops-purchase-order-manage');
-      expect(link.query).toMatchObject({ project_id: 'p', customer_id: 'c' });
+      expect(link.query).toMatchObject({ project_id: 'p' });
       expect(wrapper.get('[data-test="new-purchase-order"]').text()).toBe(
          i18n.t('ops.project.new_purchase_order')
       );

@@ -1,21 +1,21 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- 059: masked audit history (OD4, R9), masked transfer reports (S4), the actor/reverter embeds over
+-- 059: masked audit history (OD4, R9), the actor/reverter embeds over
 -- api.user and the revert refused when a changed field is not writable (C3, R8).
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(24);
 
 SELECT private.field_test_fixtures();
 SELECT private.create_test_helpers();
 -- Test support only, revoked from everyone; this transaction lets the impersonated user call it.
 GRANT EXECUTE ON FUNCTION private.field_calls_only_in_initplans (TEXT) TO authenticated;
 
--- Three product changes by akif, each its own audit transaction: cost and notes in MOESA LTD, the
--- name in MOESA LTD, cost in MOESA Europe.
+-- Three changes by akif, each its own audit transaction: a sourcing row's cost and notes in MOESA
+-- LTD, a product's name in MOESA LTD, a sourcing row's cost in MOESA Europe.
 SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
 SELECT set_config('audit.transaction_id', '', TRUE);
-UPDATE api.product SET purchase_price = 13, notes = 'secret note 2' WHERE id = current_setting('test.secret')::UUID;
+UPDATE api.sourcing SET purchase_price = 13, notes = 'sourcing secret 2' WHERE id = current_setting('test.secret_sourcing')::UUID;
 SELECT set_config('audit.transaction_id', '', TRUE);
 UPDATE api.product SET display_name = 'Renamed' WHERE id = current_setting('test.secret')::UUID;
 -- A field right granted in MOESA LTD as save_role writes it (its helper runs as postgres with akif's
@@ -30,7 +30,7 @@ SELECT set_config('moesa.save_role', '', TRUE);
 RESET ROLE;
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.europe')::UUID, ARRAY[current_setting('test.europe')::UUID]);
 SELECT set_config('audit.transaction_id', '', TRUE);
-UPDATE api.product SET purchase_price = 78 WHERE id = current_setting('test.spike_eu')::UUID;
+UPDATE api.sourcing SET purchase_price = 78 WHERE id = current_setting('test.spike_eu_sourcing')::UUID;
 RESET ROLE;
 SELECT private.unimpersonate();
 SELECT set_config('audit.transaction_id', '', TRUE);
@@ -50,19 +50,15 @@ SELECT set_config('test.tx_setting', (SELECT l.transaction_id FROM public.audit_
 SELECT set_config('test.tx_gate', (SELECT l.transaction_id FROM public.audit_log l WHERE l.table_name = 'project_gate' AND l.old_data ? 'position' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
 SELECT set_config('test.tx_ls', (SELECT l.transaction_id FROM public.audit_log l WHERE l.table_name = 'listing_submission' AND l.operation = 'DELETE' AND l.old_data ->> 'sku' = 'LS-T12' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
 
-SELECT set_config('test.tx_cost', (SELECT l.transaction_id FROM public.audit_log l WHERE l.record_id = current_setting('test.secret')::UUID AND l.old_data ? 'purchase_price' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
+SELECT set_config('test.tx_cost', (SELECT l.transaction_id FROM public.audit_log l WHERE l.record_id = current_setting('test.secret_sourcing')::UUID AND l.old_data ? 'purchase_price' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
 SELECT set_config('test.tx_name', (SELECT l.transaction_id FROM public.audit_log l WHERE l.record_id = current_setting('test.secret')::UUID AND l.old_data ? 'display_name' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
-SELECT set_config('test.tx_eu', (SELECT l.transaction_id FROM public.audit_log l WHERE l.record_id = current_setting('test.spike_eu')::UUID AND l.old_data ? 'purchase_price' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
+SELECT set_config('test.tx_eu', (SELECT l.transaction_id FROM public.audit_log l WHERE l.record_id = current_setting('test.spike_eu_sourcing')::UUID AND l.old_data ? 'purchase_price' ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
 SELECT set_config('test.tx_rfp', (SELECT l.transaction_id FROM public.audit_log l WHERE l.table_name = 'role_field_permission' AND l.new_data ->> 'role_id' = current_setting('test.t_restricted') ORDER BY l.id DESC LIMIT 1)::TEXT, TRUE);
 
--- MOESA LTD's customer_viewer reads the audit trail; t_restricted reads users (for the actor tests).
+-- t_restricted reads users (for the actor tests).
 DO $$
 BEGIN
     PERFORM set_config('moesa.rules_bypass', '1', TRUE);
-    INSERT INTO public.role_permission (role_id, permission_id)
-    SELECT r.id, p.id FROM public.role r, public.permission p
-    WHERE r.tenant_id = current_setting('test.moesa')::UUID AND r.display_name = 'customer_viewer' AND p.resource_name = 'public.audit_log'
-    ON CONFLICT DO NOTHING;
     -- t_restricted sees its colleagues (no personal data of users: no field rows).
     INSERT INTO public.role_permission (role_id, permission_id)
     SELECT current_setting('test.t_restricted')::UUID, p.id FROM public.permission p WHERE p.resource_name = 'public.user' AND p.command = 'select'
@@ -79,7 +75,7 @@ SELECT is((SELECT old_data -> 'notes' FROM api.audit_log WHERE transaction_id = 
    'OD4: the old value is masked too');
 SELECT is((SELECT new_data ->> 'sku' FROM api.audit_log WHERE transaction_id = current_setting('test.tx_name')::UUID), 'SPIKE-SECRET', 'open keys pass');
 SELECT is((SELECT count(*)::INT FROM api.audit_log WHERE (new_data ->> 'purchase_price') LIKE '13%'), 0, 'T10 audit filter oracle closed');
-SELECT is((SELECT count(*)::INT FROM api.dashboard_notification_feed WHERE new_data ->> 'notes' LIKE 'secret%'), 0, 'notification feed masked');
+SELECT is((SELECT count(*)::INT FROM api.dashboard_notification_feed WHERE new_data ->> 'notes' LIKE 'sourcing secret%'), 0, 'notification feed masked');
 SELECT results_eq($$ SELECT a.id, a.email FROM api.audit_transaction t, api.actor(t) a WHERE t.id = current_setting('test.tx_cost')::UUID $$,
    $$ VALUES (current_setting('test.akif')::UUID, NULL::TEXT) $$, 'R9: the actor is embedded, with the e-mail masked');
 SELECT results_eq($$ SELECT api.display_name(a), a.email, a.user_metadata FROM api.audit_transaction t, api.actor(t) a WHERE t.id = current_setting('test.tx_cost')::UUID $$,
@@ -99,12 +95,6 @@ SELECT private.impersonate_scope(current_setting('test.elif')::UUID, current_set
 SELECT ok((SELECT new_data -> 'purchase_price' <> '{"masked": true}'::JSONB FROM api.audit_log WHERE transaction_id = current_setting('test.tx_eu')::UUID)
    AND (SELECT new_data -> 'purchase_price' = '{"masked": true}'::JSONB FROM api.audit_log WHERE transaction_id = current_setting('test.tx_cost')::UUID),
    'audit keys masked per row tenant');
-
--- As portal in MOESA LTD (customer_viewer: no personal data of users).
-RESET ROLE;
-SELECT private.impersonate(current_setting('test.portal')::UUID, current_setting('test.moesa')::UUID);
-SELECT is((SELECT a.email FROM api.audit_transaction t, api.actor(t) a WHERE t.id = current_setting('test.tx_cost')::UUID), NULL,
-   'R9: actor e-mail masked for a reader without personal_data');
 
 -- As koordinator in MOESA LTD.
 RESET ROLE;
@@ -134,31 +124,27 @@ SELECT is(t.peek('setting', 'key', (SELECT id FROM api.setting WHERE key = 'rena
 -- As postgres: the pure functions and the catalog.
 RESET ROLE;
 SELECT private.unimpersonate();
-SELECT is(private.mask_audit_data('product', NULL, '{"sku":"A","purchase_price":1}'::JSONB, '{}'::JSONB, private.sensitive_fields_map()),
-   '{"sku":"A","purchase_price":{"masked":true}}'::JSONB, 'a NULL tenant masks every sensitive key (fail closed)');
-SELECT is(private.mask_json_deep('{"rows":[{"table":"product","row":{"sku":"A","purchase_price":5}}]}'::JSONB, current_setting('test.moesa')::UUID, '{}'::JSONB, private.sensitive_fields_map()),
-   '{"rows":[{"table":"product","row":{"sku":"A","purchase_price":{"masked":true}}}]}'::JSONB, 'S4: nested sensitive keys in a JSON report are masked');
-SELECT is(private.mask_audit_data('transfer', current_setting('test.moesa')::UUID, '{"report":{"row":{"purchase_price":5}}}'::JSONB, '{}'::JSONB, private.sensitive_fields_map()),
-   '{"report":{"row":{"purchase_price":{"masked":true}}}}'::JSONB, 'S4: audit snapshots of transfer rows mask the report');
-SELECT ok(pg_get_viewdef('api.transfer'::REGCLASS) LIKE '%mask_json_deep(t.report%' AND pg_get_viewdef('api.transfer'::REGCLASS) LIKE '%mask_json_deep(t.decisions%',
-   'S4: api.transfer masks report and decisions');
+SELECT is(private.mask_audit_data('sourcing', NULL, '{"product_sku":"A","purchase_price":1}'::JSONB, '{}'::JSONB, private.sensitive_fields_map(), '{}'::JSONB),
+   '{"product_sku":"A","purchase_price":{"masked":true}}'::JSONB, 'a NULL tenant masks every sensitive key (fail closed)');
+SELECT is(private.mask_json_deep('{"rows":[{"table":"sourcing","row":{"product_sku":"A","purchase_price":5}}]}'::JSONB, current_setting('test.moesa')::UUID, '{}'::JSONB, private.sensitive_fields_map()),
+   '{"rows":[{"table":"sourcing","row":{"product_sku":"A","purchase_price":{"masked":true}}}]}'::JSONB, 'nested sensitive keys in a JSON document are masked');
 SELECT is((SELECT pg_get_userbyid(proowner)::TEXT FROM pg_proc WHERE oid = 'public.revert_audit_transaction(uuid)'::REGPROCEDURE), 'api_owner', 'R8: revert runs as api_owner');
 SELECT is_empty($$ SELECT p.oid::REGPROCEDURE FROM pg_proc p WHERE p.oid IN ('private.mask_json_keys(jsonb,text[])'::REGPROCEDURE,
-   'private.mask_json_deep(jsonb,uuid,jsonb,jsonb)'::REGPROCEDURE, 'private.mask_audit_data(text,uuid,jsonb,jsonb,jsonb)'::REGPROCEDURE,
+   'private.mask_json_deep(jsonb,uuid,jsonb,jsonb)'::REGPROCEDURE, 'private.mask_audit_data(text,uuid,jsonb,jsonb,jsonb,jsonb,jsonb)'::REGPROCEDURE,
    'api.display_name(api.user)'::REGPROCEDURE) AND pg_get_userbyid(p.proowner) <> 'api_owner' $$, 'R8: the masking definers and display_name are owned by api_owner');
 SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() is empty');
 
--- Tamper: api.transfer with the report unmasked is reported by drift.
+-- Tamper: api.audit_log with old_data unmasked is reported by drift.
 DO $$
 BEGIN
-    EXECUTE format('CREATE OR REPLACE VIEW api.transfer WITH (security_invoker = false) AS SELECT %s FROM %s',
-        (SELECT string_agg(CASE WHEN a.attname = 'report' THEN 't.report' ELSE private.api_column_expr('transfer', a.attname) END, ', ' ORDER BY a.attnum)
-         FROM pg_attribute a WHERE a.attrelid = 'public.transfer'::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped),
-        private.api_view_from('transfer'));
+    EXECUTE format('CREATE OR REPLACE VIEW api.audit_log WITH (security_invoker = false) AS SELECT %s FROM %s',
+        (SELECT string_agg(CASE WHEN a.attname = 'old_data' THEN 't.old_data' ELSE private.api_column_expr('audit_log', a.attname) END, ', ' ORDER BY a.attnum)
+         FROM pg_attribute a WHERE a.attrelid = 'public.audit_log'::REGCLASS AND a.attnum > 0 AND NOT a.attisdropped),
+        private.api_view_from('audit_log'));
 END;
 $$;
-SELECT results_eq($$ SELECT problem FROM private.api_view_drift() WHERE relation = 'transfer' AND problem LIKE '% report' $$,
-   $$ VALUES ('expression report') $$, 'drift reports an unmasked transfer report');
+SELECT results_eq($$ SELECT problem FROM private.api_view_drift() WHERE relation = 'audit_log' AND problem LIKE '% old_data' $$,
+   $$ VALUES ('expression old_data') $$, 'drift reports an unmasked audit_log old_data');
 
 SELECT * FROM finish();
 ROLLBACK;

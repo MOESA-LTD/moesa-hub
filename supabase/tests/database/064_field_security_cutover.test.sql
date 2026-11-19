@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- their grants; api_owner still cannot write the tables its views only read (Task 10's carry).
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(27);
 
 SELECT is_empty($$ SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants
    WHERE table_schema = 'public' AND grantee IN ('anon','authenticated') $$, 'no public relation grants anything to anon or authenticated');
@@ -23,8 +23,6 @@ SELECT is_empty($$ SELECT * FROM private.api_view_drift() $$, 'api_view_drift() 
 -- the tables whose api views are read-only.
 SELECT ok(NOT has_table_privilege('api_owner', 'public.code_sequence', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.code_sequence', 'UPDATE')
    AND NOT has_table_privilege('api_owner', 'public.code_sequence', 'DELETE'), 'api_owner cannot write public.code_sequence');
-SELECT ok(NOT has_table_privilege('api_owner', 'public.transfer', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.transfer', 'UPDATE')
-   AND NOT has_table_privilege('api_owner', 'public.transfer', 'DELETE'), 'api_owner cannot write public.transfer');
 SELECT ok(NOT has_table_privilege('api_owner', 'public.role_field_permission', 'INSERT') AND NOT has_table_privilege('api_owner', 'public.role_field_permission', 'UPDATE')
    AND NOT has_table_privilege('api_owner', 'public.role_field_permission', 'DELETE'), 'api_owner cannot write public.role_field_permission');
 
@@ -103,6 +101,42 @@ SELECT private.unimpersonate();
 
 -- Allowlist: the exact SECURITY DEFINER functions in public and api that authenticated may EXECUTE.
 -- A new definer must be added here deliberately, after checking it guards its own access.
+--   end_provider_relationship (018): allowed only to the provider side holding the update right on
+--   relationships, or to the owner of the client company; an unknown id is refused with the same
+--   42501 as a forbidden one. It returns nothing (VOID), so no provider-only field (notes, drive URL)
+--   reaches the client. Definer for that check across both tenants and for the status write, which
+--   the client owner cannot make through the provider's row.
+--   platform_settings, set_platform_setting (070): super admin only, both refuse anyone else with 42501
+--   super_admin_required; they read and write private.platform_setting, which no role can reach. The
+--   third function of 070, open_signup_enabled, is granted to the service role alone and is not listed.
+--   revoke_provider_invitation (071): allowed only to a caller holding the update right on
+--   invitations in the invitation's tenant; an unknown id is refused with the same 42501 as a
+--   forbidden one. It returns nothing (VOID) and deletes the token hash; it never reads or returns it.
+--   The invitation's other two functions (create, rotate) are granted to the service role alone.
+--   invitation_preview (071): the caller is auth.uid(); it answers only for the invitation behind the
+--   token it is given, and only when the caller's confirmed auth.users e-mail is the invited one,
+--   else {"error"} (30 previews per user per 10 minutes). It neither locks nor counts a mismatch
+--   toward the invitation's lock-out, so previewing can never lock the invited user out. It returns
+--   the invitation's terms, the seat count and the active plans: no staff identity, token or hash,
+--   and it writes nothing but its own throttle counter. accept_provider_invitation is
+--   granted to the service role alone (F1) and is not listed.
+--   transfer_options, transfer_products (072): the caller is auth.uid(); both answer through
+--   private.transfer_refusal, which allows only a member or owner of both tenants (no super-admin
+--   bypass) holding the table and field rights in both (F6, F5). transfer_options lists only the
+--   caller's own tenants with a refusal code each; transfer_products returns a report of counts and ids
+--   only (no row value) and reads only the source's own rows. 073: a real run asks the gate again
+--   right before writing, writes only the source's own rows (tenant_id the target, no client link,
+--   every trigger running) into a target where the caller holds insert, raises the transfer flag for
+--   its own row only and clears it before returning, and returns the transfer row masked as api.transfer
+--   (the source's description under the source's field rights, L4).
+--   transfer_check_files (074): the caller is auth.uid() holding public.transfer insert in the target
+--   (no super-admin pass) or the starter still in the target, else 404 transfer_not_found; it reads
+--   Storage for the listed target paths, writes only missing_files and files_status (its own audit
+--   transaction, locked from revert), and returns the row masked as api.transfer.
+--   client_procurement (018, owned by api_owner): returns only the procurement model and status of
+--   the relationships naming the active tenant (private.tenant_id(), checked against the user's
+--   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
+--   provider-only field, no relationship of another tenant. The sourcing tab reads it.
 SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "default" FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname IN ('public','api') AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE') ORDER BY 1 $$,
    $$ VALUES ('api.display_name'),
@@ -110,11 +144,13 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('api.owned_via'),
    ('api.status'),
    ('public.amazon_account_disconnect'),
-   ('public.audit_transfer_locked'),
    ('public.can_write_user_field'),
+   ('public.client_procurement'),
    ('public.create_branch'),
    ('public.delete_branch'),
+   ('public.end_provider_relationship'),
    ('public.import_products'),
+   ('public.invitation_preview'),
    ('public.listing_begin_submission'),
    ('public.listing_parent_cell'),
    ('public.managed_in'),
@@ -124,15 +160,18 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.next_code'),
    ('public.owned_via'),
    ('public.pass_gate'),
+   ('public.platform_settings'),
    ('public.revert_audit_transaction'),
+   ('public.revoke_provider_invitation'),
    ('public.rollback_gate'),
    ('public.save_plan'),
    ('public.save_role'),
+   ('public.set_platform_setting'),
    ('public.set_primary_media'),
    ('public.set_user_roles'),
    ('public.transfer_check_files'),
-   ('public.transfer_customer'),
-   ('public.transfer_options') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
+   ('public.transfer_options'),
+   ('public.transfer_products') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -21,7 +21,7 @@ export type ShipmentRow = Tables['shipment']['Row'];
 export type ShipmentLineRow = Tables['shipment_line']['Row'];
 export type ShipmentEventRow = Tables['shipment_event']['Row'];
 /**
- * A shipment with its customer code, warehouse name, order ids and codes, product ids and
+ * A shipment with its client code, warehouse name, order ids and codes, product ids and
  * psi_missing_po_codes. The view is security_invoker, so psi_missing_po_codes follows the caller's
  * document visibility: a user who cannot read documents sees every order flagged. Show it as a
  * warning only (ops.shipment.psi_warning), never as a rule.
@@ -31,18 +31,20 @@ export type ShipmentOverviewRow = Views['shipment_overview']['Row'];
 /** An order on the shipment as the card loads it: with its lines and their products. */
 export type ShipmentCardOrder = Pick<
    PurchaseOrderRow,
-   'id' | 'code' | 'status' | 'tolerance_pct'
+   'id' | 'code' | 'status' | 'client_status' | 'tolerance_pct'
 > & {
-   purchase_order_line: (Pick<PurchaseOrderLineRow, 'id' | 'quantity'> & {
+   purchase_order_line: (Pick<
+      PurchaseOrderLineRow,
+      'id' | 'quantity' | 'product_sku' | 'product_name'
+   > & {
       product: Pick<ProductRow, 'sku' | 'display_name' | 'is_hazmat'> | null;
    })[];
 };
 
 /** A shipment as its card loads it (SHIPMENT_SELECT). */
 export type ShipmentCard = ShipmentRow & {
-   customer: Pick<Tables['customer']['Row'], 'code' | 'display_name'> | null;
-   customer_warehouse: Pick<
-      Tables['customer_warehouse']['Row'],
+   warehouse: Pick<
+      Tables['warehouse']['Row'],
       'display_name' | 'city' | 'dock_hours' | 'appointment_rule'
    > | null;
    shipment_purchase_order: { purchase_order: ShipmentCardOrder | null }[];
@@ -214,7 +216,7 @@ export function etaState(
 
 /** The default warehouse, else the only one, else none. */
 export function defaultWarehouseId(
-   warehouses: readonly Pick<Tables['customer_warehouse']['Row'], 'id' | 'is_default'>[]
+   warehouses: readonly Pick<Tables['warehouse']['Row'], 'id' | 'is_default'>[]
 ): string | null {
    return (
       warehouses.find(({ is_default }) => is_default)?.id ??
@@ -258,12 +260,14 @@ export function documentChecklist(
 
 // --- shipment ---
 
-/** The card's shipment, its customer and warehouse, its orders with their lines, and its lines. */
+/**
+ * The card's shipment, its warehouse, its orders with their lines, and its lines. An order's raw
+ * status reads NULL on the client side of a shared shipment; its client_status is read alongside.
+ */
 export const SHIPMENT_SELECT = [
    '*',
-   'customer!shipment_customer_fkey(code, display_name)',
-   'customer_warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
-   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
+   'warehouse!shipment_warehouse_fkey(display_name, city, dock_hours, appointment_rule)',
+   'shipment_purchase_order!shipment_purchase_order_shipment_fkey(purchase_order!shipment_purchase_order_po_fkey(id, code, status, client_status, tolerance_pct, purchase_order_line!purchase_order_line_po_fkey(id, quantity, product_sku, product_name, product!purchase_order_line_product_fkey(sku, display_name, is_hazmat))))',
    'shipment_line!shipment_line_shipment_fkey(*)'
 ].join(', ');
 
@@ -328,7 +332,9 @@ const amount = () => optional(z.number().min(0));
 
 export const shipmentSchema = z.object({
    id: z.string().optional(),
-   customer_id: required(z.uuid()),
+   // The client the shipment is for (an active provider-procures relationship), or null for an
+   // own shipment. Set on a new shipment only (client_tenant_immutable).
+   client_tenant_id: z.uuid().nullable().default(null),
    mode: required(z.enum(SHIPMENT_MODES)),
    delivery_warehouse_id: required(z.uuid()),
    forwarder: text(),
@@ -369,7 +375,7 @@ export const toShipmentFormValues = (
    shipment?: Partial<ShipmentRow> | null
 ): ShipmentFormValues => ({
    id: shipment?.id ?? undefined,
-   customer_id: shipment?.customer_id ?? null,
+   client_tenant_id: shipment?.client_tenant_id ?? null,
    mode: shipment?.mode ?? null,
    delivery_warehouse_id: shipment?.delivery_warehouse_id ?? null,
    forwarder: shipment?.forwarder ?? '',
@@ -404,14 +410,13 @@ export const toShipmentFormValues = (
 const instantTime = (value: unknown) => (value instanceof Date ? value.getTime() : null);
 
 /**
- * The row to save, empty fields as null. The customer never changes, so it goes with a new
- * shipment only; the code, the status (useSetShipmentStatus) and the acceptance date are the
- * database's. The dispute deadline goes only when it differs from `loaded` (the form's values as
- * loaded, none for a new shipment): entering delivered fills it in the database, and a form loaded
- * before that must not write its empty one back.
+ * The row to save, empty fields as null. The client goes with a new shipment only. The code, the
+ * status (useSetShipmentStatus) and the acceptance date are the database's. The dispute deadline goes only when it differs from `loaded`
+ * (the form's values as loaded, none for a new shipment): entering delivered fills it in the
+ * database, and a form loaded before that must not write its empty one back.
  */
 export function toShipmentPayload(
-   { id, customer_id, dispute_deadline_at, ...values }: ShipmentValues,
+   { id, dispute_deadline_at, client_tenant_id, ...values }: ShipmentValues,
    loaded?: Pick<ShipmentFormValues, 'dispute_deadline_at'> | null
 ): ResourceInput<'shipment'> {
    const deadlineChanged =
@@ -426,7 +431,7 @@ export function toShipmentPayload(
       has_damage: values.has_damage ?? null
    };
    if (id) return { id, ...editable } as ResourceInput<'shipment'>;
-   return { ...editable, customer_id };
+   return { ...editable, client_tenant_id } as ResourceInput<'shipment'>;
 }
 
 /** Moves a shipment to another status; the database checks the flow and its data (031). */
@@ -446,8 +451,8 @@ export type ShipmentOrderLink = { shipmentId: string; purchaseOrderId: string };
 
 /**
  * Puts an order on a shipment, in the shipment's tenant (`tenantId`; without it the active tenant,
- * which customFetch adds). The link's customer is the shipment's (set by the database), so it is
- * not sent.
+ * which customFetch adds). The link's client is the shipment's (set by the database), so it is not
+ * sent.
  */
 export function useLinkPurchaseOrder() {
    const queryClient = useQueryClient();
@@ -464,7 +469,6 @@ export function useLinkPurchaseOrder() {
                shipment_id: shipmentId,
                purchase_order_id: purchaseOrderId,
                ...(tenantId ? { tenant_id: tenantId } : {})
-               // customer_id is set by the database.
             } as Tables['shipment_purchase_order']['Insert'])
             .throwOnError();
       },

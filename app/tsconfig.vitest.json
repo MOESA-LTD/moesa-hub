@@ -11,5 +11,6 @@
       "auto-imports.d.ts",
       "components.d.ts",
       "../supabase/functions/_shared/listingCompleteness.ts"
-   ]
+   ],
+   "exclude": ["src/script/**"]
 }

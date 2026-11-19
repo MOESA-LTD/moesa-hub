@@ -58,9 +58,9 @@ describe('appErrorHandler', () => {
    });
 
    it('titles a PostgREST refusal with a neutral summary, not the class name', async () => {
-      const error = Object.assign(new Error('transfer_product_in_use'), {
+      const error = Object.assign(new Error('relationship_ended_final'), {
          name: 'PostgrestError',
-         code: 'P0001',
+         code: '23514',
          details: '',
          hint: ''
       });
@@ -70,7 +70,7 @@ describe('appErrorHandler', () => {
       expect(toasts()).toEqual([
          expect.objectContaining({
             summary: en.errors.request_failed,
-            detail: i18n.t('errors.transfer_product_in_use')
+            detail: i18n.t('errors.relationship_ended_final')
          })
       ]);
       expect(en.errors.request_failed).toBe('Request failed');

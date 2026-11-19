@@ -11,7 +11,7 @@ type Db = SupabaseClient<Database>;
 export const MEDIA_BUCKET = 'media';
 export const LISTING_IMAGES_BUCKET = 'listing-images';
 type Tables = Database['public']['Tables'];
-export type PlatformAccountRow = Tables['customer_platform_account']['Row'];
+export type PlatformAccountRow = Tables['platform_account']['Row'];
 export type DefinitionInsert = Tables['amazon_product_type_definition']['Insert'];
 export type DefinitionStored = Tables['amazon_product_type_definition']['Row'];
 type Enums = Database['public']['Enums'];
@@ -21,7 +21,7 @@ type ListingSubmissionRow = Tables['listing_submission']['Row'];
 /** The account as the OAuth callback reads it: the connection state, never a credential. */
 export type CallbackAccount = Pick<
    PlatformAccountRow,
-   'id' | 'customer_id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
+   'id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
 >;
 
 export type ServiceRole = {
@@ -119,8 +119,8 @@ export const serviceRole = (client: Db, actorId: string | null = null): ServiceR
    },
    async callbackAccount(accountId, tenantId) {
       const { data, error } = await client
-         .from('customer_platform_account')
-         .select('id, customer_id, platform_id, api_connection, authorized_at, seller_id')
+         .from('platform_account')
+         .select('id, platform_id, api_connection, authorized_at, seller_id')
          .eq('id', accountId)
          .eq('tenant_id', tenantId)
          .eq('platform_id', 'amazon')

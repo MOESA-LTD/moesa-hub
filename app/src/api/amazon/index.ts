@@ -1,4 +1,3 @@
-import type { CustomerPlatformAccountRow } from '@/api/customer';
 import type { MarketCellRow } from '@/api/marketMatrix';
 import { invalidateTables, queryKeys } from '@/api/queryKeys';
 import { useTenantKey } from '@/api/useTenantKey';
@@ -17,6 +16,7 @@ type Enums = Db['public']['Enums'];
 
 export type ListingState = Enums['listing_state'];
 export type ApiConnection = Enums['api_connection'];
+type PlatformAccountRow = Tables['platform_account']['Row'];
 
 export const LISTING_STATES = allValues<ListingState>()([
    'draft',
@@ -45,8 +45,8 @@ export const listingStateSeverity = (state: string | null | undefined): ListingS
 export const PUBLISHABLE_STATES: readonly ListingState[] = ['ready', 'live', 'issues'];
 
 /**
- * The state a cell is shown and treated in (ruling N2): draft while its customer's Amazon account
- * is not connected, whatever is stored (a transferred cell keeps the state of its source).
+ * The state a cell is shown and treated in (ruling N2): draft while its tenant's Amazon account is
+ * not connected, whatever is stored.
  */
 export const shownListingState = (
    state: ListingState | string | null | undefined,
@@ -237,7 +237,7 @@ const productTypesSchema = z.object({
 const connectResultSchema = z.union([
    z.object({ redirect: z.string() }),
    z.object({
-      account: z.custom<CustomerPlatformAccountRow>((v) => typeof v === 'object' && v !== null)
+      account: z.custom<PlatformAccountRow>((v) => typeof v === 'object' && v !== null)
    })
 ]);
 export type ConnectResult = z.infer<typeof connectResultSchema>;
@@ -282,9 +282,12 @@ async function toError(error: unknown): Promise<unknown> {
 
 // --- requests ---
 
-/** The active tenant's header: the functions authorize the session in that tenant. */
-const tenantHeaders = () => {
-   const tenantId = useAuthStore().currentTenant?.id;
+/**
+ * The tenant's header, the active tenant's by default: the functions authorize the session in that
+ * tenant and use its Amazon account.
+ */
+const tenantHeaders = (tenant?: string | null) => {
+   const tenantId = tenant ?? useAuthStore().currentTenant?.id;
    if (!tenantId) throw new AmazonApiError('tenant_not_allowed');
    return { 'x-tenant-id': tenantId };
 };
@@ -292,11 +295,12 @@ const tenantHeaders = () => {
 async function call<T>(
    name: string,
    init: { method: 'GET' | 'POST'; body?: Record<string, unknown> },
-   schema: z.ZodType<T>
+   schema: z.ZodType<T>,
+   tenantId?: string | null
 ): Promise<T> {
    const { data, error } = await supabase.functions.invoke(name, {
       ...init,
-      headers: tenantHeaders()
+      headers: tenantHeaders(tenantId)
    });
    if (error) throw await toError(error);
    return schema.parse(data);
@@ -307,23 +311,23 @@ const listing = <T>(body: Record<string, unknown>, schema: z.ZodType<T>) =>
 
 // functions-js appends the function name to the functions URL unchanged, so the query string
 // travels with it; the schema function reads its action and parameters from there.
-const schemaFunction = <T>(params: Record<string, string>, schemaOut: z.ZodType<T>) =>
-   call(`amazon-schema?${new URLSearchParams(params)}`, { method: 'GET' }, schemaOut);
+// It asks Amazon with the Amazon account of the tenant given (the product's).
+const schemaFunction = <T>(
+   params: Record<string, string>,
+   schemaOut: z.ZodType<T>,
+   tenantId: string
+) => call(`amazon-schema?${new URLSearchParams(params)}`, { method: 'GET' }, schemaOut, tenantId);
 
-/** The product types Amazon offers for the keywords in the country (the customer's account asks). */
+/** The product types Amazon offers for the keywords in the country (the tenant's account asks). */
 export async function searchProductTypes(args: {
    keywords: string;
    country: string;
-   customerId: string;
+   tenantId: string;
 }): Promise<{ name: string; displayName: string }[]> {
    const { productTypes } = await schemaFunction(
-      {
-         action: 'search',
-         keywords: args.keywords,
-         country: args.country,
-         customer_id: args.customerId
-      },
-      productTypesSchema
+      { action: 'search', keywords: args.keywords, country: args.country },
+      productTypesSchema,
+      args.tenantId
    );
    return productTypes;
 }
@@ -336,7 +340,7 @@ export async function fetchDefinition(args: {
    productType: string;
    country: string;
    locale: string;
-   customerId: string;
+   tenantId: string;
 }): Promise<Definition> {
    const marketplaceId = marketplaceIdFor(args.country);
    if (!marketplaceId) throw new AmazonApiError('amazon_marketplace_unsupported');
@@ -355,10 +359,10 @@ export async function fetchDefinition(args: {
          action: 'definition',
          product_type: args.productType,
          country: args.country,
-         locale: args.locale,
-         customer_id: args.customerId
+         locale: args.locale
       },
-      definitionSchema
+      definitionSchema,
+      args.tenantId
    );
 }
 
@@ -469,7 +473,7 @@ const READ_STALE_MS = 5 * 60 * 1000;
 export function useProductTypeSearch(
    keywords: MaybeRefOrGetter<string>,
    country: MaybeRefOrGetter<string | null>,
-   customerId: MaybeRefOrGetter<string | null>
+   tenantId: MaybeRefOrGetter<string | null>
 ) {
    const tenantKey = useTenantKey();
    return useQuery({
@@ -478,17 +482,17 @@ export function useProductTypeSearch(
             view: 'search',
             keywords: toValue(keywords).trim(),
             country: toValue(country),
-            customerId: toValue(customerId)
+            tenantId: toValue(tenantId)
          })
       ),
       queryFn: () =>
          searchProductTypes({
             keywords: toValue(keywords).trim(),
             country: toValue(country)!,
-            customerId: toValue(customerId)!
+            tenantId: toValue(tenantId)!
          }),
       enabled: computed(
-         () => toValue(keywords).trim().length >= 2 && !!toValue(country) && !!toValue(customerId)
+         () => toValue(keywords).trim().length >= 2 && !!toValue(country) && !!toValue(tenantId)
       ),
       staleTime: READ_STALE_MS
    });
@@ -566,32 +570,32 @@ export function useProductAmazonCells(productId: MaybeRefOrGetter<string | null>
    });
 }
 
-/** A customer's Amazon platform account as the panel shows it (no credential is a column). */
+/** A tenant's Amazon platform account as the panel shows it (no credential is a column). */
 export type AmazonAccount = Pick<
-   CustomerPlatformAccountRow,
-   'id' | 'customer_id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
+   PlatformAccountRow,
+   'id' | 'tenant_id' | 'platform_id' | 'api_connection' | 'authorized_at' | 'seller_id'
 >;
 
 /**
- * The Amazon platform accounts of one customer (`{customerId}`) or of every customer (`{}`); null
- * waits. A customer has one at most (UNIQUE customer, platform).
+ * The Amazon platform accounts of one tenant (`{tenantId}`) or of every tenant in scope (`{}`);
+ * null waits. A tenant has one at most (UNIQUE tenant, platform).
  */
-export function useAmazonAccounts(filter: MaybeRefOrGetter<{ customerId?: string } | null>) {
+export function useAmazonAccounts(filter: MaybeRefOrGetter<{ tenantId?: string } | null>) {
    const tenantKey = useTenantKey();
    return useQuery({
       queryKey: computed(() =>
-         queryKeys.list(tenantKey.value, 'customer_platform_account', {
+         queryKeys.list(tenantKey.value, 'platform_account', {
             view: 'amazon',
             ...toValue(filter)
          })
       ),
       queryFn: async ({ signal }): Promise<AmazonAccount[]> => {
          let query = supabase
-            .from('customer_platform_account')
-            .select('id, customer_id, platform_id, api_connection, authorized_at, seller_id')
+            .from('platform_account')
+            .select('id, tenant_id, platform_id, api_connection, authorized_at, seller_id')
             .eq('platform_id', 'amazon');
-         const customerId = toValue(filter)?.customerId;
-         if (customerId) query = query.eq('customer_id', customerId);
+         const tenantId = toValue(filter)?.tenantId;
+         if (tenantId) query = query.eq('tenant_id', tenantId);
          const { data } = await query.abortSignal(signal).throwOnError();
          return data;
       },
@@ -667,7 +671,7 @@ export function useConnectAmazon() {
    return useMutation({
       mutationFn: ({ accountId, returnTo }: { accountId: string; returnTo: string }) =>
          connectAmazon(accountId, returnTo),
-      onSettled: () => invalidateTables(queryClient, ['customer_platform_account'])
+      onSettled: () => invalidateTables(queryClient, ['platform_account'])
    });
 }
 
@@ -675,6 +679,6 @@ export function useDisconnectAmazon() {
    const queryClient = useQueryClient();
    return useMutation({
       mutationFn: disconnectAmazon,
-      onSettled: () => invalidateTables(queryClient, ['customer_platform_account'])
+      onSettled: () => invalidateTables(queryClient, ['platform_account'])
    });
 }

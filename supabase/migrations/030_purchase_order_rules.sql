@@ -11,8 +11,11 @@
 --               needs one (private.po_line_needs_spec) from the company's spec_sheet_required_from
 --               on (K3; a missing or unreadable date counts as reached), and before it for a new SKU
 --               only (product status concept, development or approved). A referenced spec sheet is a
---               signed or approved spec_sheet of the line's product. A sent order (or one whose PI
---               is in) takes no new line, and no product or spec change, that breaks the rule.
+--               signed or approved spec_sheet of the order's tenant: on the line's product, or, for
+--               a line whose product is in a client tenant (which the provider cannot attach
+--               documents to), on the provider's sourcing row of that product (entity type
+--               sourcing). A sent order (or one whose PI is in) takes no new line, and no product
+--               or spec change, that breaks the rule.
 -- PI            pi_received needs the PI document (a pi document of this order) and its total.
 --               pi_approved needs all 30 S09 items "ok" and the S09 §C arithmetic to hold:
 --               private.purchase_order_figures is its only home (subtotal = round(Σ quantity ×
@@ -41,6 +44,10 @@
 --   po_locked                   a term, the PI or a line changed after pi_approved
 --   po_closed                   a payment or update of a closed or cancelled order changed
 --   po_line_identity_immutable  a line moved to another order
+--   po_line_product_required    a new line without a product, or a line's product emptied while
+--                               the product still exists
+--   po_project_locked           the order's project set or changed once the order is no longer a
+--                               draft (other than emptied because the project is gone)
 --
 -- The guards are SECURITY DEFINER (they read lines, documents, products, payments and settings
 -- whatever the caller may read) and filter on the row's tenant. A delete cascaded from the order
@@ -55,9 +62,14 @@
 -- SECURITY DEFINER function current_setting('role') still reports it, so a user cannot use the
 -- flag. The guards return at once when it holds; the code and immutability triggers ignore it.
 --
--- public.purchase_order_overview: each order with its customer, supplier and project codes, its
--- line count, quantity and products, the lines missing a spec sheet, the recalculated figures,
--- the payment dates and whether an approved PSI report is on file.
+-- public.purchase_order_overview: each order with its client code (the client_code of the pair's
+-- relationship, NULL for an own order), its supplier code and project code (the snapshot), its
+-- line count, quantity and products, the lines missing a spec sheet, the recalculated figures, the
+-- payment dates and whether an approved PSI report is on file.
+--
+-- A line of an order for a client refers to the client's product (product_tenant_id). When the
+-- client deletes it, the line's product link becomes NULL (ON DELETE SET NULL, 029): that update is
+-- not refused by the line rules, even on a locked order, so the client's delete is never blocked.
 
 -- The test fixture bypass (see the header).
 CREATE OR REPLACE FUNCTION private.rules_bypassed () RETURNS BOOLEAN LANGUAGE sql STABLE
@@ -75,8 +87,10 @@ REVOKE ALL ON FUNCTION private.rules_bypassed () FROM PUBLIC, anon, authenticate
 
 -- Whether a line of this product needs a spec sheet: from the company's spec_sheet_required_from
 -- on (a missing or unreadable date counts as reached), and before it for a new SKU (concept,
--- development or approved). SECURITY DEFINER: the setting and the product whatever the caller may
--- read, in the given tenant only. It stays DEFINER: PL/pgSQL resolves private.company_setting when
+-- development or approved). tenant_id is the line's (ordering) tenant: the setting is its company's,
+-- and the product is its own or that of a client it has a relationship with (a provider order's
+-- line on the client's product). SECURITY DEFINER: the setting and the product whatever the caller
+-- may read, only within those tenants. It stays DEFINER: PL/pgSQL resolves private.company_setting when
 -- it runs, and the overview's caller (authenticated) has no USAGE on private.
 CREATE OR REPLACE FUNCTION private.po_line_needs_spec (product_id UUID, tenant_id UUID) RETURNS BOOLEAN LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET
@@ -98,7 +112,11 @@ BEGIN
         SELECT 1
         FROM public.product p
         WHERE p.id = po_line_needs_spec.product_id
-          AND p.tenant_id = po_line_needs_spec.tenant_id
+          AND (p.tenant_id = po_line_needs_spec.tenant_id
+               OR EXISTS (
+                    SELECT 1 FROM public.provider_relationship r
+                    WHERE r.tenant_id = po_line_needs_spec.tenant_id AND r.client_tenant_id = p.tenant_id
+               ))
           AND p.status IN ('concept', 'development', 'approved')
     );
 END;
@@ -169,6 +187,14 @@ DECLARE
 BEGIN
     IF private.rules_bypassed() THEN
         RETURN coalesce(NEW, OLD);
+    END IF;
+
+    -- 0. The project is chosen while the order is a draft (a new order is one): afterwards it does
+    -- not change, so an order already past its PI cannot be pointed at a project (a client's gate
+    -- counts it, 032). Emptied because the project is gone (ON DELETE SET NULL) is not a change.
+    IF TG_OP = 'UPDATE' AND NEW.project_id IS DISTINCT FROM OLD.project_id AND OLD.status <> 'draft'
+       AND NOT (NEW.project_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.project p WHERE p.id = OLD.project_id)) THEN
+        RAISE EXCEPTION 'po_project_locked' USING ERRCODE = 'check_violation';
     END IF;
 
     -- 1. One step at a time; cancelled from anywhere but a final status.
@@ -314,9 +340,11 @@ OR
 UPDATE ON public.purchase_order FOR EACH ROW
 EXECUTE FUNCTION private.purchase_order_guard ();
 
--- A line's rules: it stays on its order (po_line_identity_immutable, whatever the bypass flag);
+-- A line's rules: it stays on its order (po_line_identity_immutable, whatever the bypass flag) and
+-- names its product (po_line_product_required, likewise);
 -- fixed from pi_approved on (closed and cancelled included); a referenced spec sheet is a signed or
--- approved spec sheet of the line's product (checked when the product or the spec sheet changes);
+-- approved spec sheet of the line's product, or of the provider's sourcing row for a client's
+-- product (checked when the product or the spec sheet changes);
 -- a sent order (or one whose PI is in) takes no line, product or spec change that leaves a line
 -- needing a spec sheet without one. A PI line total alone is not checked against the spec rule.
 CREATE OR REPLACE FUNCTION private.purchase_order_line_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
@@ -330,6 +358,13 @@ BEGIN
         RAISE EXCEPTION 'po_line_identity_immutable' USING ERRCODE = 'check_violation';
     END IF;
 
+    -- A line names its product (whatever the bypass): only the product's delete empties it.
+    IF (TG_OP = 'INSERT' AND NEW.product_id IS NULL)
+       OR (TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id)) THEN
+        RAISE EXCEPTION 'po_line_product_required' USING ERRCODE = 'check_violation';
+    END IF;
+
     IF private.rules_bypassed() THEN
         RETURN coalesce(NEW, OLD);
     END IF;
@@ -337,6 +372,13 @@ BEGIN
     -- A delete cascaded from the order or the tenant.
     IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
         RETURN OLD;
+    END IF;
+
+    -- The product link emptied because the product is gone (ON DELETE SET NULL): the client's
+    -- delete of its product is never refused, even on a locked order.
+    IF TG_OP = 'UPDATE' AND NEW.product_id IS NULL AND OLD.product_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.product p WHERE p.id = OLD.product_id) THEN
+        RETURN NEW;
     END IF;
 
     -- FOR SHARE: a concurrent status change (PI approval) waits for this line write to commit, so
@@ -372,9 +414,12 @@ BEGIN
             WHERE d.id = NEW.spec_document_id
               AND d.tenant_id = NEW.tenant_id
               AND d.type = 'spec_sheet'
-              AND d.entity_type = 'product'
-              AND d.entity_id = NEW.product_id
               AND d.status IN ('signed', 'approved')
+              AND ((d.entity_type = 'product' AND d.entity_id = NEW.product_id)
+                   OR (d.entity_type = 'sourcing' AND NEW.product_tenant_id <> NEW.tenant_id AND EXISTS (
+                        SELECT 1 FROM public.sourcing s
+                        WHERE s.id = d.entity_id AND s.tenant_id = NEW.tenant_id AND s.product_id = NEW.product_id
+                   )))
         ) THEN
         RAISE EXCEPTION 'po_line_spec_invalid' USING ERRCODE = 'check_violation';
     END IF;
@@ -462,9 +507,8 @@ WITH
    (security_invoker = TRUE) AS
 SELECT
    po.*,
-   c.code::TEXT AS customer_code,
+   r.client_code::TEXT AS client_code,
    s.code AS supplier_code,
-   pr.code AS project_code,
    l.line_count,
    l.total_quantity,
    l.product_ids,
@@ -491,12 +535,10 @@ SELECT
    ) AS has_approved_psi
 FROM
    public.purchase_order po
-   LEFT JOIN public.customer c ON c.id = po.customer_id
-   AND c.tenant_id = po.tenant_id
+   LEFT JOIN public.provider_relationship r ON r.tenant_id = po.tenant_id
+   AND r.client_tenant_id = po.client_tenant_id
    LEFT JOIN public.supplier s ON s.id = po.supplier_id
    AND s.tenant_id = po.tenant_id
-   LEFT JOIN public.project pr ON pr.id = po.project_id
-   AND pr.tenant_id = po.tenant_id
    LEFT JOIN LATERAL (
       SELECT
          count(*)::INT AS line_count,
@@ -544,6 +586,6 @@ FROM
          AND p.tenant_id = po.tenant_id
    ) pay ON TRUE;
 
-COMMENT ON VIEW public.purchase_order_overview IS 'Per purchase order: every column of the order, the customer, supplier and project codes, line_count, total_quantity, product_ids (the lines'' products; filter the list with product_ids, not by embedding through the view), spec_missing_line_ids (lines without a spec sheet that need one, private.po_line_needs_spec), the S09 figures recalculated by private.purchase_order_figures (system_subtotal, system_total, system_deposit, system_balance), the earliest planned date of an unpaid deposit and balance, the latest paid date of each, and whether an approved PSI report is on file.';
+COMMENT ON VIEW public.purchase_order_overview IS 'Per purchase order: every column of the order (project_code is the project''s code when linked), client_code (the relationship''s client_code; NULL for an own order), the supplier code, line_count, total_quantity, product_ids (the lines'' products; filter the list with product_ids, not by embedding through the view), spec_missing_line_ids (lines without a spec sheet that need one, private.po_line_needs_spec), the S09 figures recalculated by private.purchase_order_figures (system_subtotal, system_total, system_deposit, system_balance), the earliest planned date of an unpaid deposit and balance, the latest paid date of each, and whether an approved PSI report is on file.';
 
 GRANT SELECT ON public.purchase_order_overview TO authenticated;

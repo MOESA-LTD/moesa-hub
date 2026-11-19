@@ -7,12 +7,7 @@ export type ProductTypeOption = { name: string; label: string };
 
 type ContentProduct = Pick<
    ProductRow,
-   | 'id'
-   | 'tenant_id'
-   | 'customer_id'
-   | 'listing_attributes'
-   | 'amazon_product_type'
-   | 'amazon_schema_version'
+   'id' | 'tenant_id' | 'listing_attributes' | 'amazon_product_type' | 'amazon_schema_version'
 >;
 
 /**
@@ -28,7 +23,6 @@ export function useAmazonContent(
 ) {
    const listing = useListingAttributes(product);
    const productId = computed(() => product.value?.id ?? null);
-   const customerId = computed(() => product.value?.customer_id ?? null);
    const tenantId = computed(() => product.value?.tenant_id ?? null);
    const savedType = computed(() => product.value?.amazon_product_type ?? null);
 
@@ -36,7 +30,7 @@ export function useAmazonContent(
    const productType = ref<string | null>(savedType.value);
    const typeInput = ref<ProductTypeOption | string | null>(productType.value);
    const query = ref('');
-   const { data: found } = useProductTypeSearch(query, country, customerId);
+   const { data: found } = useProductTypeSearch(query, country, tenantId);
    const typeOptions = computed<ProductTypeOption[]>(() =>
       (found.value ?? []).map(({ name, displayName }) => ({
          name,
@@ -56,12 +50,12 @@ export function useAmazonContent(
    const typeChanged = computed(() => productType.value !== savedType.value);
 
    const { data: definition, error: definitionError } = useDefinition(() =>
-      productType.value && customerId.value
+      productType.value && tenantId.value
          ? {
               productType: productType.value,
               country: toValue(country),
               locale: AMAZON_SCHEMA_LOCALE,
-              customerId: customerId.value
+              tenantId: tenantId.value
            }
          : null
    );
@@ -95,7 +89,6 @@ export function useAmazonContent(
    return {
       ...listing,
       productId,
-      customerId,
       tenantId,
       productType,
       typeInput,

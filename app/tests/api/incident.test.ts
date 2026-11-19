@@ -64,7 +64,7 @@ vi.mock('@/lib/supabase', () => ({
 }));
 vi.mock('@/api/useTenantKey', () => ({ useTenantKey: () => computed(() => 't1') }));
 
-const C = '00000000-0000-4000-8000-000000000001';
+const T = '00000000-0000-4000-8000-000000000001';
 const I = '00000000-0000-4000-8000-000000000002';
 const E = '00000000-0000-4000-8000-000000000003';
 
@@ -271,7 +271,6 @@ describe('customerNoticeState', () => {
 });
 
 const base = toIncidentFormValues({
-   customer_id: C,
    family: 'ol',
    severity: 's2',
    title: 'Late truck',
@@ -282,7 +281,6 @@ describe('incidentSchema', () => {
    it('starts a new incident empty', () => {
       expect(toIncidentFormValues()).toMatchObject({
          id: undefined,
-         customer_id: null,
          family: null,
          severity: null,
          incident_type: null,
@@ -321,10 +319,9 @@ describe('incidentSchema', () => {
 });
 
 describe('toIncidentPayload', () => {
-   it('never sends the server-set columns; the customer and family only with a new incident', () => {
+   it('never sends the server-set columns; the family only with a new incident', () => {
       const update = toIncidentPayload(incidentSchema.parse(base), I);
       for (const key of [
-         'customer_id',
          'family',
          'code',
          'status',
@@ -336,7 +333,7 @@ describe('toIncidentPayload', () => {
       expect(update).toMatchObject({ id: I, severity: 's2', title: 'Late truck' });
 
       const insert = toIncidentPayload(incidentSchema.parse(base));
-      expect(insert).toMatchObject({ customer_id: C, family: 'ol' });
+      expect(insert).toMatchObject({ family: 'ol' });
       expect(insert).not.toHaveProperty('id');
       for (const key of ['code', 'status', 'customer_notice_due_at', 'closed_on', 'closed_by'])
          expect(insert).not.toHaveProperty(key);
@@ -386,7 +383,6 @@ describe('toIncidentPayload', () => {
    it('round-trips a stored incident', () => {
       const values = toIncidentFormValues({
          id: I,
-         customer_id: C,
          family: 'oa',
          severity: 's1',
          incident_type: 'OA-02',
@@ -405,6 +401,42 @@ describe('toIncidentPayload', () => {
          entity_id: E,
          customer_closure_notified_on: '2026-11-09'
       });
+   });
+});
+
+describe('provider order links', () => {
+   it('payload sets entity_tenant_id from the picked shared record', () => {
+      const values = incidentSchema.parse({
+         ...base,
+         entity_type: 'purchase_order',
+         entity_id: E,
+         entity_tenant_id: T
+      });
+      expect(toIncidentPayload(values, I)).toMatchObject({ entity_id: E, entity_tenant_id: T });
+   });
+
+   it('payload leaves entity_tenant_id null for an own order', () => {
+      const values = incidentSchema.parse({ ...base, entity_type: 'purchase_order', entity_id: E });
+      expect(toIncidentPayload(values, I)).toMatchObject({ entity_id: E, entity_tenant_id: null });
+   });
+
+   it('round-trips a stored provider link', () => {
+      expect(toIncidentFormValues({ entity_id: E, entity_tenant_id: T })).toMatchObject({
+         entity_tenant_id: T
+      });
+   });
+
+   it('leaves the cost of a line out when it is the provider’s', () => {
+      const values = incidentLogSchema.parse({
+         incident_id: I,
+         logged_at: new Date(),
+         note: 'x',
+         cost_amount: 5,
+         cost_currency: 'EUR',
+         cost_payer: 'company'
+      });
+      expect(toIncidentLogPayload(values, { costLocked: true })).not.toHaveProperty('cost_amount');
+      expect(toIncidentLogPayload(values)).toMatchObject({ cost_amount: 5 });
    });
 });
 
@@ -528,9 +560,9 @@ describe('incident deadlines', () => {
 });
 
 describe('INCIDENT_SELECT', () => {
-   it('embeds the customer, log, deadlines and rolled-back gates by their foreign keys', () => {
+   it('embeds the log, deadlines and rolled-back gates by their foreign keys', () => {
       expect(INCIDENT_SELECT).toBe(
-         '*, customer!incident_customer_fkey(code, display_name), incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)'
+         '*, incident_log!incident_log_incident_fkey(*), incident_deadline!incident_deadline_incident_fkey(*), project_gate!project_gate_rollback_incident_fkey(id, code, status, project_id)'
       );
    });
 });
@@ -567,8 +599,6 @@ describe('incident queries', () => {
          { id: E, code: 'PRJ-1', display_name: 'Mop' },
          'PRJ-1 — Mop'
       ],
-      ['purchase_order', 'purchase_order', 'id, code', 'code', { id: E, code: 'PO-1' }, 'PO-1'],
-      ['shipment', 'shipment', 'id, code', 'code', { id: E, code: 'SHP-1' }, 'SHP-1'],
       [
          'product',
          'product',
@@ -585,16 +615,16 @@ describe('incident queries', () => {
          { id: E, sku: 'MOP40', cell_key: 'amazon_DE' },
          'MOP40 · amazon_DE'
       ]
-   ] as const)('lists the customer’s %s records as options', async (...args) => {
+   ] as const)('lists the tenant’s %s records as options', async (...args) => {
       const [entityType, table, select, order, row, label] = args;
       response = [row];
-      const options = withSetup(() => useIncidentEntityOptions({ entityType, customerId: C }));
+      const options = withSetup(() => useIncidentEntityOptions({ entityType, tenantId: T }));
       await flushPromises();
 
       expect(recorded).toEqual([
          ['from', table],
          ['select', select],
-         ['eq', 'customer_id', C],
+         ['eq', 'tenant_id', T],
          ['order', order],
          ['abortSignal', expect.anything()],
          ['throwOnError']
@@ -602,25 +632,47 @@ describe('incident queries', () => {
       expect(options.value).toEqual([{ value: E, label }]);
    });
 
-   it('asks for no records without a type or a customer', async () => {
-      const options = withSetup(() =>
-         useIncidentEntityOptions({ entityType: null, customerId: C })
-      );
-      withSetup(() => useIncidentEntityOptions({ entityType: 'shipment', customerId: null }));
+   it.each(['purchase_order', 'shipment'] as const)(
+      'lists own and shared provider %s records, each with its tenant',
+      async (entityType) => {
+         response = [
+            { id: E, code: 'X-1', tenant_id: T },
+            { id: I, code: 'X-2', tenant_id: 'p-tenant' }
+         ];
+         const options = withSetup(() => useIncidentEntityOptions({ entityType, tenantId: T }));
+         await flushPromises();
+         expect(recorded).toEqual([
+            ['from', entityType],
+            ['select', 'id, code, tenant_id'],
+            ['or', `tenant_id.eq.${T},client_tenant_id.eq.${T}`],
+            ['order', 'code'],
+            ['abortSignal', expect.anything()],
+            ['throwOnError']
+         ]);
+         expect(options.value).toEqual([
+            { value: E, label: 'X-1', tenantId: T },
+            { value: I, label: 'X-2', tenantId: 'p-tenant' }
+         ]);
+      }
+   );
+
+   it('asks for no records without a type or a tenant', async () => {
+      const options = withSetup(() => useIncidentEntityOptions({ entityType: null, tenantId: T }));
+      withSetup(() => useIncidentEntityOptions({ entityType: 'shipment', tenantId: null }));
       await flushPromises();
       expect(recorded).toEqual([]);
       expect(options.value).toEqual([]);
    });
 
-   it('lists the customer’s open incidents, newest first', async () => {
+   it('lists the tenant’s open incidents, newest first', async () => {
       response = [{ id: I, code: 'OL-THO-2026-001', title: 'Late truck' }];
-      const options = withSetup(() => useOpenIncidentOptions(C));
+      const options = withSetup(() => useOpenIncidentOptions(T));
       await flushPromises();
 
       expect(recorded).toEqual([
          ['from', 'incident'],
          ['select', 'id, code, title'],
-         ['eq', 'customer_id', C],
+         ['eq', 'tenant_id', T],
          ['neq', 'status', 'closed'],
          ['order', 'opened_at', { ascending: false }],
          ['abortSignal', expect.anything()],

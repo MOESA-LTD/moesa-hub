@@ -36,7 +36,6 @@ const props = defineProps<{
    /** Amazon's issues of the latest submission. */
    issues?: AmazonIssue[];
    /** The media library the image slots offer. */
-   customerId?: string | null;
    tenantId?: string | null;
    /** An attribute to open (its group) and focus once shown, e.g. from a link. */
    focusField?: string | null;
@@ -277,7 +276,6 @@ const ISSUE_SEVERITY = {
                :productId
                :marketplaceId="definition.marketplace_id"
                :readonly
-               :customerId
                :tenantId
                :resetKey
                @update:modelValue="emit('update:modelValue', $event)"

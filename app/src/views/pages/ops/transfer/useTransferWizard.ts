@@ -1,4 +1,8 @@
 import {
+   isStaleReport,
+   transferErrorText,
+   transferFilesState,
+   useCopyTransferFiles,
    useRehearseTransfer,
    useRunTransfer,
    useTransferOptions,
@@ -7,12 +11,11 @@ import {
    type TransferDecisions,
    type TransferMode,
    type TransferReport,
-   type TransferRow,
-   transferErrorText
+   type TransferRow
 } from '@/api/transfer';
 import { computed, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 
-export type TransferStep = 'target' | 'report' | 'result';
+export type TransferStep = 'target' | 'report' | 'apply' | 'files';
 
 /** JSON with every object's keys sorted, so the same decisions read the same in any order. */
 const stableStringify = (value: unknown): string =>
@@ -28,24 +31,25 @@ const stableStringify = (value: unknown): string =>
 
 export type TransferWizardOptions = {
    sourceTenant: MaybeRefOrGetter<string | null>;
-   customerId: MaybeRefOrGetter<string | null>;
-   /** The products to transfer; null transfers the whole customer. */
-   productIds: MaybeRefOrGetter<string[] | null>;
+   /** The products to transfer, all of the source tenant. */
+   productIds: MaybeRefOrGetter<string[]>;
 };
 
 /**
- * The state of the transfer dialog: the target and mode, the decisions on the conflicts and the
- * rehearsal's report. A run sends the hash of the last report, so it is offered only while the
- * report still describes what would run: no change since the rehearsal, no conflict left open,
- * and, in a move, nothing left behind (the server refuses that move).
+ * The state of the transfer wizard: the target and mode, the decisions on the conflicts, the
+ * rehearsal's report, the run and the file copy. A run sends the hash of the last report, so it
+ * is offered only while the report still describes what would run: no change since the
+ * rehearsal, no conflict left open, and, in a move, no record left behind that blocks it.
  */
-export function useTransferWizard({ sourceTenant, customerId, productIds }: TransferWizardOptions) {
-   const { data: options, isLoading: optionsLoading } = useTransferOptions(
-      sourceTenant,
-      customerId
-   );
+export function useTransferWizard({ sourceTenant, productIds }: TransferWizardOptions) {
+   const { data: options, isLoading: optionsLoading } = useTransferOptions(sourceTenant);
    const { mutateAsync: rehearseTransfer, isPending: rehearsing } = useRehearseTransfer();
    const { mutateAsync: runTransfer, isPending: running } = useRunTransfer();
+   const {
+      mutateAsync: copyFiles,
+      isPending: copying,
+      progress: copyProgress
+   } = useCopyTransferFiles();
 
    const step = ref<TransferStep>('target');
    const target = ref<string | null>(null);
@@ -58,6 +62,8 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
       stableStringify({ target: target.value, mode: mode.value, decisions: decisions.value });
    /** The text of the last failed rehearsal or run; cleared by the next attempt. */
    const error = ref<string | null>(null);
+   /** The run was refused because the products changed since the rehearsal. */
+   const runStale = ref(false);
    /** What the last rehearsal was asked with; null before one. */
    const rehearsedWith = ref<string | null>(null);
 
@@ -83,42 +89,52 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
          report.value = null;
          rehearsedWith.value = null;
          error.value = null;
-         if (step.value === 'report') step.value = 'target';
+         runStale.value = false;
+         if (step.value === 'report' || step.value === 'apply') step.value = 'target';
       },
       { flush: 'sync' }
    );
 
    const stale = computed(() => rehearsedWith.value !== null && rehearsedWith.value !== snapshot());
 
-   /** A move that would leave links in the source: the server refuses it (transfer_product_in_use). */
+   /**
+    * A move into a client that would drop provider data (withheld rows, emptied columns): the
+    * database refuses it (transfer_move_would_lose_data); a copy keeps the source whole.
+    */
+   const moveLosesData = computed(
+      () => mode.value === 'move' && !!report.value && report.value.move_loses_data
+   );
+
+   /** A move that would leave records in the source that use the products: the database refuses it (transfer_product_in_use). */
    const moveBlocked = computed(
-      () => mode.value === 'move' && !!report.value && report.value.left_behind.length > 0
+      () =>
+         mode.value === 'move' && !!report.value && report.value.left_behind.some((l) => l.blocks)
    );
 
    /**
-    * The code conflicts given the same new code as another of their table. The rehearsal checks
-    * each decision alone, so it reports them resolved; the run refuses them (transfer_code_invalid).
+    * The supplier conflicts given the same new code as another. The rehearsal marks a code another
+    * decision uses as taken, but only after it runs again; this shows it while typing.
     */
    const duplicateCodes = computed(() => {
       const byCode = new Map<string, string[]>();
-      for (const { key, kind, table } of report.value?.conflicts ?? []) {
-         if (kind !== 'customer_code' && kind !== 'supplier_code') continue;
+      for (const { key, kind } of report.value?.conflicts ?? []) {
+         if (kind !== 'supplier_code') continue;
          const decision = decisions.value[key];
          if (decision?.action !== 'new_code' || !decision.code) continue;
-         const group = `${table}:${decision.code}`;
-         byCode.set(group, [...(byCode.get(group) ?? []), key]);
+         byCode.set(decision.code, [...(byCode.get(decision.code) ?? []), key]);
       }
       return new Set([...byCode.values()].filter((keys) => keys.length > 1).flat());
    });
 
+   const busy = computed(() => rehearsing.value || running.value || copying.value);
+
    const canRehearse = computed(
       () =>
          !!toValue(sourceTenant) &&
-         !!toValue(customerId) &&
+         toValue(productIds).length > 0 &&
          !!targetOption.value &&
          !targetOption.value.refusal &&
-         !rehearsing.value &&
-         !running.value
+         !busy.value
    );
 
    const canRun = computed(
@@ -127,9 +143,9 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
          report.value.unresolved === 0 &&
          !stale.value &&
          !moveBlocked.value &&
+         !moveLosesData.value &&
          duplicateCodes.value.size === 0 &&
-         !rehearsing.value &&
-         !running.value
+         !busy.value
    );
 
    const decide = (key: string, decision: TransferDecision | null) => {
@@ -142,21 +158,21 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
    const args = (): TransferArgs => ({
       source_tenant: toValue(sourceTenant)!,
       target_tenant: target.value!,
-      customer_id: toValue(customerId)!,
       mode: mode.value,
       decisions: decisions.value,
-      product_ids: toValue(productIds)?.length ? [...toValue(productIds)!] : null
+      product_ids: [...toValue(productIds)]
    });
 
    const rehearse = async () => {
       if (!canRehearse.value) return;
       const asked = snapshot();
       error.value = null;
+      runStale.value = false;
       let result: TransferReport;
       try {
          result = await rehearseTransfer(args());
       } catch (failure) {
-         // Shown in the dialog; rethrown for the app's error toast.
+         // Shown in the wizard; rethrown for the app's error toast.
          error.value = transferErrorText(failure);
          throw failure;
       }
@@ -165,19 +181,40 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
       step.value = 'report';
    };
 
+   const back = () => {
+      if (step.value === 'apply') step.value = 'report';
+      else if (step.value === 'report') step.value = 'target';
+   };
+
+   /** The report is reviewed: on to the confirmation. */
+   const toApply = () => {
+      if (canRun.value) step.value = 'apply';
+   };
+
+   /** The files of the run, copied now with their progress; a failure leaves the row pending for a retry. */
+   const copy = async () => {
+      const row = transfer.value;
+      if (!row || row.files_status === 'done' || !transferFilesState(row).canCopy) return;
+      transfer.value = await copyFiles(row);
+   };
+
    const run = async () => {
       if (!canRun.value || !report.value) throw new Error('The transfer is not ready to run');
       error.value = null;
+      runStale.value = false;
       let row: TransferRow;
       try {
          row = await runTransfer({ args: args(), reportHash: report.value.report_hash });
       } catch (failure) {
          error.value = transferErrorText(failure);
+         // The products changed: the report is out of date, so it is rehearsed again, not retried.
+         runStale.value = isStaleReport(failure);
          throw failure;
       }
       transfer.value = row;
-      step.value = 'result';
-      return row;
+      step.value = 'files';
+      await copy();
+      return transfer.value;
    };
 
    return {
@@ -192,15 +229,21 @@ export function useTransferWizard({ sourceTenant, customerId, productIds }: Tran
       report,
       transfer,
       stale,
+      runStale,
       moveBlocked,
+      moveLosesData,
       duplicateCodes,
       error,
       canRehearse,
       canRun,
       rehearsing,
       running,
+      copying,
+      copyProgress,
       decide,
       rehearse,
+      back,
+      toApply,
       run
    };
 }

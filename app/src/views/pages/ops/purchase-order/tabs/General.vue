@@ -9,18 +9,24 @@ import {
 import ProjectSelect from '../ProjectSelect.vue';
 import { injectPurchaseOrderForm, useOrderLocked } from '../usePurchaseOrderForm';
 
-// Hides the fields the user may not read, makes read-only those they may not write.
-const fieldAccess = provideFieldAccess('purchase_order');
-
-// The order's parties and terms, in the card's shared form. The customer and the supplier are
-// chosen on a new order only; the terms are fixed from pi_approved on (PO_LOCKED_FIELDS).
+// The order's parties and terms, in the card's shared form. The supplier and the client (empty for
+// an own order) are chosen on a new order only; the project while the order is a draft
+// (po_project_locked), among the client's projects on a client order; the terms are fixed from
+// pi_approved on (PO_LOCKED_FIELDS).
 const form = injectPurchaseOrderForm();
-const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
+const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft, linkError, shared } =
+   form;
+
+// Hides the fields the user may not read, makes read-only those they may not write; on a shared
+// order, every field but the client-visible ones (the client is the user's own side: not shown).
+const fieldAccess = provideFieldAccess('purchase_order', shared);
 
 const { t } = useI18n();
 
 const id = computed(() => values.value.id ?? null);
 const locked = useOrderLocked(form);
+/** Past its draft, the order keeps its project (po_project_locked). */
+const projectLocked = computed(() => !!form.row.value && form.row.value.status !== 'draft');
 
 const isLocked = (field: string) =>
    locked.value && (PO_LOCKED_FIELDS as readonly string[]).includes(field);
@@ -53,7 +59,12 @@ const applySupplier = (
 </script>
 
 <template>
+   <!-- An order opened from a project the tenant may not order for: refused, not a broken form. -->
+   <Message v-if="linkError" severity="error" data-link-error>
+      {{ $t(`errors.${linkError}`) }}
+   </Message>
    <FormBox
+      v-else
       @submit="submit"
       @reset="() => reset()"
       v-focustrap
@@ -62,22 +73,6 @@ const applySupplier = (
       :submitting="isSubmitting"
       :draft
    >
-      <FormField
-         fluid
-         :label="$t('ops.purchase_order.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <!-- The project and the lines' products are the customer's. -->
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="values.customer_id"
-            :disabled="!!id"
-            hideClosed
-            @change="values.project_id = null"
-         />
-      </FormField>
       <FormField
          field="supplier_id"
          fluid
@@ -94,19 +89,41 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         v-if="!shared"
+         fluid
+         :label="$t('ops.purchase_order.fields.client')"
+         :error="errors.client_tenant_id"
+         :readonly="readonly || !!id"
+         v-slot="slotProps"
+      >
+         <!-- A project is the client's, so another client clears it. -->
+         <SelectClient
+            v-bind="slotProps"
+            v-model="values.client_tenant_id"
+            data-field="client_tenant_id"
+            :disabled="!!id"
+            @change="values.project_id = null"
+         />
+      </FormField>
+      <FormField
+         field="project_id"
          fluid
          :label="$t('ops.purchase_order.fields.project')"
          :error="errors.project_id"
-         :readonly
+         :readonly="readonly || projectLocked"
+         v-tooltip.top="projectLocked ? $t('ops.purchase_order.project_locked_hint') : undefined"
          v-slot="slotProps"
       >
          <ProjectSelect
             v-bind="slotProps"
             v-model="values.project_id"
-            :customerId="values.customer_id"
+            data-field="project_id"
+            :tenantId="values.client_tenant_id"
+            :disabled="projectLocked"
          />
       </FormField>
       <FormField
+         field="currency"
          fluid
          :label="$t('ops.purchase_order.fields.currency')"
          :error="errors.currency"
@@ -175,6 +192,7 @@ const applySupplier = (
          />
       </FormField>
       <FormField
+         field="ready_on"
          fluid
          :label="$t('ops.purchase_order.fields.ready_on')"
          :error="errors.ready_on"
@@ -188,6 +206,7 @@ const applySupplier = (
             @update:model-value="values.ready_on = $event as Date | null"
             date-format="yy-mm-dd"
             show-icon
+            :disabled="slotProps.disabled || shared"
          />
       </FormField>
       <FormField
@@ -218,6 +237,7 @@ const applySupplier = (
          <InputText v-bind="slotProps" v-model="values.penalty_rule" />
       </FormField>
       <FormField
+         field="packing_instruction_document_id"
          fluid
          :label="$t('ops.purchase_order.fields.packing_instruction')"
          :error="errors.packing_instruction_document_id"

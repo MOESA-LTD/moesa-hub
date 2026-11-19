@@ -9,11 +9,5 @@ const { data: product } = productResource.useOne(() => props.id);
 </script>
 
 <template>
-   <EntityDocuments
-      v-if="product"
-      entityType="product"
-      :entityId="id"
-      :code="product.sku"
-      :customerId="product.customer_id"
-   />
+   <EntityDocuments v-if="product" entityType="product" :entityId="id" :code="product.sku" />
 </template>

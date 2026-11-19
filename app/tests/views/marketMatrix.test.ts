@@ -8,7 +8,6 @@ import {
 import StatusActions from '@/components/service-components/status-actions/StatusActions.vue';
 import { ability } from '@/plugins/casl';
 import en from '@/plugins/i18n/locales/en/index.json';
-import { useCustomerFilter } from '@/store/customerFilter';
 import CellsAdd from '@/views/pages/ops/market/CellsAdd.vue';
 import CellUpsert from '@/views/pages/ops/market/CellUpsert.vue';
 import i18n, { i18NPlugin } from '@plugins/i18n';
@@ -48,10 +47,10 @@ vi.mock('@/api/useLookup', async () => {
    const { ref } = await import('vue');
    return { useLookup: () => ({ data: ref([]) }) };
 });
-vi.mock('@/api/customer', async (importOriginal) => {
+vi.mock('@/api/platform', async (importOriginal) => {
    const { ref } = await import('vue');
    return {
-      ...(await importOriginal<typeof import('@/api/customer')>()),
+      ...(await importOriginal<typeof import('@/api/platform')>()),
       usePlatformOptions: () => ({
          data: ref([{ id: 'amazon', display_name: 'Amazon', countries: ['DE', 'FR', 'IT'] }])
       })
@@ -88,7 +87,7 @@ vi.mock('@/composables/useUpsertForm', async () => {
 const picker = (name: string) =>
    defineComponent({
       name,
-      props: ['modelValue', 'customerId'],
+      props: ['modelValue'],
       emits: ['update:modelValue'],
       setup: () => () => h('span')
    });
@@ -136,7 +135,6 @@ const mountDialog = async (page: Component, props: Record<string, unknown> = {})
                FormField: Slot,
                ProductMultiSelect,
                SelectPlatform,
-               SelectCustomer: picker('SelectCustomer'),
                ProjectSelect: picker('ProjectSelect'),
                ProductSelect: picker('ProductSelect'),
                teleport: true
@@ -156,13 +154,12 @@ beforeEach(() => {
    api.addCells.mockResolvedValue(1);
    api.useAddMarketCells.mockReturnValue({ mutateAsync: api.addCells, isPending: ref(false) });
    api.useMarketCells.mockReturnValue({
-      data: ref([{ product_id: 'p1', platform_id: 'amazon', country: 'DE', customer_id: 'k1' }])
+      data: ref([{ product_id: 'p1', platform_id: 'amazon', country: 'DE', tenant_id: 't1' }])
    });
 });
 
 describe('market cell dialogs', () => {
    it('adds only the missing cells', async () => {
-      useCustomerFilter().set('k1');
       const wrapper = await mountDialog(CellsAdd);
 
       wrapper.getComponent(ProductMultiSelect).vm.$emit('update:modelValue', ['p1', 'p2']);
@@ -201,7 +198,6 @@ describe('market cell dialogs', () => {
 
       const payload = api.options!.toPayload(marketCellSchema.parse(api.values.value));
       expect(payload).not.toHaveProperty('status');
-      expect(payload).not.toHaveProperty('customer_id');
       expect(payload).toMatchObject({
          product_id: PRODUCT,
          platform_id: 'amazon',
@@ -218,7 +214,7 @@ describe('market cell dialogs', () => {
    it('warns what live still needs', async () => {
       const cell = {
          id: 'c1',
-         customer_id: 'k1',
+         tenant_id: 't1',
          product_id: 'p1',
          platform_id: 'amazon',
          country: 'DE',

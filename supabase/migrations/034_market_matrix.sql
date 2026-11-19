@@ -2,9 +2,9 @@
 -- country, with its S05 status, priority, compliance, listing data and dates.
 --
 -- market_cell  One product on one platform in one country (an ISO 3166-1 alpha-2 code among the
---              platform's countries). Its customer is the product's, whatever the client sends
---              (the market_cell_customer trigger); its project, when given, is of the same customer
---              (market_cell_project_fkey). The product, platform and country never change: another
+--              platform's countries). It lives in the tenant that owns the product: its product
+--              and its project, when given, are of the cell's own tenant (market_cell_product_fkey,
+--              market_cell_project_fkey). The product, platform and country never change: another
 --              market is another cell. Only a candidate cell is deleted; the others are removed or
 --              stopped (status), with the reason.
 --
@@ -34,12 +34,14 @@
 -- and the constraints the UI names (errors.<code>):
 --   unique_market_cell          market_cell_duplicate         the product already has the cell
 --   market_cell_country_format  market_cell_country_invalid   not an ISO 3166-1 alpha-2 code
---   market_cell_product_fkey    market_cell_product_customer  the product is not there
---   market_cell_project_fkey    market_cell_project_customer  another customer's project
+--   market_cell_product_fkey    market_cell_product_missing   the product is not there in the
+--                                                             cell's tenant
+--   market_cell_project_fkey    market_cell_project_missing   the project is not there in the
+--                                                             cell's tenant
 --   market_cell_price_currency  market_cell_price_currency    a price without its currency
 --
--- Every reference to a tenant-scoped table includes tenant_id; the product and the project also
--- include customer_id (product_id_customer_tenant_key, project_id_customer_tenant_key, 029).
+-- Every reference to a tenant-scoped table includes tenant_id (product_id_tenant_id_key,
+-- project_id_tenant_id_key).
 -- Products, projects and platforms are not deleted while they have cells (ON DELETE RESTRICT).
 --
 -- The guard is SECURITY DEFINER (it reads the platform's countries) and sorts after the other
@@ -47,10 +49,9 @@
 -- (030_purchase_order_rules.sql); the other rules return at once when it holds. A delete cascaded
 -- from the tenant (pg_trigger_depth() > 1) is not checked.
 --
--- public.market_cell_overview: each cell with its customer and project codes, its product's SKU,
+-- public.market_cell_overview: each cell with its project code, its product's SKU,
 -- name and GTIN, the platform's name and the S05 cell key (hucre_id). public.product_evidence now
--- counts the product's live cells. private.entity_customer knows market cells, so their media and
--- documents stay the customer's. document_entity gains market_cell and change_request (035); a new
+-- counts the product's live cells. document_entity gains market_cell and change_request (035); a new
 -- enum value cannot be used by SQL statements of the transaction that adds it, so this file uses
 -- them only inside plpgsql bodies.
 --
@@ -78,7 +79,8 @@ CREATE TYPE public.market_cell_status AS ENUM (
 -- The cell's compliance in its market (public.compliance_status, 019, is the product's).
 CREATE TYPE public.market_compliance AS ENUM ('green', 'yellow', 'red', 'pending');
 
-CREATE TYPE public.stock_source AS ENUM ('customer_warehouse', '3pl', 'platform', 'pan_eu');
+-- own_warehouse: shipped from the seller's (the cell's tenant's) own warehouse.
+CREATE TYPE public.stock_source AS ENUM ('own_warehouse', '3pl', 'platform', 'pan_eu');
 
 CREATE TYPE public.content_status AS ENUM ('none', 'en_master', 'translated', 'approved');
 
@@ -86,8 +88,6 @@ CREATE TYPE public.content_status AS ENUM ('none', 'en_master', 'translated', 'a
 CREATE TABLE IF NOT EXISTS public.market_cell (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   -- Set by the market_cell_customer trigger to the product's customer.
-   customer_id UUID NOT NULL,
    product_id UUID NOT NULL,
    project_id UUID,
    platform_id TEXT NOT NULL,
@@ -115,14 +115,12 @@ CREATE TABLE IF NOT EXISTS public.market_cell (
    CONSTRAINT unique_market_cell UNIQUE (tenant_id, product_id, platform_id, country),
    -- Target of the tenant-scoped foreign keys of the cell's child rows.
    CONSTRAINT market_cell_id_tenant_id_key UNIQUE (id, tenant_id),
-   CONSTRAINT market_cell_product_fkey FOREIGN KEY (product_id, customer_id, tenant_id) REFERENCES public.product (id, customer_id, tenant_id) ON DELETE RESTRICT,
-   CONSTRAINT market_cell_project_fkey FOREIGN KEY (project_id, customer_id, tenant_id) REFERENCES public.project (id, customer_id, tenant_id) ON DELETE RESTRICT,
+   CONSTRAINT market_cell_product_fkey FOREIGN KEY (product_id, tenant_id) REFERENCES public.product (id, tenant_id) ON DELETE RESTRICT,
+   CONSTRAINT market_cell_project_fkey FOREIGN KEY (project_id, tenant_id) REFERENCES public.project (id, tenant_id) ON DELETE RESTRICT,
    CONSTRAINT market_cell_platform_fkey FOREIGN KEY (platform_id) REFERENCES public.platform (id) ON DELETE RESTRICT,
    CONSTRAINT market_cell_country_format CHECK (country ~ '^[A-Z]{2}$'),
    CONSTRAINT market_cell_price_currency CHECK (price IS NULL OR currency IS NOT NULL)
 );
-
-CREATE INDEX IF NOT EXISTS idx_market_cell_customer ON public.market_cell (tenant_id, customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_market_cell_product ON public.market_cell (tenant_id, product_id);
 
@@ -131,30 +129,6 @@ CREATE INDEX IF NOT EXISTS idx_market_cell_tenant_status ON public.market_cell (
 CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.market_cell FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
-
--- A cell is the product's customer's, whatever the client sends. SECURITY DEFINER, in the cell's
--- own tenant only; a product that is not there is left to the foreign key.
-CREATE OR REPLACE FUNCTION private.market_cell_customer () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET
-   search_path = '' AS $$
-DECLARE
-    product_customer UUID;
-BEGIN
-    SELECT p.customer_id INTO product_customer
-    FROM public.product p
-    WHERE p.id = NEW.product_id AND p.tenant_id = NEW.tenant_id;
-
-    IF product_customer IS NOT NULL THEN
-        NEW.customer_id := product_customer;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER market_cell_customer BEFORE INSERT
-OR
-UPDATE ON public.market_cell FOR EACH ROW
-EXECUTE FUNCTION private.market_cell_customer ();
 
 -- The cell's rules (see the header), in this order: the fixed product, platform and country
 -- (whatever the bypass flag); deleting candidates only; a new cell's country; the status flow;
@@ -246,52 +220,14 @@ BEGIN
 END;
 $$;
 
--- BEFORE triggers fire in name order: the z sorts the guard after market_cell_customer.
+-- BEFORE triggers fire in name order: the z sorts the guard after the other BEFORE triggers.
 CREATE OR REPLACE TRIGGER market_cell_z_guard BEFORE INSERT
 OR
 UPDATE
 OR DELETE ON public.market_cell FOR EACH ROW
 EXECUTE FUNCTION private.market_cell_guard ();
 
-REVOKE ALL ON FUNCTION private.market_cell_customer () FROM PUBLIC, anon, authenticated;
-
 REVOKE ALL ON FUNCTION private.market_cell_guard () FROM PUBLIC, anon, authenticated;
-
--- The customer a record belongs to (025_media_link.sql), now with market cells.
-CREATE OR REPLACE FUNCTION private.entity_customer (entity_type public.document_entity, entity_id UUID, tenant_id UUID) RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    CASE entity_customer.entity_type
-        WHEN 'customer' THEN
-            RETURN entity_customer.entity_id;
-        WHEN 'product' THEN
-            RETURN (SELECT p.customer_id FROM public.product p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project' THEN
-            RETURN (SELECT p.customer_id FROM public.project p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project_gate' THEN
-            RETURN (SELECT p.customer_id
-                    FROM public.project_gate g
-                    JOIN public.project p ON p.id = g.project_id AND p.tenant_id = g.tenant_id
-                    WHERE g.id = entity_customer.entity_id AND g.tenant_id = entity_customer.tenant_id);
-        WHEN 'purchase_order' THEN
-            RETURN (SELECT po.customer_id FROM public.purchase_order po
-                    WHERE po.id = entity_customer.entity_id AND po.tenant_id = entity_customer.tenant_id);
-        WHEN 'shipment' THEN
-            RETURN (SELECT s.customer_id FROM public.shipment s
-                    WHERE s.id = entity_customer.entity_id AND s.tenant_id = entity_customer.tenant_id);
-        WHEN 'market_cell' THEN
-            RETURN (SELECT m.customer_id FROM public.market_cell m
-                    WHERE m.id = entity_customer.entity_id AND m.tenant_id = entity_customer.tenant_id);
-        ELSE
-            RETURN NULL;
-    END CASE;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION private.entity_customer (public.document_entity, UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- The evidence behind each product (029_purchase_orders.sql), now counting its live cells.
 CREATE OR REPLACE VIEW public.product_evidence
@@ -299,7 +235,6 @@ WITH
    (security_invoker = TRUE) AS
 SELECT
    p.id AS product_id,
-   p.customer_id,
    p.tenant_id,
    p.sku,
    p.status,
@@ -357,13 +292,12 @@ FROM
 COMMENT ON VIEW public.product_evidence IS 'Per product: its highest signed or approved spec sheet, whether its compliance is complete, last_po_code, the code of its newest purchase order (by created_at) that is not cancelled, and live_cell_count, how many of its market cells are live.';
 
 -- The market matrix and the cell list. Runs as the caller (security_invoker), so it shows only the
--- cells, customers, projects and products the caller may read.
+-- cells, projects and products the caller may read.
 CREATE OR REPLACE VIEW public.market_cell_overview
 WITH
    (security_invoker = TRUE) AS
 SELECT
    m.*,
-   c.code::TEXT AS customer_code,
    pj.code AS project_code,
    p.sku,
    p.display_name AS product_name,
@@ -372,15 +306,13 @@ SELECT
    m.platform_id || '_' || m.country AS cell_key
 FROM
    public.market_cell m
-   LEFT JOIN public.customer c ON c.id = m.customer_id
-   AND c.tenant_id = m.tenant_id
    LEFT JOIN public.project pj ON pj.id = m.project_id
    AND pj.tenant_id = m.tenant_id
    LEFT JOIN public.product p ON p.id = m.product_id
    AND p.tenant_id = m.tenant_id
    LEFT JOIN public.platform pl ON pl.id = m.platform_id;
 
-COMMENT ON VIEW public.market_cell_overview IS 'Per market cell: every column of the cell, customer_code, project_code, sku, product_name and gtin (its product), platform_name and cell_key (platform_id || ''_'' || country, the S05 hucre_id).';
+COMMENT ON VIEW public.market_cell_overview IS 'Per market cell: every column of the cell, project_code, sku, product_name and gtin (its product), platform_name and cell_key (platform_id || ''_'' || country, the S05 hucre_id).';
 
 GRANT SELECT ON public.market_cell_overview TO authenticated;
 

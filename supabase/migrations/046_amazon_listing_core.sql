@@ -1,15 +1,15 @@
 -- Amazon listing publishing (M22), its core: what a product's Amazon listing holds, the cache of
--- Amazon's product type schemas, the submissions sent to Amazon, the customer's Amazon connection
+-- Amazon's product type schemas, the submissions sent to Amazon, the tenant's Amazon connection
 -- with its refresh token in Vault, and the derived listing state of a market cell.
 --
 -- product                         amazon_product_type (Amazon's product type, e.g. LUGGAGE),
 --                                 amazon_schema_version (the schema version the content was filled
 --                                 against) and listing_attributes (the attribute values, an object
 --                                 keyed by attribute name, the panel's whole listing content).
--- customer_platform_account       api_connection (none, connected, revoked), authorized_at and
+-- platform_account       api_connection (none, connected, revoked), authorized_at and
 --                                 seller_id (the selling partner id). Only an Amazon account is
 --                                 ever connected (platform_account_api_amazon). One connection per
---                                 customer (R1): UNIQUE (customer_id, platform_id) stays.
+--                                 tenant (R1): UNIQUE (tenant_id, platform_id) stays (018).
 -- market_cell                     listing_state (the API journey: draft, ready, submitted, live,
 --                                 issues; NULL when the cell is not API-managed), listing_checked_at,
 --                                 listing_language (the locale the listing is written in, xx_YY),
@@ -35,13 +35,11 @@
 --                                     changes listing_state, listing_checked_at or listing_match
 --   platform_account_api_server_only  check_violation: a user writes a non-default api_connection,
 --                                     authorized_at or seller_id (on UPDATE: changes one of them)
---   platform_account_connected        insufficient_privilege (42501): anyone changes customer_id,
+--   platform_account_connected        insufficient_privilege (42501): anyone changes
 --                                     tenant_id or platform_id of an account that is not 'none' or
 --                                     has a token in Vault (the token would follow the row to another
---                                     customer). A running transfer (private.transferring()) moves it
---                                     disconnected instead and deletes its token.
--- A customer_platform_account inserted by a transfer (private.transferring()) starts disconnected:
--- the Vault token is keyed by the source row's id. The first two guards are SECURITY INVOKER, so
+--                                     tenant).
+-- The first two guards are SECURITY INVOKER, so
 -- current_user is the writer; the service functions below are SECURITY DEFINER and pass them.
 --
 -- Vault  private.amazon_token(p_account_id) reads the secret named 'amazon:<account id>' (NULL
@@ -79,7 +77,7 @@
 --                              (Amazon answered invalid_grant) deletes the token too and keeps
 --                              authorized_at and seller_id: no credential lingers. A user may
 --                              only disconnect ('none'), holding update on
---                              customer_platform_account in the account's tenant
+--                              platform_account in the account's tenant
 --   listing_begin_submission   under the cell's row lock: refuses a create or update with
 --                              'listing_in_progress' (P0001) while the cell's latest submission is
 --                              accepted or processing (two publishes never overlap); inserts the
@@ -131,10 +129,6 @@
 -- failed → issues; accepted or processing → submitted; done → live; a done delete → draft; none,
 -- or an unsettled delete → not counted. Mirroring never overwrites the parent's own outcome.
 --
--- Transfer: listing_submission is carried with its cell (registry position 215, created_by is the
--- actor); the new product and cell columns are copied as plain data. Nothing resets listing_state:
--- the app treats a cell as draft while its customer's account is not connected.
---
 -- Module listing (core): select and insert on public.listing_submission, for the owner role and
 -- every role that may change products. The CASL subject is listing_submission; the insert right
 -- is what amazon-listing checks, and what the listing RPCs check again inside (the table privilege
@@ -160,7 +154,7 @@ ADD COLUMN IF NOT EXISTS amazon_product_type TEXT CONSTRAINT product_amazon_prod
 ADD COLUMN IF NOT EXISTS amazon_schema_version TEXT,
 ADD COLUMN IF NOT EXISTS listing_attributes JSONB NOT NULL DEFAULT '{}' CONSTRAINT product_listing_attributes_object CHECK (jsonb_typeof(listing_attributes) = 'object');
 
-ALTER TABLE public.customer_platform_account
+ALTER TABLE public.platform_account
 ADD COLUMN IF NOT EXISTS api_connection public.api_connection NOT NULL DEFAULT 'none',
 ADD COLUMN IF NOT EXISTS authorized_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS seller_id TEXT,
@@ -210,8 +204,7 @@ CREATE TABLE IF NOT EXISTS public.listing_submission (
    -- clock_timestamp: two submissions of one transaction keep their order.
    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-   -- Deferrable like the other composite keys a transfer carries (041).
-   CONSTRAINT listing_submission_cell_fkey FOREIGN KEY (cell_id, tenant_id) REFERENCES public.market_cell (id, tenant_id) ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE
+   CONSTRAINT listing_submission_cell_fkey FOREIGN KEY (cell_id, tenant_id) REFERENCES public.market_cell (id, tenant_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_listing_submission_cell ON public.listing_submission (tenant_id, cell_id, created_at DESC);
@@ -250,22 +243,11 @@ OR
 UPDATE ON public.market_cell FOR EACH ROW
 EXECUTE FUNCTION private.market_cell_listing_server_only ();
 
--- A transfer's insert starts disconnected; a user writes none of the connection columns. The
--- transfer exit reads moesa.transfer_id first (041): authenticated cannot call
--- private.transferring().
+-- A user writes none of the connection columns.
 CREATE OR REPLACE FUNCTION private.platform_account_api_server_only () RETURNS TRIGGER LANGUAGE plpgsql
 SET
    search_path = '' AS $$
 BEGIN
-    IF TG_OP = 'INSERT' AND nullif(current_setting('moesa.transfer_id', TRUE), '') IS NOT NULL THEN
-        IF private.transferring() THEN
-            NEW.api_connection := 'none';
-            NEW.authorized_at := NULL;
-            NEW.seller_id := NULL;
-            RETURN NEW;
-        END IF;
-    END IF;
-
     IF current_user = 'authenticated' AND (
         TG_OP = 'INSERT' AND (NEW.api_connection <> 'none' OR NEW.authorized_at IS NOT NULL OR NEW.seller_id IS NOT NULL)
         OR TG_OP = 'UPDATE' AND (
@@ -282,17 +264,16 @@ $$;
 
 CREATE OR REPLACE TRIGGER platform_account_api_server_only BEFORE INSERT
 OR
-UPDATE ON public.customer_platform_account FOR EACH ROW
+UPDATE ON public.platform_account FOR EACH ROW
 EXECUTE FUNCTION private.platform_account_api_server_only ();
 
--- A connected account (or one with a token) stays with its customer, tenant and platform. SECURITY
+-- A connected account (or one with a token) stays with its tenant and platform. SECURITY
 -- DEFINER: it reads Vault, and it applies to every writer.
 CREATE OR REPLACE FUNCTION private.platform_account_connected () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 BEGIN
-    IF NEW.customer_id IS NOT DISTINCT FROM OLD.customer_id
-       AND NEW.tenant_id IS NOT DISTINCT FROM OLD.tenant_id
+    IF NEW.tenant_id IS NOT DISTINCT FROM OLD.tenant_id
        AND NEW.platform_id IS NOT DISTINCT FROM OLD.platform_id THEN
         RETURN NEW;
     END IF;
@@ -301,20 +282,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    IF private.transferring() THEN
-        NEW.api_connection := 'none';
-        NEW.authorized_at := NULL;
-        NEW.seller_id := NULL;
-        PERFORM private.amazon_token_set(OLD.id, NULL);
-        RETURN NEW;
-    END IF;
-
     RAISE EXCEPTION 'platform_account_connected' USING ERRCODE = 'insufficient_privilege';
 END;
 $$;
 
 CREATE OR REPLACE TRIGGER platform_account_connected BEFORE
-UPDATE ON public.customer_platform_account FOR EACH ROW
+UPDATE ON public.platform_account FOR EACH ROW
 EXECUTE FUNCTION private.platform_account_connected ();
 
 REVOKE ALL ON FUNCTION private.market_cell_listing_server_only () FROM PUBLIC, anon, authenticated;
@@ -353,7 +326,7 @@ REVOKE ALL ON FUNCTION private.amazon_token_set (UUID, TEXT) FROM PUBLIC, anon, 
 
 REVOKE ALL ON FUNCTION private.platform_account_connected () FROM PUBLIC, anon, authenticated;
 
--- A deleted account (directly or by its customer's cascade) leaves no token in Vault.
+-- A deleted account (directly or by its tenant's cascade) leaves no token in Vault.
 CREATE OR REPLACE FUNCTION private.platform_account_forget_token () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -364,7 +337,7 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER platform_account_forget_token
-AFTER DELETE ON public.customer_platform_account FOR EACH ROW
+AFTER DELETE ON public.platform_account FOR EACH ROW
 EXECUTE FUNCTION private.platform_account_forget_token ();
 
 REVOKE ALL ON FUNCTION private.platform_account_forget_token () FROM PUBLIC, anon, authenticated;
@@ -546,7 +519,7 @@ $$;
 REVOKE ALL ON FUNCTION private.listing_act_for (UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- A user may disconnect an account (never connect it, never mark it revoked) holding update on
--- customer_platform_account in its tenant; the service role is not limited.
+-- platform_account in its tenant; the service role is not limited.
 CREATE OR REPLACE FUNCTION private.platform_account_authorize (p_account_id UUID, p_state public.api_connection) RETURNS VOID LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -555,8 +528,8 @@ BEGIN
         RETURN;
     END IF;
     IF p_state IS DISTINCT FROM 'none' OR NOT coalesce((
-        SELECT a.tenant_id = ANY (private.permitted_tenants('public.customer_platform_account', 'update'))
-        FROM public.customer_platform_account a WHERE a.id = p_account_id
+        SELECT a.tenant_id = ANY (private.permitted_tenants('public.platform_account', 'update'))
+        FROM public.platform_account a WHERE a.id = p_account_id
     ), FALSE) THEN
         RAISE EXCEPTION 'platform_account_forbidden' USING ERRCODE = 'insufficient_privilege';
     END IF;
@@ -604,13 +577,13 @@ SET
     SELECT private.amazon_token(p_account_id);
 $$;
 
-CREATE OR REPLACE FUNCTION public.amazon_account_connect (p_account_id UUID, p_refresh_token TEXT, p_seller_id TEXT) RETURNS public.customer_platform_account LANGUAGE plpgsql SECURITY DEFINER
+CREATE OR REPLACE FUNCTION public.amazon_account_connect (p_account_id UUID, p_refresh_token TEXT, p_seller_id TEXT) RETURNS public.platform_account LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    v_account public.customer_platform_account;
+    v_account public.platform_account;
 BEGIN
-    UPDATE public.customer_platform_account a
+    UPDATE public.platform_account a
     SET api_connection = 'connected', authorized_at = now(), seller_id = p_seller_id
     WHERE a.id = p_account_id
     RETURNING * INTO v_account;
@@ -638,11 +611,11 @@ BEGIN
     PERFORM private.platform_account_authorize(p_account_id, p_state);
 
     IF p_state = 'none' THEN
-        UPDATE public.customer_platform_account a
+        UPDATE public.platform_account a
         SET api_connection = 'none', authorized_at = NULL, seller_id = NULL
         WHERE a.id = p_account_id;
     ELSE
-        UPDATE public.customer_platform_account a SET api_connection = 'revoked' WHERE a.id = p_account_id;
+        UPDATE public.platform_account a SET api_connection = 'revoked' WHERE a.id = p_account_id;
     END IF;
 
     IF NOT FOUND THEN
@@ -921,9 +894,9 @@ BEGIN
       AND m.platform_id = v_cell.platform_id AND m.country = v_cell.country;
 
     IF v_parent_cell IS NULL THEN
-        -- A candidate (the guard sets it); the customer comes from the parent (market_cell_customer).
-        INSERT INTO public.market_cell (tenant_id, customer_id, product_id, platform_id, country, listing_language, fulfillment_channel)
-        SELECT v_cell.tenant_id, p.customer_id, p.id, v_cell.platform_id, v_cell.country, v_cell.listing_language, v_cell.fulfillment_channel
+        -- A candidate (the guard sets it).
+        INSERT INTO public.market_cell (tenant_id, product_id, platform_id, country, listing_language, fulfillment_channel)
+        SELECT v_cell.tenant_id, p.id, v_cell.platform_id, v_cell.country, v_cell.listing_language, v_cell.fulfillment_channel
         FROM public.product p
         WHERE p.id = v_cell.parent_id AND p.tenant_id = v_cell.tenant_id
         ON CONFLICT ON CONSTRAINT unique_market_cell DO NOTHING
@@ -995,7 +968,6 @@ WITH
    (security_invoker = TRUE) AS
 SELECT
    m.*,
-   c.code::TEXT AS customer_code,
    pj.code AS project_code,
    p.sku,
    p.display_name AS product_name,
@@ -1004,37 +976,15 @@ SELECT
    m.platform_id || '_' || m.country AS cell_key
 FROM
    public.market_cell m
-   LEFT JOIN public.customer c ON c.id = m.customer_id
-   AND c.tenant_id = m.tenant_id
    LEFT JOIN public.project pj ON pj.id = m.project_id
    AND pj.tenant_id = m.tenant_id
    LEFT JOIN public.product p ON p.id = m.product_id
    AND p.tenant_id = m.tenant_id
    LEFT JOIN public.platform pl ON pl.id = m.platform_id;
 
-COMMENT ON VIEW public.market_cell_overview IS 'Per market cell: every column of the cell, customer_code, project_code, sku, product_name and gtin (its product), platform_name and cell_key (platform_id || ''_'' || country, the S05 hucre_id).';
+COMMENT ON VIEW public.market_cell_overview IS 'Per market cell: every column of the cell, project_code, sku, product_name and gtin (its product), platform_name and cell_key (platform_id || ''_'' || country, the S05 hucre_id).';
 
 GRANT SELECT ON public.market_cell_overview TO authenticated;
-
--- The transfer carries the submissions with their cell.
-INSERT INTO
-   private.transfer_registry (
-      table_name,
-      position,
-      root,
-      parent_table,
-      parent_column,
-      key_columns,
-      entity,
-      late_columns,
-      array_columns,
-      user_columns,
-      code_kind,
-      copy_only
-   )
-VALUES
-   ('listing_submission', 215, 'product', 'market_cell', 'cell_id', NULL, NULL, '{}', '{}', '{"created_by": "actor"}', NULL, FALSE)
-ON CONFLICT (table_name) DO NOTHING;
 
 -- Module and permissions. Inserting a permission creates its RLS policies (see
 -- private.manage_policies). The insert permission is the CASL right amazon-listing checks and the
@@ -1050,7 +1000,11 @@ INSERT INTO
    public.permission (resource_name, group_name, command, kind, bypass, throws_error, resource_condition)
 VALUES
    ('public.listing_submission', 'listing', 'select', 'read', FALSE, FALSE, NULL),
-   ('public.listing_submission', 'listing', 'insert', 'create', FALSE, TRUE, NULL)
+   ('public.listing_submission', 'listing', 'insert', 'create', FALSE, TRUE, NULL),
+   ('public.platform_account', 'listing', 'select', 'read', FALSE, FALSE, NULL),
+   ('public.platform_account', 'listing', 'insert', 'create', FALSE, TRUE, NULL),
+   ('public.platform_account', 'listing', 'update', 'modify', FALSE, TRUE, NULL),
+   ('public.platform_account', 'listing', 'delete', 'modify', FALSE, TRUE, NULL)
 ON CONFLICT ON CONSTRAINT unique_permission_resource_command DO NOTHING;
 
 -- The built-in owner role has every permission (see 008_init_reference_data.sql).
@@ -1065,7 +1019,7 @@ FROM
 WHERE
    r.display_name = 'owner'
    AND r.tenant_id IS NULL
-   AND p.resource_name = 'public.listing_submission'
+   AND p.resource_name IN ('public.listing_submission', 'public.platform_account')
 ON CONFLICT DO NOTHING;
 
 -- Every permission of the group to each role that may change products (029_purchase_orders.sql).

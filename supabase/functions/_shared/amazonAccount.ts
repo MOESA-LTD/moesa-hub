@@ -1,4 +1,4 @@
-// The Amazon connection of a customer: its refresh token and seller id, from Vault in production
+// The Amazon connection of a tenant: its refresh token and seller id, from Vault in production
 // or from the self-authorization (AMAZON_SPAPI_REFRESH_TOKEN / _SELLER_ID) in sandbox.
 import { AmazonAuthError, AmazonError, type AmazonEnv } from './amazon.ts';
 import type { Database } from './database.types.ts';
@@ -9,34 +9,31 @@ import type { ServiceRole } from './serviceRole.ts';
 export type AmazonAccount = {
    id: string;
    tenantId: string;
-   customerId: string;
    sellerId: string;
    refreshToken: string;
 };
 
 /**
- * The customer's connected `amazon` platform account; any other state is 409 amazon_not_connected.
+ * The tenant's connected `amazon` platform account; any other state is 409 amazon_not_connected.
  * `db` reads the account row (the user's client, so RLS scopes it; the poll's service client);
  * the refresh token comes from Vault through `service` (amazon_account_token is not granted to users).
  */
 export async function amazonAccountFor(
    db: SupabaseClient<Database>,
    service: Pick<ServiceRole, 'accountToken'>,
-   customerId: string,
    tenantId: string,
    env: AmazonEnv
 ): Promise<AmazonAccount> {
    const { data: row, error } = await db
-      .from('customer_platform_account')
-      .select('id, tenant_id, customer_id, seller_id, api_connection')
-      .eq('customer_id', customerId)
+      .from('platform_account')
+      .select('id, tenant_id, seller_id, api_connection')
       .eq('tenant_id', tenantId)
       .eq('platform_id', 'amazon')
       .maybeSingle();
    if (error) throw error;
    if (!row || row.api_connection !== 'connected') throw new HttpError(409, 'amazon_not_connected');
 
-   const account = { id: row.id, tenantId: row.tenant_id, customerId: row.customer_id };
+   const account = { id: row.id, tenantId: row.tenant_id };
 
    if (env.env === 'sandbox') {
       const sellerId = row.seller_id ?? env.sellerId;

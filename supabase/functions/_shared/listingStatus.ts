@@ -16,7 +16,7 @@ export type ListingSubmissionRow = Tables['listing_submission']['Row'];
 
 /** The market_cell columns the listing reads and derives from: every column but the internal notes. */
 export const MARKET_CELL_LISTING_COLUMNS =
-   'id, tenant_id, customer_id, product_id, project_id, platform_id, country, status, price, currency, platform_sku, platform_product_id, listing_state, listing_language, listing_match, listing_checked_at, fulfillment_channel, stock_source, open_issue, compliance, compliance_note, content_status, priority, last_checked_on, launched_on, target_launch_on, created_at, updated_at';
+   'id, tenant_id, product_id, project_id, platform_id, country, status, price, currency, platform_sku, platform_product_id, listing_state, listing_language, listing_match, listing_checked_at, fulfillment_channel, stock_source, open_issue, compliance, compliance_note, content_status, priority, last_checked_on, launched_on, target_launch_on, created_at, updated_at';
 
 /** The listing_submission columns the function reads (no sensitive field in the table). */
 export const LISTING_SUBMISSION_COLUMNS =
@@ -284,7 +284,7 @@ export async function refreshListingStatus(
       return { cell, submission };
    const done = submission.status === 'done';
 
-   const account = await amazonAccountFor(db, service, cell.customer_id, tenantId, env);
+   const account = await amazonAccountFor(db, service, tenantId, env);
    const call = spapiClient(account.refreshToken, env, deps.amazon ?? {});
    let derived: DerivedState;
    try {

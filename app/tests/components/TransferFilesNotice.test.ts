@@ -18,28 +18,26 @@ vi.mock('@/api/transfer', async (importOriginal) => {
    };
 });
 
-const row = (overrides: Partial<TransferRow> = {}): TransferRow => ({
-   id: 'tr',
-   tenant_id: 't',
-   source_tenant_id: 's',
-   customer_id: 'c',
-   target_customer_id: 'c2',
-   product_ids: null,
-   mode: 'copy',
-   path: 'copy',
-   started_by: 'u',
-   report: {},
-   decisions: {},
-   id_map: {},
-   files: [],
-   files_status: 'pending',
-   missing_files: [],
-   audit_transaction_ids: [],
-   xact_id: null,
-   created_at: '',
-   updated_at: '',
-   ...overrides
-});
+const row = (overrides: Partial<TransferRow> = {}): TransferRow =>
+   ({
+      id: 'tr',
+      tenant_id: 't',
+      source_tenant_id: 's',
+      product_ids: ['p'],
+      mode: 'copy',
+      started_by: 'u',
+      report: {},
+      decisions: {},
+      id_map: {},
+      files: [{ media_id: 'm', from: 's/a', to: 't/a', keep_source: true }],
+      files_status: 'pending',
+      missing_files: [],
+      audit_transaction_ids: [],
+      xact_id: null,
+      created_at: '',
+      updated_at: '',
+      ...overrides
+   }) as TransferRow;
 
 const mountNotice = (transfer: TransferRow, heading = false) =>
    mount(TransferFilesNotice, {
@@ -93,5 +91,31 @@ describe('TransferFilesNotice', () => {
       await flushPromises();
       expect(wrapper.find('[data-files-error]').text()).toBe(en.errors.transfer_report_stale);
       expect(api.errorHandler).toHaveBeenCalledWith(failure, expect.anything(), expect.anything());
+   });
+
+   it('shows a mismatch as needing an administrator and never offers a retry for it', () => {
+      const wrapper = mountNotice(
+         row({ files_status: 'partial', missing_files: ['mismatch:t/a'] })
+      );
+
+      expect(wrapper.find('[data-files-admin]').text()).toBe(
+         '1 file needs an administrator: the copy in the target differs from the original.'
+      );
+      expect(wrapper.find('[data-files-status]').exists()).toBe(false);
+      expect(wrapper.find('[data-retry]').exists()).toBe(false);
+   });
+
+   it('retries the other files when a mismatch comes with them', () => {
+      const wrapper = mountNotice(
+         row({ files_status: 'partial', missing_files: ['mismatch:t/a', 't/b'] })
+      );
+      expect(wrapper.find('[data-files-admin]').exists()).toBe(true);
+      expect(wrapper.find('[data-retry]').exists()).toBe(true);
+   });
+
+   it('offers no retry when the file list is hidden from the caller', () => {
+      const wrapper = mountNotice(row({ files: null as never, files_status: 'pending' }));
+      expect(wrapper.find('[data-files-masked]').exists()).toBe(true);
+      expect(wrapper.find('[data-retry]').exists()).toBe(false);
    });
 });

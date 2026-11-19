@@ -1,9 +1,8 @@
 import { allValues } from '@/lib/enumValues';
-import { PACKAGES } from '@/api/customer';
 import { defineResource, type ResourceInput } from '@/api/defineResource';
 import { invalidateTables } from '@/api/queryKeys';
 import { useLookup } from '@/api/useLookup';
-import { dateOnly, optional, parseDateOnly, required, requiredText } from '@/lib/form/fields';
+import { dateOnly, optional, parseDateOnly, requiredText } from '@/lib/form/fields';
 import { publicSchema, supabase } from '@/lib/supabase';
 import i18n from '@plugins/i18n';
 import { useMutation, useQueryClient } from '@tanstack/vue-query';
@@ -23,9 +22,11 @@ export type ProjectGateRow = Tables['project_gate']['Row'];
 export type ProjectTaskRow = Tables['project_task']['Row'];
 export type ProjectProductRow = Tables['project_product']['Row'];
 
-/** A project as its card loads it: with its customer, gates and linked products. */
+/** The service packages (A0–E) a project, and a provider relationship's contract, are made of. */
+export const PACKAGES = ['A0', 'A1', 'A2', 'B', 'C', 'D', 'E'] as const;
+
+/** A project as its card loads it: with its gates and linked products. */
 export type ProjectCard = ProjectRow & {
-   customer: Pick<Tables['customer']['Row'], 'code' | 'display_name'> | null;
    project_gate: ProjectGateRow[];
    project_product: {
       product: Pick<Tables['product']['Row'], 'id' | 'sku' | 'display_name'> | null;
@@ -143,8 +144,7 @@ export const openGate = <G extends Pick<ProjectGateRow, 'position' | 'status'>>(
 // --- project ---
 
 export const projectResource = defineResource<'project', ProjectCard>('project', {
-   select:
-      '*, customer(code, display_name), project_gate(*), project_product(product(id, sku, display_name))'
+   select: '*, project_gate(*), project_product(product(id, sku, display_name))'
 });
 
 const text = () => optional(z.string().trim());
@@ -152,7 +152,6 @@ const text = () => optional(z.string().trim());
 export const projectSchema = z
    .object({
       id: z.string().optional(),
-      customer_id: required(z.uuid()),
       display_name: requiredText(),
       type: z.enum(PROJECT_TYPES),
       path: optional(z.enum(PROJECT_PATHS)),
@@ -173,7 +172,6 @@ export type ProjectFormValues = z.input<typeof projectSchema>;
 
 export const toProjectFormValues = (project?: Partial<ProjectRow> | null): ProjectFormValues => ({
    id: project?.id ?? undefined,
-   customer_id: project?.customer_id ?? null,
    display_name: project?.display_name ?? '',
    type: project?.type ?? 'npi',
    path: project?.path ?? null,
@@ -186,12 +184,11 @@ export const toProjectFormValues = (project?: Partial<ProjectRow> | null): Proje
 });
 
 /**
- * The row to save, empty fields as null. The customer, type, path and packages decide the gates and
- * never change, so they are sent for a new project only; only an npi project has a path.
+ * The row to save, empty fields as null. The type, path and packages decide the gates and never
+ * change, so they are sent for a new project only; only an npi project has a path.
  */
 export const toProjectPayload = ({
    id,
-   customer_id,
    type,
    path,
    packages,
@@ -205,11 +202,10 @@ export const toProjectPayload = ({
       coordinator_id: values.coordinator_id ?? null,
       notes: values.notes ?? null
    };
-   // An update needs no customer or type: the row has them.
+   // An update needs no type: the row has them.
    if (id) return { id, ...editable } as ResourceInput<'project'>;
    return {
       ...editable,
-      customer_id,
       type,
       path: type === 'npi' ? (path ?? null) : null,
       packages
@@ -322,7 +318,7 @@ export type RollbackGateInput = { gateId: string; reason: string; incidentId: st
 
 /**
  * Rolls a gate back, and every later passed gate with it, through an open incident of the
- * project's customer (036): the incident lists the gates it rolled back.
+ * project's tenant (036): the incident lists the gates it rolled back.
  */
 export function useRollbackGate() {
    const queryClient = useQueryClient();

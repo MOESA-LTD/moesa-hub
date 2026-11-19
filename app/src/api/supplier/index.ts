@@ -27,8 +27,7 @@ export const SUPPLIER_STATUSES = allValues<SupplierStatus>()([
 /** Country letters and a number, e.g. CN1, TR12. */
 export const SUPPLIER_CODE = /^[A-Z]{2}[0-9]{1,3}$/;
 
-// Suppliers are shared by every customer of the tenant: no customer_id, and the customer filter
-// does not apply to them.
+// A supplier belongs to the tenant that buys from it.
 export const supplierResource = defineResource('supplier');
 export const supplierContactResource = defineResource('supplier_contact');
 

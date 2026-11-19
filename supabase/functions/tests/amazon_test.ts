@@ -501,7 +501,6 @@ Deno.test('assertServiceCall accepts only the service key', () => {
 type Row = {
    id: string;
    tenant_id: string;
-   customer_id: string;
    seller_id: string | null;
    api_connection: string;
 };
@@ -520,7 +519,7 @@ const fakeDb = (row: Row | null, token: string | null = null) => {
    };
    const db = {
       from: (table: string) => {
-         assertEquals(table, 'customer_platform_account');
+         assertEquals(table, 'platform_account');
          return query;
       },
       rpc: (name: string, args: unknown) => {
@@ -537,7 +536,6 @@ const fakeDb = (row: Row | null, token: string | null = null) => {
 const ROW: Row = {
    id: 'acc-1',
    tenant_id: 'ten-1',
-   customer_id: 'cus-1',
    seller_id: null,
    api_connection: 'connected'
 };
@@ -548,17 +546,15 @@ Deno.test(
       const sandbox = fakeDb(ROW);
       const unused = fakeDb(null);
       assertEquals(
-         await amazonAccountFor(sandbox.db, serviceRole(unused.db), 'cus-1', 'ten-1', ENV),
+         await amazonAccountFor(sandbox.db, serviceRole(unused.db), 'ten-1', ENV),
          {
             id: 'acc-1',
             tenantId: 'ten-1',
-            customerId: 'cus-1',
             sellerId: 'A2SELLER',
             refreshToken: 'Atzr|self'
          }
       );
       assertEquals(sandbox.filters, [
-         ['customer_id', 'cus-1'],
          ['tenant_id', 'ten-1'],
          ['platform_id', 'amazon']
       ]);
@@ -570,7 +566,6 @@ Deno.test(
       const account = await amazonAccountFor(
          production.db,
          serviceRole(vault.db),
-         'cus-1',
          'ten-1',
          {
             ...ENV,
@@ -583,7 +578,7 @@ Deno.test(
 
       for (const db of [fakeDb({ ...ROW, api_connection: 'revoked' }).db, fakeDb(null).db]) {
          const error = await assertRejects(
-            () => amazonAccountFor(db, serviceRole(unused.db), 'cus-1', 'ten-1', ENV),
+            () => amazonAccountFor(db, serviceRole(unused.db), 'ten-1', ENV),
             HttpError
          );
          assertEquals([error.status, error.message], [409, 'amazon_not_connected']);
@@ -592,7 +587,7 @@ Deno.test(
       const noToken = fakeDb({ ...ROW, seller_id: 'A9PROD' }, null);
       const error = await assertRejects(
          () =>
-            amazonAccountFor(noToken.db, serviceRole(noToken.db), 'cus-1', 'ten-1', {
+            amazonAccountFor(noToken.db, serviceRole(noToken.db), 'ten-1', {
                ...ENV,
                env: 'production'
             }),

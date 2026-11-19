@@ -1,10 +1,10 @@
 -- Projects (M5): which project is in which phase, and which gate is waiting for whom.
 --
--- project          A customer's project: its type (npi / variant / revision / reorder), its path
---                  (a_sourcing / b_private_label, only for npi), the customer's packages (A0…E),
+-- project          A project of the tenant that owns the work (the client's): its type (npi / variant / revision / reorder), its path
+--                  (a_sourcing / b_private_label, only for npi), the packages (A0…E),
 --                  its current phase (P1…L5, closed), target dates and coordinator. Its code
---                  (THO-2026-001) comes from public.next_code and never changes; nor do its
---                  customer, type, path and packages, which decide its gates. Projects are closed
+--                  (THO-2026-001) comes from private.next_code and never changes; nor do its
+--                  type, path and packages, which decide its gates. Projects are closed
 --                  or cancelled (status), never deleted.
 -- project_product  The products a project is about.
 -- project_gate     The project's gates, generated when the project is created (see the gate model
@@ -57,14 +57,15 @@
 -- gates_for, initial_phase, phase_after and phase_before are pure functions in public: pass_gate
 -- and rollback_gate are SECURITY INVOKER and signed-in users have no USAGE on schema private, and
 -- the UI uses them too (the phase strip). The trigger functions are in private and not executable
--- by users. The code trigger runs as the caller: it reads the customer through RLS and gets the
--- code from public.next_code. The gate-creation, guard and advance triggers (and the checklist
+-- by users. The code trigger is SECURITY DEFINER too, since users cannot reach private.code_scope: it
+-- takes the tenant's code from it and the number from private.next_code (the row's tenant_id was
+-- already checked by the insert policy). The gate-creation, guard and advance triggers (and the checklist
 -- copy they share) are SECURITY DEFINER: users cannot insert gates or tasks on the project's
 -- behalf, and the rules must see the whole project whatever the caller may read. Each filters on
 -- the row's own tenant_id itself, a tenant the caller has just been allowed to write to.
 --
--- Every reference to a tenant-scoped table includes tenant_id (see 018_customers.sql). Customers,
--- products and documents are never deleted, so the references to them are ON DELETE RESTRICT; a
+-- Every reference to a tenant-scoped table includes tenant_id (see 018_tenant_relations.sql). Products
+-- and documents are never deleted, so the references to them are ON DELETE RESTRICT; a
 -- project's gates, tasks and product links go with it. Now that public.project and
 -- public.project_gate exist, documents with those entity types are checked against them
 -- (private.document_check_entity, 016_documents.sql).
@@ -296,7 +297,6 @@ ON CONFLICT ON CONSTRAINT unique_task_template DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.project (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   customer_id UUID NOT NULL,
    -- Set by the project_set_code trigger; whatever the client sends is replaced.
    code TEXT,
    display_name TEXT NOT NULL,
@@ -316,11 +316,8 @@ CREATE TABLE IF NOT EXISTS public.project (
    -- Only a new product has a path.
    CONSTRAINT project_path_only_npi CHECK ((type = 'npi') = (path IS NOT NULL)),
    -- Target of the tenant-scoped foreign keys of the project's child rows.
-   CONSTRAINT project_id_tenant_id_key UNIQUE (id, tenant_id),
-   CONSTRAINT project_customer_fkey FOREIGN KEY (customer_id, tenant_id) REFERENCES public.customer (id, tenant_id) ON DELETE RESTRICT
+   CONSTRAINT project_id_tenant_id_key UNIQUE (id, tenant_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_project_customer ON public.project (tenant_id, customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_project_tenant_status ON public.project (tenant_id, status);
 
@@ -331,25 +328,14 @@ CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.project FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
--- The project's code: the customer's code, the year and the customer's next number; and its
--- starting phase (public.initial_phase), whatever the client sends. A customer
--- the caller cannot see in the project's tenant is a missing customer (23503), as the foreign key
--- would report it.
-CREATE OR REPLACE FUNCTION private.project_set_code () RETURNS TRIGGER LANGUAGE plpgsql
+-- The project's code: the tenant's code, the year and the tenant's next number (a project lives in
+-- the tenant that owns the work, the client's); and its starting phase (public.initial_phase),
+-- whatever the client sends.
+CREATE OR REPLACE FUNCTION private.project_set_code () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
-DECLARE
-    customer_code TEXT;
 BEGIN
-    SELECT c.code INTO customer_code
-    FROM public.customer c
-    WHERE c.id = NEW.customer_id AND c.tenant_id = NEW.tenant_id;
-
-    IF customer_code IS NULL THEN
-        RAISE EXCEPTION 'project_customer_missing' USING ERRCODE = 'foreign_key_violation';
-    END IF;
-
-    NEW.code := public.next_code('project', customer_code);
+    NEW.code := private.next_code(NEW.tenant_id, 'project', private.code_scope(NEW.tenant_id, NULL));
     NEW.current_phase := public.initial_phase(NEW.type, NEW.path, NEW.packages);
     RETURN NEW;
 END;
@@ -358,7 +344,7 @@ $$;
 CREATE OR REPLACE TRIGGER project_set_code BEFORE INSERT ON public.project FOR EACH ROW
 EXECUTE FUNCTION private.project_set_code ();
 
--- What a project is (its customer, type, path and packages) decides its code and its gates, so it
+-- What a project is (its type, path and packages) decides its code and its gates, so it
 -- is fixed once the project exists.
 CREATE OR REPLACE FUNCTION private.project_immutable () RETURNS TRIGGER LANGUAGE plpgsql
 SET
@@ -369,8 +355,7 @@ BEGIN
     END IF;
     IF NEW.type IS DISTINCT FROM OLD.type
        OR NEW.path IS DISTINCT FROM OLD.path
-       OR NEW.packages IS DISTINCT FROM OLD.packages
-       OR NEW.customer_id IS DISTINCT FROM OLD.customer_id THEN
+       OR NEW.packages IS DISTINCT FROM OLD.packages THEN
         RAISE EXCEPTION 'project_immutable_field' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;

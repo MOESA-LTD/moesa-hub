@@ -1,15 +1,21 @@
--- Shipments (M7, S15, S16): goods of one customer's purchase orders on their way to one of its
--- warehouses, what is on board, the S15 communication log and the acceptance at delivery.
+-- Shipments (M7, S15, S16): the goods of the procuring tenant's purchase orders on their way to a
+-- warehouse, for itself or for a client tenant, what is on board, the S15 communication log and the
+-- acceptance at delivery.
 --
--- shipment                 One shipment for one customer to one of its warehouses
---                          (customer_warehouse, the same customer). Its code (SHP-THO-2026-001)
---                          comes from public.next_code and never changes; nor does its customer.
+-- shipment                 One shipment of the tenant, for itself (client_tenant_id NULL) or for a
+--                          client tenant it procures for, to a warehouse of the tenant the shipment
+--                          is for (warehouse_tenant_id = coalesce(client_tenant_id, tenant_id)).
+--                          delivery_address is the warehouse's address when linked, a snapshot
+--                          kept when the client deletes the warehouse; whoever may read the
+--                          shipment reads it, provider staff included (not masked). Its code
+--                          (SHP-THO-2026-001: the client_code of the relationship, or the tenant's
+--                          code) comes from private.next_code and never changes; nor does its client.
 --                          The mode, parties, Incoterms (buy and sell), dates, container, free days,
 --                          packed quantities and the acceptance (who, when, whether the quantities
 --                          match, damage, the dispute deadline) sit on the shipment. Shipments are
 --                          cancelled (status), never deleted.
--- shipment_purchase_order  The orders on the shipment, of the shipment's customer (the link takes
---                          the shipment's customer whatever the client sends).
+-- shipment_purchase_order  The orders on the shipment, of the shipment's client (an own shipment
+--                          takes own orders only).
 -- shipment_line            What is shipped of an order line: the line's order must be on the
 --                          shipment (shipment_line_link_fkey); shipment_line_shipment_fkey is the
 --                          direct parent, for embeds and the cascade.
@@ -38,10 +44,11 @@
 -- PSI           A PSI before the balance and the loading is a warning (shipment_overview's
 --               psi_missing_po_codes), not a rule (M7).
 --
--- Each rule is a violation whose message is the rule's code:
---   shipment_customer_missing           (foreign_key_violation) the customer is not there in the
---                                       shipment's tenant, or the caller cannot see it
---   shipment_immutable_field            the shipment's code or customer changed
+-- Each rule is a check_violation whose message is the rule's code:
+--   shipment_scope_missing              the tenant has no code to number the shipment under
+--   shipment_warehouse_required         a new shipment without a warehouse, or a warehouse emptied
+--                                       while it still exists
+--   shipment_immutable_field            the shipment's code changed
 --   shipment_status_order               not an allowed transition, or out of a final status
 --   shipment_po_required                booked without an order
 --   shipment_booking_date_required      booked without the booking confirmation date
@@ -53,21 +60,35 @@
 --                                       damage (from disputed it is accepted as it is)
 --   shipment_locked                     an order or line of a loaded (or later) or cancelled
 --                                       shipment changed
+--   shipment_po_link_immutable          a link's shipment or order changed (links are added or
+--                                       removed, never repointed)
+--   client_mismatch                     linking an order whose client is not the shipment's (an
+--                                       own order on a client shipment, or the reverse)
 --   shipment_po_not_open                linking an order outside pi_approved … balance_paid
 --   shipment_po_has_lines               unlinking an order that still has lines on the shipment
 --   shipment_quantity_exceeds_po        more of an order line than ordered, tolerance included
--- (all check_violation but the first) and the constraints the UI names (errors.<code>):
---   shipment_warehouse_fkey          shipment_warehouse_customer  another customer's warehouse
+-- plus client_tenant_immutable, relationship_inactive and client_link_forbidden (019_products.sql),
+-- and the constraints the UI names (errors.<code>):
 --   shipment_incoterm_buy_valid      incoterm_invalid             not an Incoterms 2020 code
 --   shipment_incoterm_sell_valid     incoterm_invalid
---   shipment_purchase_order_po_fkey  shipment_po_customer         another customer's order
 --   shipment_line_link_fkey          shipment_line_po_not_linked  the line's order is not on it
 --   unique_shipment_line             shipment_line_duplicate      the order line is already on it
 --
--- Every reference to a tenant-scoped table includes tenant_id; the warehouse and the orders also
--- include customer_id (the new key customer_warehouse_id_customer_tenant_key is the warehouse's
--- target). Customers, warehouses, orders and order lines are not deleted while shipped, so the
--- references to them are ON DELETE RESTRICT; the links, lines and events go with their shipment.
+-- The client and the warehouse follow the shared rules of 019_products.sql
+-- (client_tenant_immutable, private.client_link_guard, the trigger name order ab_ … ae_): a new
+-- shipment for a client needs an active provider-procures relationship; its warehouse is one the
+-- caller may read in the tenant the shipment is for; delivery_address follows the warehouse link
+-- and is never written by the caller. The orders, lines and events of a shipment take its client
+-- (private.inherit_client_tenant, 029_purchase_orders.sql). Orders and lines are not added to a
+-- client shipment once the relationship is no longer active; events and status updates go on, so
+-- goods already on their way are closed out. A child moved to a shipment of another client is
+-- refused (client_tenant_immutable).
+--
+-- Every reference to a tenant-scoped table includes tenant_id. A client is named only under a
+-- relationship of the pair (the composite foreign key on all four tables). Orders and order lines
+-- are not deleted while shipped (ON DELETE RESTRICT); the links, lines and events go with their
+-- shipment. The client's delete of its warehouse is not blocked: the shipment keeps
+-- delivery_address (ON DELETE SET NULL (delivery_warehouse_id)).
 --
 -- The guards are SECURITY DEFINER (they read orders, suppliers, documents and other shipments
 -- whatever the caller may read) and filter on the row's tenant. The link and line guards read the
@@ -76,11 +97,11 @@
 -- (FOR NO KEY UPDATE), so two shipments' lines of one order line are capped one after the other. A
 -- delete cascaded from the shipment or the tenant (pg_trigger_depth() > 1) is not checked. The
 -- guards return at once when private.rules_bypassed() (030_purchase_order_rules.sql); the code
--- trigger and the immutability rule ignore it.
+-- trigger, the immutability rules, the warehouse rule and client_mismatch ignore it.
 --
--- public.shipment_overview: each shipment with its customer code, warehouse name, its orders (ids
--- and codes), the products of its lines and the codes of its orders without an approved PSI report.
--- private.entity_customer knows shipments, so their media stays the customer's.
+-- public.shipment_overview: each shipment with its client code (the relationship's client_code,
+-- NULL for an own shipment), warehouse name, its orders (ids and codes), the products of its lines
+-- and the codes of its orders without an approved PSI report.
 --
 -- Roles: the module is granted to every existing role that may change products
 -- (private.grant_group_to_product_editors); private.seed_ops_roles gives it to the demo company's
@@ -100,20 +121,21 @@ CREATE TYPE public.shipment_status AS ENUM (
    'cancelled'
 );
 
--- Target of the reference that keeps a shipment's warehouse within its customer.
-ALTER TABLE public.customer_warehouse
-ADD CONSTRAINT customer_warehouse_id_customer_tenant_key UNIQUE (id, customer_id, tenant_id);
-
--- Shipments
+-- Shipments. warehouse_tenant_id is the tenant of the warehouse (coalesce(client_tenant_id,
+-- tenant_id)), filled by the link guard.
 CREATE TABLE IF NOT EXISTS public.shipment (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   customer_id UUID NOT NULL,
+   client_tenant_id UUID,
    -- Set by the shipment_set_code trigger; whatever the client sends is replaced.
    code TEXT,
    status public.shipment_status NOT NULL DEFAULT 'planned',
    mode public.shipment_mode NOT NULL,
-   delivery_warehouse_id UUID NOT NULL,
+   -- Required while the warehouse exists (shipment_warehouse_required); NULL once it is deleted.
+   delivery_warehouse_id UUID,
+   warehouse_tenant_id UUID NOT NULL,
+   -- The warehouse's address when linked (private.client_link_guard); kept when it is gone.
+   delivery_address TEXT,
    forwarder TEXT,
    customs_broker TEXT,
    carrier TEXT,
@@ -150,18 +172,26 @@ CREATE TABLE IF NOT EXISTS public.shipment (
    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
    -- The counters behind the codes are per tenant (public.code_sequence), so the code is too.
    CONSTRAINT unique_shipment_code UNIQUE (tenant_id, code),
-   -- Targets of the tenant-scoped (and customer-scoped) foreign keys of the shipment's child rows.
+   -- Target of the tenant-scoped foreign keys of the shipment's child rows (which take the
+   -- shipment's client by trigger).
    CONSTRAINT shipment_id_tenant_id_key UNIQUE (id, tenant_id),
-   CONSTRAINT shipment_id_customer_tenant_key UNIQUE (id, customer_id, tenant_id),
-   CONSTRAINT shipment_customer_fkey FOREIGN KEY (customer_id, tenant_id) REFERENCES public.customer (id, tenant_id) ON DELETE RESTRICT,
-   CONSTRAINT shipment_warehouse_fkey FOREIGN KEY (delivery_warehouse_id, customer_id, tenant_id) REFERENCES public.customer_warehouse (id, customer_id, tenant_id) ON DELETE RESTRICT,
+   CONSTRAINT shipment_not_self CHECK (client_tenant_id IS DISTINCT FROM tenant_id),
+   CONSTRAINT shipment_warehouse_tenant CHECK (warehouse_tenant_id = coalesce(client_tenant_id, tenant_id)),
+   -- A client is named only under a relationship of the pair; the relationship is not deleted while
+   -- shipments name it.
+   CONSTRAINT shipment_relationship_fkey FOREIGN KEY (tenant_id, client_tenant_id) REFERENCES public.provider_relationship (tenant_id, client_tenant_id),
+   -- The client's delete of its warehouse is not blocked: the shipment keeps delivery_address.
+   CONSTRAINT shipment_warehouse_fkey FOREIGN KEY (delivery_warehouse_id, warehouse_tenant_id) REFERENCES public.warehouse (id, tenant_id) ON DELETE SET NULL (delivery_warehouse_id),
    CONSTRAINT shipment_incoterm_buy_valid CHECK (incoterm_buy IS NULL OR private.incoterm_valid (incoterm_buy)),
    CONSTRAINT shipment_incoterm_sell_valid CHECK (incoterm_sell IS NULL OR private.incoterm_valid (incoterm_sell))
 );
 
-CREATE INDEX IF NOT EXISTS idx_shipment_customer ON public.shipment (tenant_id, customer_id);
+CREATE INDEX IF NOT EXISTS shipment_client_idx ON public.shipment (client_tenant_id, created_at DESC)
+WHERE
+   client_tenant_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_shipment_warehouse ON public.shipment (tenant_id, delivery_warehouse_id);
+-- A warehouse's shipments, in any tenant, and the warehouse's delete (SET NULL).
+CREATE INDEX IF NOT EXISTS idx_shipment_warehouse ON public.shipment (delivery_warehouse_id, warehouse_tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_shipment_tenant_status ON public.shipment (tenant_id, status);
 
@@ -172,24 +202,25 @@ CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.shipment FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
--- The shipment's code: SHP, the customer's code, the year and the customer's next number; and the
--- planned status, whatever the client sends. A customer the caller cannot see in the shipment's
--- tenant is a missing customer (23503), as the foreign key would report it.
-CREATE OR REPLACE FUNCTION private.shipment_set_code () RETURNS TRIGGER LANGUAGE plpgsql
+-- The shipment's code: SHP, the code scope (the tenant's code, or the client_code the provider gave
+-- the client), the year and the next number; and the planned status, whatever the client sends. A
+-- new shipment goes to a warehouse. The client's relationship and the warehouse are checked before,
+-- by the link guard (ad_client_link_guard sorts first). SECURITY DEFINER, like
+-- purchase_order_set_code: it calls private.code_scope; it writes only the new row.
+CREATE OR REPLACE FUNCTION private.shipment_set_code () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    customer_code TEXT;
+    scope TEXT := private.code_scope(NEW.tenant_id, NEW.client_tenant_id);
 BEGIN
-    SELECT c.code INTO customer_code
-    FROM public.customer c
-    WHERE c.id = NEW.customer_id AND c.tenant_id = NEW.tenant_id;
-
-    IF customer_code IS NULL THEN
-        RAISE EXCEPTION 'shipment_customer_missing' USING ERRCODE = 'foreign_key_violation';
+    IF NEW.delivery_warehouse_id IS NULL THEN
+        RAISE EXCEPTION 'shipment_warehouse_required' USING ERRCODE = 'check_violation';
+    END IF;
+    IF scope IS NULL THEN
+        RAISE EXCEPTION 'shipment_scope_missing' USING ERRCODE = 'check_violation';
     END IF;
 
-    NEW.code := public.next_code('shp', customer_code);
+    NEW.code := private.next_code(NEW.tenant_id, 'shp', scope);
     NEW.status := 'planned';
     RETURN NEW;
 END;
@@ -198,8 +229,18 @@ $$;
 CREATE OR REPLACE TRIGGER shipment_set_code BEFORE INSERT ON public.shipment FOR EACH ROW
 EXECUTE FUNCTION private.shipment_set_code ();
 
--- The shipment's rules (see the header), in this order: the fixed code and customer (whatever the
--- bypass flag), the status flow, then what the status being entered needs.
+-- The shared rules of rows that may name a client (019_products.sql); the names give their order.
+CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
+UPDATE ON public.shipment FOR EACH ROW
+EXECUTE FUNCTION private.client_tenant_immutable ();
+
+CREATE OR REPLACE TRIGGER ad_client_link_guard BEFORE INSERT
+OR
+UPDATE ON public.shipment FOR EACH ROW
+EXECUTE FUNCTION private.client_link_guard ('delivery_warehouse_id', 'public.warehouse');
+
+-- The shipment's rules (see the header), in this order: the fixed code and the warehouse (whatever
+-- the bypass flag), the status flow, then what the status being entered needs.
 CREATE OR REPLACE FUNCTION private.shipment_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -207,9 +248,14 @@ DECLARE
     allowed BOOLEAN;
     notice_hours INT;
 BEGIN
-    -- 1. The code and the customer are fixed.
-    IF NEW.code IS DISTINCT FROM OLD.code OR NEW.customer_id IS DISTINCT FROM OLD.customer_id THEN
+    -- 1. The code is fixed (the client: ab_client_tenant_immutable). The warehouse is not emptied
+    --    while it exists; emptied because the client deleted it (ON DELETE SET NULL), it passes.
+    IF NEW.code IS DISTINCT FROM OLD.code THEN
         RAISE EXCEPTION 'shipment_immutable_field' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.delivery_warehouse_id IS NULL AND OLD.delivery_warehouse_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM public.warehouse w WHERE w.id = OLD.delivery_warehouse_id) THEN
+        RAISE EXCEPTION 'shipment_warehouse_required' USING ERRCODE = 'check_violation';
     END IF;
 
     IF private.rules_bypassed() THEN
@@ -310,46 +356,26 @@ CREATE TABLE IF NOT EXISTS public.shipment_purchase_order (
    shipment_id UUID NOT NULL,
    purchase_order_id UUID NOT NULL,
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   -- Set by the shipment_purchase_order_customer trigger to the shipment's customer.
-   customer_id UUID NOT NULL,
+   -- The shipment's client, set by ac_inherit_client_tenant whatever is sent.
+   client_tenant_id UUID,
    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
    CONSTRAINT shipment_purchase_order_pkey PRIMARY KEY (shipment_id, purchase_order_id),
    CONSTRAINT shipment_purchase_order_link_key UNIQUE (shipment_id, purchase_order_id, tenant_id),
-   CONSTRAINT shipment_purchase_order_shipment_fkey FOREIGN KEY (shipment_id, customer_id, tenant_id) REFERENCES public.shipment (id, customer_id, tenant_id) ON DELETE CASCADE,
-   CONSTRAINT shipment_purchase_order_po_fkey FOREIGN KEY (purchase_order_id, customer_id, tenant_id) REFERENCES public.purchase_order (id, customer_id, tenant_id) ON DELETE RESTRICT
+   CONSTRAINT shipment_purchase_order_shipment_fkey FOREIGN KEY (shipment_id, tenant_id) REFERENCES public.shipment (id, tenant_id) ON DELETE CASCADE,
+   CONSTRAINT shipment_purchase_order_po_fkey FOREIGN KEY (purchase_order_id, tenant_id) REFERENCES public.purchase_order (id, tenant_id) ON DELETE RESTRICT,
+   CONSTRAINT shipment_purchase_order_relationship_fkey FOREIGN KEY (tenant_id, client_tenant_id) REFERENCES public.provider_relationship (tenant_id, client_tenant_id)
 );
 
 -- An order's shipments (shipment_overview's filter, the order's Shipments tab).
 CREATE INDEX IF NOT EXISTS idx_shipment_purchase_order_po ON public.shipment_purchase_order (tenant_id, purchase_order_id);
-
--- A link is the shipment's customer's, whatever the client sends. SECURITY DEFINER, in the link's
--- own tenant only; a shipment that is not there leaves the customer to the NOT NULL and the
--- foreign key.
-CREATE OR REPLACE FUNCTION private.shipment_purchase_order_customer () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET
-   search_path = '' AS $$
-DECLARE
-    shipment_customer UUID;
-BEGIN
-    SELECT s.customer_id INTO shipment_customer
-    FROM public.shipment s
-    WHERE s.id = NEW.shipment_id AND s.tenant_id = NEW.tenant_id;
-
-    IF shipment_customer IS NOT NULL THEN
-        NEW.customer_id := shipment_customer;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER shipment_purchase_order_customer BEFORE INSERT ON public.shipment_purchase_order FOR EACH ROW
-EXECUTE FUNCTION private.shipment_purchase_order_customer ();
 
 -- Shipment lines
 CREATE TABLE IF NOT EXISTS public.shipment_line (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
    shipment_id UUID NOT NULL,
+   -- The shipment's client, set by ac_inherit_client_tenant whatever is sent.
+   client_tenant_id UUID,
    purchase_order_id UUID NOT NULL,
    purchase_order_line_id UUID NOT NULL,
    quantity INT NOT NULL CHECK (quantity > 0),
@@ -359,7 +385,8 @@ CREATE TABLE IF NOT EXISTS public.shipment_line (
    CONSTRAINT unique_shipment_line UNIQUE (shipment_id, purchase_order_line_id),
    CONSTRAINT shipment_line_shipment_fkey FOREIGN KEY (shipment_id, tenant_id) REFERENCES public.shipment (id, tenant_id) ON DELETE CASCADE,
    CONSTRAINT shipment_line_link_fkey FOREIGN KEY (shipment_id, purchase_order_id, tenant_id) REFERENCES public.shipment_purchase_order (shipment_id, purchase_order_id, tenant_id) ON DELETE RESTRICT,
-   CONSTRAINT shipment_line_po_line_fkey FOREIGN KEY (purchase_order_line_id, purchase_order_id, tenant_id) REFERENCES public.purchase_order_line (id, purchase_order_id, tenant_id) ON DELETE RESTRICT
+   CONSTRAINT shipment_line_po_line_fkey FOREIGN KEY (purchase_order_line_id, purchase_order_id, tenant_id) REFERENCES public.purchase_order_line (id, purchase_order_id, tenant_id) ON DELETE RESTRICT,
+   CONSTRAINT shipment_line_relationship_fkey FOREIGN KEY (tenant_id, client_tenant_id) REFERENCES public.provider_relationship (tenant_id, client_tenant_id)
 );
 
 -- The order line's shipped quantity (the cap), and the link's lines.
@@ -376,6 +403,8 @@ CREATE TABLE IF NOT EXISTS public.shipment_event (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
    shipment_id UUID NOT NULL,
+   -- The shipment's client, set by ac_inherit_client_tenant whatever is sent.
+   client_tenant_id UUID,
    happened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
    -- The S15 §B row; NULL means "other".
    step SMALLINT CHECK (step BETWEEN 1 AND 20),
@@ -386,7 +415,8 @@ CREATE TABLE IF NOT EXISTS public.shipment_event (
    created_by UUID DEFAULT auth.uid (),
    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-   CONSTRAINT shipment_event_shipment_fkey FOREIGN KEY (shipment_id, tenant_id) REFERENCES public.shipment (id, tenant_id) ON DELETE CASCADE
+   CONSTRAINT shipment_event_shipment_fkey FOREIGN KEY (shipment_id, tenant_id) REFERENCES public.shipment (id, tenant_id) ON DELETE CASCADE,
+   CONSTRAINT shipment_event_relationship_fkey FOREIGN KEY (tenant_id, client_tenant_id) REFERENCES public.provider_relationship (tenant_id, client_tenant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_shipment_event_shipment ON public.shipment_event (tenant_id, shipment_id, happened_at);
@@ -395,9 +425,56 @@ CREATE OR REPLACE TRIGGER set_updated_at BEFORE
 UPDATE ON public.shipment_event FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
--- A link's rules: not on a loaded (or later) or cancelled shipment; only an order whose PI is
--- approved and that is not closed; an order that still has lines on the shipment stays. This BEFORE
--- trigger answers before the line's RESTRICT foreign key, so the user sees the named code.
+-- The shared rules of the shipment's child rows (019_products.sql, 029_purchase_orders.sql): the
+-- client is the shipment's, whatever is sent, and never changes; an order link or a line is not
+-- added to a client shipment once the relationship is no longer active (the link guard with no
+-- link to check). Events have no link guard: a shipment in transit when the relationship ends is
+-- still logged and closed out.
+CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
+UPDATE ON public.shipment_purchase_order FOR EACH ROW
+EXECUTE FUNCTION private.client_tenant_immutable ();
+
+CREATE OR REPLACE TRIGGER ac_inherit_client_tenant BEFORE INSERT
+OR
+UPDATE ON public.shipment_purchase_order FOR EACH ROW
+EXECUTE FUNCTION private.inherit_client_tenant ('public.shipment', 'shipment_id');
+
+CREATE OR REPLACE TRIGGER ad_client_link_guard BEFORE INSERT
+OR
+UPDATE ON public.shipment_purchase_order FOR EACH ROW
+EXECUTE FUNCTION private.client_link_guard ();
+
+CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
+UPDATE ON public.shipment_line FOR EACH ROW
+EXECUTE FUNCTION private.client_tenant_immutable ();
+
+CREATE OR REPLACE TRIGGER ac_inherit_client_tenant BEFORE INSERT
+OR
+UPDATE ON public.shipment_line FOR EACH ROW
+EXECUTE FUNCTION private.inherit_client_tenant ('public.shipment', 'shipment_id');
+
+CREATE OR REPLACE TRIGGER ad_client_link_guard BEFORE INSERT
+OR
+UPDATE ON public.shipment_line FOR EACH ROW
+EXECUTE FUNCTION private.client_link_guard ();
+
+CREATE OR REPLACE TRIGGER ab_client_tenant_immutable BEFORE
+UPDATE ON public.shipment_event FOR EACH ROW
+EXECUTE FUNCTION private.client_tenant_immutable ();
+
+CREATE OR REPLACE TRIGGER ac_inherit_client_tenant BEFORE INSERT
+OR
+UPDATE ON public.shipment_event FOR EACH ROW
+EXECUTE FUNCTION private.inherit_client_tenant ('public.shipment', 'shipment_id');
+
+
+-- A link's rules: a link is added or removed, never repointed (shipment_po_link_immutable); the
+-- order's client is the shipment's (both whatever the bypass flag; the link took the
+-- shipment's client from ac_inherit_client_tenant); not on a loaded (or later) or cancelled
+-- shipment; only an order whose PI is approved and that is not closed; an order that still has
+-- lines on the shipment stays. This BEFORE trigger answers before the line's RESTRICT foreign key,
+-- so the user sees the named code. An order that is not in the link's tenant is left to the
+-- foreign key.
 CREATE OR REPLACE FUNCTION private.shipment_purchase_order_guard () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -405,7 +482,24 @@ DECLARE
     link RECORD;
     shipment_status public.shipment_status;
     order_status public.purchase_order_status;
+    order_client UUID;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.shipment_id IS DISTINCT FROM OLD.shipment_id OR NEW.purchase_order_id IS DISTINCT FROM OLD.purchase_order_id THEN
+            RAISE EXCEPTION 'shipment_po_link_immutable' USING ERRCODE = 'check_violation';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        SELECT po.client_tenant_id INTO order_client
+        FROM public.purchase_order po
+        WHERE po.id = NEW.purchase_order_id AND po.tenant_id = NEW.tenant_id;
+        IF FOUND AND order_client IS DISTINCT FROM NEW.client_tenant_id THEN
+            RAISE EXCEPTION 'client_mismatch' USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
     IF private.rules_bypassed() THEN
         RETURN coalesce(NEW, OLD);
     END IF;
@@ -455,6 +549,8 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER shipment_purchase_order_guard BEFORE INSERT
+OR
+UPDATE
 OR DELETE ON public.shipment_purchase_order FOR EACH ROW
 EXECUTE FUNCTION private.shipment_purchase_order_guard ();
 
@@ -542,44 +638,9 @@ REVOKE ALL ON FUNCTION private.shipment_set_code () FROM PUBLIC, anon, authentic
 
 REVOKE ALL ON FUNCTION private.shipment_guard () FROM PUBLIC, anon, authenticated;
 
-REVOKE ALL ON FUNCTION private.shipment_purchase_order_customer () FROM PUBLIC, anon, authenticated;
-
 REVOKE ALL ON FUNCTION private.shipment_purchase_order_guard () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.shipment_line_guard () FROM PUBLIC, anon, authenticated;
-
--- The customer a record belongs to (025_media_link.sql), now with shipments.
-CREATE OR REPLACE FUNCTION private.entity_customer (entity_type public.document_entity, entity_id UUID, tenant_id UUID) RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    CASE entity_customer.entity_type
-        WHEN 'customer' THEN
-            RETURN entity_customer.entity_id;
-        WHEN 'product' THEN
-            RETURN (SELECT p.customer_id FROM public.product p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project' THEN
-            RETURN (SELECT p.customer_id FROM public.project p
-                    WHERE p.id = entity_customer.entity_id AND p.tenant_id = entity_customer.tenant_id);
-        WHEN 'project_gate' THEN
-            RETURN (SELECT p.customer_id
-                    FROM public.project_gate g
-                    JOIN public.project p ON p.id = g.project_id AND p.tenant_id = g.tenant_id
-                    WHERE g.id = entity_customer.entity_id AND g.tenant_id = entity_customer.tenant_id);
-        WHEN 'purchase_order' THEN
-            RETURN (SELECT po.customer_id FROM public.purchase_order po
-                    WHERE po.id = entity_customer.entity_id AND po.tenant_id = entity_customer.tenant_id);
-        WHEN 'shipment' THEN
-            RETURN (SELECT s.customer_id FROM public.shipment s
-                    WHERE s.id = entity_customer.entity_id AND s.tenant_id = entity_customer.tenant_id);
-        ELSE
-            RETURN NULL;
-    END CASE;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION private.entity_customer (public.document_entity, UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- The shipment screens' list and header. Runs as the caller (security_invoker), so it shows only
 -- the shipments, codes, orders, lines and documents the caller may read.
@@ -588,7 +649,7 @@ WITH
    (security_invoker = TRUE) AS
 SELECT
    s.*,
-   c.code::TEXT AS customer_code,
+   r.client_code::TEXT AS client_code,
    w.display_name AS warehouse_name,
    o.purchase_order_ids,
    o.purchase_order_codes,
@@ -596,10 +657,10 @@ SELECT
    ln.product_ids
 FROM
    public.shipment s
-   LEFT JOIN public.customer c ON c.id = s.customer_id
-   AND c.tenant_id = s.tenant_id
-   LEFT JOIN public.customer_warehouse w ON w.id = s.delivery_warehouse_id
-   AND w.tenant_id = s.tenant_id
+   LEFT JOIN public.provider_relationship r ON r.tenant_id = s.tenant_id
+   AND r.client_tenant_id = s.client_tenant_id
+   LEFT JOIN public.warehouse w ON w.id = s.delivery_warehouse_id
+   AND w.tenant_id = s.warehouse_tenant_id
    LEFT JOIN LATERAL (
       SELECT
          coalesce(array_agg(po.id ORDER BY po.code, po.id), '{}') AS purchase_order_ids,
@@ -642,7 +703,7 @@ FROM
          AND l.tenant_id = s.tenant_id
    ) ln ON TRUE;
 
-COMMENT ON VIEW public.shipment_overview IS 'Per shipment: every column of the shipment, customer_code, warehouse_name (the delivery warehouse), purchase_order_ids and purchase_order_codes (its orders, by code; filter the list with purchase_order_ids), product_ids (the products of its lines; filter with product_ids, not by embedding through the view) and psi_missing_po_codes (its orders without an approved PSI report: a warning before the balance and the loading, M7, not a rule).';
+COMMENT ON VIEW public.shipment_overview IS 'Per shipment: every column of the shipment (delivery_address is the warehouse''s address when linked, kept when it is gone), client_code (the relationship''s client_code; NULL for an own shipment), warehouse_name (the delivery warehouse, when the caller may read it), purchase_order_ids and purchase_order_codes (its orders, by code; filter the list with purchase_order_ids), product_ids (the products of its lines; filter with product_ids, not by embedding through the view) and psi_missing_po_codes (its orders without an approved PSI report: a warning before the balance and the loading, M7, not a rule).';
 
 GRANT SELECT ON public.shipment_overview TO authenticated;
 

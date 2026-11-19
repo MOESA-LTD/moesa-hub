@@ -6,12 +6,10 @@
 --
 -- document.media_id  The document's file in the media library, in the document's tenant
 --                    (document_media_fkey, ON DELETE RESTRICT: documents are never deleted, and
---                    the file they cite stays). A customer's file (media.customer_id) is only that
---                    customer's document; a file without a customer is anyone's
---                    (private.document_check_media).
+--                    the file they cite stays), checked by private.document_check_media.
 --
--- Task 3's guards on media now count documents too: a file a document cites is not deleted
--- (private.media_guard_delete) and keeps its customer (private.media_customer_lock).
+-- Task 3's guard on media now counts documents too: a file a document cites is not deleted
+-- (private.media_guard_delete).
 --
 -- media_library  Gains document_count, the documents the caller may read that cite the file.
 --
@@ -21,9 +19,7 @@
 --
 -- Each rule is a violation whose message is the rule's code:
 --   media_missing            (foreign_key_violation) no such file in the document's tenant
---   media_customer_mismatch  (check_violation) a customer's file on another's document
 --   media_in_use             (foreign_key_violation) deleting a linked or cited file
---   media_customer_locked    (check_violation) a linked or cited file's customer changed
 
 ALTER TABLE public.document
 ADD COLUMN media_id UUID;
@@ -46,7 +42,7 @@ ADD CONSTRAINT document_has_file CHECK (
    OR media_id IS NOT NULL
 );
 
--- The file must be in the document's tenant, and a customer's file is only that customer's.
+-- The file must be in the document's own tenant.
 CREATE OR REPLACE FUNCTION private.document_check_media () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -63,9 +59,6 @@ BEGIN
         RAISE EXCEPTION 'media_missing' USING ERRCODE = 'foreign_key_violation';
     END IF;
 
-    IF file.customer_id IS NOT NULL AND file.customer_id IS DISTINCT FROM NEW.customer_id THEN
-        RAISE EXCEPTION 'media_customer_mismatch' USING ERRCODE = 'check_violation';
-    END IF;
     RETURN NEW;
 END;
 $$;
@@ -73,7 +66,7 @@ $$;
 CREATE OR REPLACE TRIGGER document_check_media BEFORE INSERT
 OR
 UPDATE OF media_id,
-customer_id ON public.document FOR EACH ROW
+tenant_id ON public.document FOR EACH ROW
 EXECUTE FUNCTION private.document_check_media ();
 
 -- A linked or cited file is not deleted. SECURITY DEFINER: every link and document counts,
@@ -95,25 +88,9 @@ BEGIN
 END;
 $$;
 
--- A linked or cited file keeps its customer, which its links and documents were checked against.
-CREATE OR REPLACE FUNCTION private.media_customer_lock () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET
-   search_path = '' AS $$
-BEGIN
-    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id
-       AND (EXISTS (SELECT 1 FROM public.media_link l WHERE l.tenant_id = OLD.tenant_id AND l.media_id = OLD.id)
-            OR EXISTS (SELECT 1 FROM public.document d WHERE d.tenant_id = OLD.tenant_id AND d.media_id = OLD.id)) THEN
-        RAISE EXCEPTION 'media_customer_locked' USING ERRCODE = 'check_violation';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
 REVOKE ALL ON FUNCTION private.document_check_media () FROM PUBLIC, anon, authenticated;
 
 REVOKE ALL ON FUNCTION private.media_guard_delete () FROM PUBLIC, anon, authenticated;
-
-REVOKE ALL ON FUNCTION private.media_customer_lock () FROM PUBLIC, anon, authenticated;
 
 -- The library: each file, what kind it is, the links and the documents the caller may read.
 -- Recreated with document_count appended (m.* keeps the media columns of 025).

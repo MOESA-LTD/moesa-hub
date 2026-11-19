@@ -5,6 +5,7 @@ import {
    PI_CHECK_KEYS,
    PI_CHECK_STATUSES,
    formatAmount,
+   lineProduct,
    piChecklistComplete,
    useEntityDocumentOptions,
    type PiCheckKey,
@@ -255,7 +256,7 @@ const checkedAt = computed(() => {
          <template #empty>{{ $t('ops.purchase_order.no_lines') }}</template>
          <Column field="position" :header="$t('ops.purchase_order.fields.position')" />
          <Column :header="$t('ops.purchase_order.fields.sku')">
-            <template #body="{ data }">{{ data.product?.sku }}</template>
+            <template #body="{ data }">{{ lineProduct(data).sku }}</template>
          </Column>
          <Column
             v-if="lineAccess.canRead('line_total')"

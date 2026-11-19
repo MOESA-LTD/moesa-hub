@@ -10,11 +10,15 @@ import {
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { toS10Csv, type ProductExportRow } from '@/api/product/csv';
+import { toS10Csv, withSourcing } from '@/api/product/csv';
+import { CLIENT_RELATIONSHIP_SELECT, type ClientRelationship } from '@/api/relationship';
+import { SOURCING_SELECT, type SourcingCard } from '@/api/sourcing';
+import { useTenantKey } from '@/api/useTenantKey';
+import { useAuthStore } from '@/store/auth';
 import { supabase } from '@/lib/supabase';
 import dayjs from 'dayjs';
-import { useCustomerFilter, withCustomerFilter } from '@/store/customerFilter';
 import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
+import PendingTransfers from '@/components/service-components/transfer/PendingTransfers.vue';
 import AmazonBulkPublish from './AmazonBulkPublish.vue';
 import {
    PRODUCT_STATUSES,
@@ -23,8 +27,7 @@ import {
    type ProductStatus
 } from '@/api/product';
 
-// The products of the customer the lists are filtered by (every customer's when none is), with
-// their evidence (public.product_with_evidence).
+// The products of the tenants in scope, with their evidence (public.product_with_evidence).
 type Props = ResourceTableProps<'product_with_evidence'>;
 
 defineOptions({
@@ -36,6 +39,8 @@ const router = useRouter();
 const route = useRoute();
 const { t } = useI18n();
 const fieldAccess = useFieldAccess('product');
+// The export's sourcing columns follow the rights on sourcing.
+const sourcingAccess = useFieldAccess('sourcing');
 
 const columns = computed<Props['columns']>(() => [
    // The primary image (its thumbnail), named for screen readers only.
@@ -45,7 +50,6 @@ const columns = computed<Props['columns']>(() => [
       reorderableColumn: false,
       pt: { headerCell: { 'aria-label': t('ops.media.primary') } }
    },
-   { field: 'customer.code', header: t('ops.product.fields.customer') },
    { field: 'sku', sortable: true, sortOrder: { value: 1 }, header: t('ops.product.fields.sku') },
    { field: 'display_name', sortable: true, header: t('ops.product.fields.display_name') },
    { field: 'variant_label', header: t('ops.product.fields.variant_label') },
@@ -58,7 +62,6 @@ const columns = computed<Props['columns']>(() => [
       showFilterOperator: false,
       showAddButton: false
    },
-   { field: 'supplier.code', header: t('ops.product.fields.supplier') },
    {
       field: 'has_signed_spec',
       header: t('ops.product.fields.spec'),
@@ -69,8 +72,8 @@ const columns = computed<Props['columns']>(() => [
    { field: 'compliance_status', sortable: true, header: t('ops.product.fields.compliance_status') }
 ]);
 
-// No keyword search: it would compare every filter column as text, the status enum and the
-// customer id included, which the database rejects.
+// No keyword search: it would compare every filter column as text, the status enum included,
+// which the database rejects.
 const filters = ref<NonNullable<Props['filters']>>(
    createFilters(
       {
@@ -78,25 +81,14 @@ const filters = ref<NonNullable<Props['filters']>>(
          display_name: 'text',
          gtin: 'startsWith',
          status: equalsFilter(),
-         has_signed_spec: equalsFilter(),
-         customer_id: equalsFilter()
+         has_signed_spec: equalsFilter()
       },
       attrs.filters as Props['filters']
    )
 );
 
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
-
 // A link may ask for products with or without a signed spec sheet (?spec=true|false), applied
-// over the stored state like the customer filter.
+// over the stored state the table restores.
 onMounted(() => {
    const spec = specFilterFromQuery(route.query);
    if (spec !== null) filters.value.has_signed_spec.constraints = equalsFilter(spec).constraints;
@@ -140,26 +132,41 @@ const rowActions: Props['rowActions'] = [
    }
 ];
 
-// Export: every product of the customer filter (all when none), as an S10 file. Read page by page,
+// Export: every product of the tenants in scope, as an S10 file. Read page by page,
 // as the API returns at most a page of rows per request.
 const EXPORT_PAGE = 1000;
 const exporting = ref(false);
 
-const fetchExportRows = async () => {
-   const products: ProductExportRow[] = [];
+/** Every row of a table in scope, page by page, in a stable order. */
+const fetchAll = async <Row,>(table: 'product' | 'sourcing', select: string, order: string) => {
+   const rows: Row[] = [];
    for (let from = 0; ; from += EXPORT_PAGE) {
-      let query = supabase
-         .from('product')
-         .select('*, customer(code), supplier(code)')
-         .order('sku')
+      const { data } = await supabase
+         .from(table)
+         .select(select)
+         .order(order)
          .order('id')
-         .range(from, from + EXPORT_PAGE - 1);
-      if (customerFilter.customerId) query = query.eq('customer_id', customerFilter.customerId);
-      const { data } = await query.throwOnError();
-      // `supplier` is the api's computed relationship, which the generated types do not know.
-      products.push(...(data as unknown as ProductExportRow[]));
-      if (data.length < EXPORT_PAGE) return products;
+         .range(from, from + EXPORT_PAGE - 1)
+         .throwOnError();
+      rows.push(...(data as unknown as Row[]));
+      if (data.length < EXPORT_PAGE) return rows;
    }
+};
+
+// The products, with the sourcing rows their supplier, cost and price columns come from, and the
+// relationships naming the clients of those rows.
+const fetchExportRows = async () => {
+   const [products, sourcing, { data: relationships }] = await Promise.all([
+      fetchAll<Tables['product']['Row']>('product', '*', 'sku'),
+      fetchAll<SourcingCard>('sourcing', SOURCING_SELECT, 'created_at'),
+      supabase.from('provider_relationship').select(CLIENT_RELATIONSHIP_SELECT).throwOnError()
+   ]);
+   return withSourcing(
+      products,
+      sourcing,
+      (relationships ?? []) as ClientRelationship[],
+      useAuthStore().currentTenant?.id
+   );
 };
 
 const exportCsv = async () => {
@@ -167,7 +174,13 @@ const exportCsv = async () => {
    try {
       // With a byte order mark, so spreadsheets read the file as UTF-8.
       const blob = new Blob(
-         [String.fromCharCode(0xfeff), toS10Csv(await fetchExportRows(), fieldAccess)],
+         [
+            String.fromCharCode(0xfeff),
+            toS10Csv(await fetchExportRows(), {
+               product: fieldAccess,
+               sourcing: sourcingAccess
+            })
+         ],
          {
             type: 'text/csv;charset=utf-8'
          }
@@ -183,61 +196,69 @@ const exportCsv = async () => {
    }
 };
 
-// Transfer: the selected products, when they are all one customer's (a transfer moves or copies
-// products of one customer). The selection is cleared once the dialog opens and whenever the
-// filters change (rows it holds may no longer be listed).
+// Publish to Amazon: the selected products, when they are all one tenant's (the tenant's Amazon
+// account publishes them). The dialog keeps its own copy of the products, so the selection is
+// cleared and the result table stays. The selection is also cleared whenever the filters change
+// (rows it holds may no longer be listed).
 const selected = ref<TableRow<'product_with_evidence'>[]>([]);
-const transferCustomer = computed(() => {
-   const customers = new Set(selected.value.map(({ customer_id }) => customer_id));
-   return customers.size === 1 ? [...customers][0] : null;
+const bulkTenant = computed(() => {
+   const tenants = new Set(selected.value.map(({ tenant_id }) => tenant_id));
+   return tenants.size === 1 ? [...tenants][0] : null;
 });
-const transferHint = computed(() => {
-   if (!selected.value.length) return t('ops.transfer.open_disabled_empty');
-   return transferCustomer.value ? null : t('ops.transfer.open_disabled_mixed');
-});
-// By value: the customer filter is written again on mount with the same constraints.
 watch(
    () => JSON.stringify(filters.value),
    () => (selected.value = [])
 );
-const openTransfer = async () => {
-   if (!transferCustomer.value) return;
-   await router.push({
-      name: 'ops-transfer',
-      query: {
-         customer_id: transferCustomer.value,
-         product_ids: selected.value.map(({ id }) => id).join(','),
-         showDialog: DIALOG_POSITIONS.CENTER
-      }
-   });
-   selected.value = [];
-};
-
-// Publish to Amazon: the selected products, one customer's like a transfer (the customer's Amazon
-// account publishes them). The dialog keeps its own copy of the products, so the selection is
-// cleared and the result table stays.
 const bulkHint = computed(() => {
    if (!selected.value.length) return t('ops.amazon.bulk.open_disabled_empty');
-   return transferCustomer.value ? null : t('ops.amazon.bulk.open_disabled_mixed');
+   return bulkTenant.value ? null : t('ops.amazon.bulk.open_disabled_mixed');
 });
 const bulkProducts = ref<TableRow<'product_with_evidence'>[]>([]);
 const bulkOpen = ref(false);
 const openBulk = () => {
-   if (!transferCustomer.value) return;
+   if (!bulkTenant.value) return;
    bulkProducts.value = [...selected.value];
    bulkOpen.value = true;
-   // As after a transfer: the next action starts from a new selection.
+   // The next action starts from a new selection.
    selected.value = [];
 };
+
+// Copy or move to another company: the selected products, when they are all one tenant's (the
+// wizard's source). It follows the right to transfer (read and create) and the module's plan.
+const transferHint = computed(() => {
+   if (!selected.value.length) return t('ops.transfer.open_disabled_empty');
+   return bulkTenant.value ? null : t('ops.transfer.open_disabled_mixed');
+});
+const openTransfer = () => {
+   if (!bulkTenant.value) return;
+   router.push({
+      name: 'ops-transfer',
+      query: {
+         showDialog: DIALOG_POSITIONS.CENTER,
+         source_tenant: bulkTenant.value,
+         product_ids: selected.value.map(({ id }) => id).join(',')
+      }
+   });
+};
+
+// Transfers into or out of the tenants in scope whose files are not all copied: they block later
+// transfers into their target, so they can be finished from here.
+const tenantKey = useTenantKey();
+const scopeIds = computed(() => tenantKey.value?.split(',').filter(Boolean) ?? []);
 
 const dialogRef = useDialogRef();
 </script>
 <template>
+   <PendingTransfers
+      v-if="$can('select', 'transfer') && $can('create', 'transfer')"
+      :tenants="scopeIds"
+      class="mb-4"
+   />
    <ResourceTable
       v-bind="attrs"
       stateKey="product"
       from="product_with_evidence"
-      select="*, customer(code, display_name), supplier(code)"
+      select="*"
       :columns
       :rowActions
       :enableExpansion="false"
@@ -248,23 +269,6 @@ const dialogRef = useDialogRef();
       <template #header>
          <Teleport to="#page-toolbar" :disabled="!!dialogRef">
             <span class="flex-1 flex justify-end gap-4 flex-wrap-reverse">
-               <span
-                  v-if="$can('create', 'transfer')"
-                  v-tooltip.bottom="transferHint"
-                  data-transfer
-               >
-                  <Button
-                     variant="outlined"
-                     :icon="PrimeIcons.ARROW_RIGHT_ARROW_LEFT"
-                     :label="
-                        selected.length
-                           ? $t('ops.transfer.open_count', { count: selected.length })
-                           : $t('ops.transfer.open')
-                     "
-                     :disabled="!transferCustomer"
-                     @click="openTransfer"
-                  />
-               </span>
                <span
                   v-if="$can('create', 'listing_submission')"
                   v-tooltip.bottom="bulkHint"
@@ -282,8 +286,25 @@ const dialogRef = useDialogRef();
                              )
                            : $t('ops.amazon.bulk.open')
                      "
-                     :disabled="!transferCustomer"
+                     :disabled="!bulkTenant"
                      @click="openBulk"
+                  />
+               </span>
+               <span
+                  v-if="$can('select', 'transfer') && $can('create', 'transfer')"
+                  v-tooltip.bottom="transferHint"
+                  data-transfer-open
+               >
+                  <Button
+                     variant="outlined"
+                     :icon="PrimeIcons.ARROW_RIGHT_ARROW_LEFT"
+                     :label="
+                        selected.length
+                           ? $t('ops.transfer.open_count', { count: selected.length })
+                           : $t('ops.transfer.open')
+                     "
+                     :disabled="!bulkTenant"
+                     @click="openTransfer"
                   />
                </span>
                <Button

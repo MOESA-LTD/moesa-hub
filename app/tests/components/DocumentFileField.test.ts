@@ -44,7 +44,7 @@ vi.mock('@/components/service-components/media/MediaDropzone.vue', async () => {
    return {
       default: defineComponent({
          name: 'MediaDropzone',
-         props: { customerId: null, tenantId: null, multiple: Boolean, compact: Boolean },
+         props: { tenantId: null, multiple: Boolean, compact: Boolean },
          emits: ['uploaded'],
          setup: () => () => h('div')
       })
@@ -97,11 +97,7 @@ const libraryQuery = () => {
 const file = (id: string) =>
    ({ id, file_name: `${id}.pdf`, storage_path: `t-doc/${id}/${id}.pdf` }) as MediaRow;
 
-const mountField = (props: {
-   mediaId: string | null;
-   customerId?: string | null;
-   readonly?: boolean;
-}) => {
+const mountField = (props: { mediaId: string | null; readonly?: boolean }) => {
    const wrapper = mount(DocumentFileField, {
       props: {
          ...props,
@@ -121,40 +117,24 @@ describe('DocumentFileField', () => {
       api.download.mockReset().mockResolvedValue(undefined);
    });
 
-   it("offers an upload and the library, both for the document's customer and tenant", () => {
-      const wrapper = mountField({ mediaId: null, customerId: 'c1' });
+   it("offers an upload and the library, both in the document's tenant", () => {
+      const wrapper = mountField({ mediaId: null });
 
       expect(wrapper.getComponent(MediaDropzone).props()).toMatchObject({
-         customerId: 'c1',
          tenantId: 't-doc',
          multiple: false,
          compact: true
       });
       expect(wrapper.getComponent(MediaPickerDialog).props()).toMatchObject({
-         customerId: 'c1',
          tenantId: 't-doc',
          multiple: false
       });
       expect(wrapper.text()).toContain(i18n.t('ops.media.pick'));
    });
 
-   it('offers shared files only when the record has no customer', () => {
-      const wrapper = mountField({ mediaId: null });
-      expect(wrapper.getComponent(MediaDropzone).props('customerId')).toBeNull();
-      expect(wrapper.getComponent(MediaPickerDialog).props('customerId')).toBeNull();
-      // The library is asked for the files of no customer, those the database lets it cite.
-      expect(libraryQuery()).toEqual([
-         ['eq', 'tenant_id', 't-doc'],
-         ['is', 'customer_id', null]
-      ]);
-   });
-
-   it("offers the customer's and the shared files to a record of a customer", () => {
-      mountField({ mediaId: null, customerId: 'c1' });
-      expect(libraryQuery()).toEqual([
-         ['eq', 'tenant_id', 't-doc'],
-         ['or', 'customer_id.eq.c1,customer_id.is.null']
-      ]);
+   it("offers the files of the document's tenant", () => {
+      mountField({ mediaId: null });
+      expect(libraryQuery()).toEqual([['eq', 'tenant_id', 't-doc']]);
    });
 
    it('offers an upload only with the right to create files', () => {
@@ -162,7 +142,7 @@ describe('DocumentFileField', () => {
          { action: 'manage', subject: 'all' },
          { action: 'insert', subject: 'media', inverted: true }
       ]);
-      const wrapper = mountField({ mediaId: null, customerId: 'c1' });
+      const wrapper = mountField({ mediaId: null });
       expect(wrapper.findComponent(MediaDropzone).exists()).toBe(false);
       expect(wrapper.find('[data-action="pick-from-library"]').exists()).toBe(true);
    });
@@ -172,14 +152,14 @@ describe('DocumentFileField', () => {
          { action: 'manage', subject: 'all' },
          { action: 'select', subject: 'media', inverted: true }
       ]);
-      const wrapper = mountField({ mediaId: null, customerId: 'c1' });
+      const wrapper = mountField({ mediaId: null });
       expect(wrapper.find('[data-action="pick-from-library"]').exists()).toBe(false);
       expect(wrapper.findComponent(MediaPickerDialog).exists()).toBe(false);
       expect(wrapper.findComponent(MediaDropzone).exists()).toBe(true);
    });
 
    it('takes an uploaded or picked file', async () => {
-      const wrapper = mountField({ mediaId: null, customerId: 'c1' });
+      const wrapper = mountField({ mediaId: null });
 
       wrapper.getComponent(MediaDropzone).vm.$emit('uploaded', [file('m1')]);
       expect(wrapper.emitted('update:mediaId')).toEqual([['m1']]);
@@ -190,7 +170,7 @@ describe('DocumentFileField', () => {
    });
 
    it('shows the file with buttons to open and remove it', async () => {
-      const wrapper = mountField({ mediaId: 'm1', customerId: 'c1' });
+      const wrapper = mountField({ mediaId: 'm1' });
 
       expect(wrapper.text()).toContain('m1.pdf');
       expect(wrapper.findComponent(MediaDropzone).exists()).toBe(false);

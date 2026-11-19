@@ -4,7 +4,7 @@ import IncidentTable from '@/components/service-components/incident-table/Incide
 import { DIALOG_POSITIONS } from '@/constants/router';
 
 // The incidents linked to the project (each opens its own card). A new incident starts with the
-// project and its customer filled in. The project comes from the card's cached query.
+// project filled in. The project comes from the card's cached query.
 const props = defineProps<{ id: string }>();
 
 const { data: project } = projectResource.useOne(() => props.id);
@@ -17,7 +17,6 @@ const { data: project } = projectResource.useOne(() => props.id);
             :to="{
                name: 'ops-incident-manage',
                query: {
-                  customer_id: project.customer_id,
                   entity_type: 'project',
                   entity_id: id,
                   showDialog: DIALOG_POSITIONS.CENTER

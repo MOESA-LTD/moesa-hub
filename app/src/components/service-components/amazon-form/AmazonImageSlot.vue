@@ -10,7 +10,6 @@ const props = defineProps<{
    location: string | null;
    inputId?: string;
    readonly?: boolean;
-   customerId?: string | null;
    tenantId?: string | null;
 }>();
 const emit = defineEmits<{ pick: [mediaId: string]; clear: [] }>();
@@ -64,7 +63,6 @@ const onPicked = (rows: { id: string | null }[]) => {
          />
          <MediaPickerDialog
             v-model:visible="pickerOpen"
-            :customerId="customerId ?? null"
             :tenantId="tenantId ?? null"
             :multiple="false"
             :kinds="['image']"

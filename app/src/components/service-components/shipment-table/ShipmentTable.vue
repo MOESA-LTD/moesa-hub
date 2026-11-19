@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { withCustomerFilter } from '@/api/customerFilter';
 import {
    SHIPMENT_MODES,
    SHIPMENT_STATUSES,
@@ -14,13 +13,15 @@ import {
    equalsFilter,
    type FilterSpec
 } from '@/components/service-components/resource-table/createFilters';
+import { clientVisibleColumns, useSharedRow } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 import dayjs from 'dayjs';
 
-// Shipments (public.shipment_overview) of the customer the lists are filtered by (every
-// customer's when none is), optionally only those carrying some orders or a product. Embedded in
-// another card (with filters), the table keeps its state for the session only.
+// Shipments (public.shipment_overview) of the tenants in scope, optionally only those carrying some
+// orders or a product. Embedded in another card (with filters), the table keeps its state for the
+// session only. A provider's shipment shared with the client side (useSharedRow) is tagged with its
+// provider and opens read-only. When every row shown is shared, the columns are the client-visible
+// ones (the others would read empty), with the tracking (carrier, container) added.
 type Props = ResourceTableProps<'shipment_overview'>;
 
 const props = defineProps<{
@@ -47,14 +48,22 @@ const enumFilterColumn = {
    showAddButton: false
 };
 
-const columns = computed<Props['columns']>(() => [
+const { isShared, providerName } = useSharedRow();
+const rows = ref<Views['shipment_overview']['Row'][]>([]);
+const allShared = computed(() => rows.value.length > 0 && rows.value.every(isShared));
+
+// The derived columns of the overview that show client-visible data only: the client's own
+// warehouse and the shipment's order codes.
+const SHARED_DERIVED = ['warehouse_name', 'purchase_order_codes'];
+
+const allColumns = computed<Props['columns']>(() => [
    {
       field: 'code',
       sortable: true,
       sortOrder: { value: -1 },
       header: t('ops.shipment.fields.code')
    },
-   { field: 'customer_code', sortable: true, header: t('ops.shipment.fields.customer') },
+   { field: 'client_code', sortable: true, header: t('ops.shipment.fields.client') },
    {
       field: 'warehouse_name',
       sortable: true,
@@ -69,8 +78,20 @@ const columns = computed<Props['columns']>(() => [
    },
    { field: 'etd', sortable: true, header: t('ops.shipment.fields.etd') },
    { field: 'eta', sortable: true, header: t('ops.shipment.fields.eta') },
+   ...(allShared.value
+      ? [
+           { field: 'carrier', sortable: true, header: t('ops.shipment.fields.carrier') },
+           { field: 'container_no', header: t('ops.shipment.fields.container_no') }
+        ]
+      : []),
    { field: 'purchase_order_codes', header: t('ops.shipment.fields.purchase_orders') }
 ]);
+
+const columns = computed<Props['columns']>(() =>
+   allShared.value
+      ? clientVisibleColumns('shipment', allColumns.value ?? [], SHARED_DERIVED)
+      : allColumns.value
+);
 
 const idFilter = (ids: readonly string[]) => ({
    operator: FilterOperator.AND,
@@ -83,7 +104,6 @@ const tableFilters = ref<NonNullable<Props['filters']>>(
       code: 'startsWith',
       status: equalsFilter(),
       mode: equalsFilter(),
-      customer_id: equalsFilter(),
       ...(narrowed.value ? { id: idFilter([]) as FilterSpec } : {})
    })
 );
@@ -97,24 +117,15 @@ watch(
    { immediate: true }
 );
 
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   tableFilters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
-
 const today = dayjs().format('YYYY-MM-DD');
 const isLate = (row: { eta: string | null; status: ShipmentStatus | null }) =>
    !!row.status && etaState({ eta: row.eta, status: row.status }, today) === 'late';
 
+// A shared shipment opens read-only: viewed, not edited.
 const rowActions: Props['rowActions'] = [
    {
-      label: t('action.edit'),
-      icon: PrimeIcons.PENCIL,
+      label: ({ data }) => (isShared(data) ? t('action.view') : t('action.edit')),
+      icon: ({ data }) => (isShared(data) ? PrimeIcons.EYE : PrimeIcons.PENCIL),
       command:
          ({ data }) =>
          async () =>
@@ -138,7 +149,14 @@ const rowActions: Props['rowActions'] = [
       :rowActions
       :enableExpansion="false"
       v-model:filters="tableFilters"
+      v-model="rows"
    >
+      <template #code_body="{ data }">
+         <span class="inline-flex flex-wrap items-center gap-2">
+            {{ data.code }}
+            <SharedTag v-if="isShared(data)" :provider="providerName(data)" />
+         </span>
+      </template>
       <template #mode_body="{ data }">
          {{ data.mode ? $t(`ops.shipment.mode.${data.mode}`) : '' }}
       </template>

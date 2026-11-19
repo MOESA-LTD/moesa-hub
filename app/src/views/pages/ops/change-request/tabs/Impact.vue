@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { COST_PAYERS } from '@/api/incident';
-import { injectChangeRequestForm } from '../useChangeRequestForm';
+import { injectChangeRequestForm, isCostLocked } from '../useChangeRequestForm';
 
 // S08 D in the card's shared form: what the change costs and who pays, how many days it delays,
 // what it does to quality or compliance and to stock or the listing, and the other documents it
 // touches (the affected one is picked on the request tab).
 const form = injectChangeRequestForm();
 const { values, errors, isDirty, isSubmitting, readonly, reset, submit, draft } = form;
+
+// The cost of a request on a provider's order is the provider's: read-only, and hidden when masked.
+const costLocked = computed(() =>
+   isCostLocked(values.value.order_tenant_id, form.row.value?.tenant_id)
+);
+const showCost = (field: 'cost_impact' | 'cost_payer') =>
+   !costLocked.value || !!values.value[field];
 
 const NOTES = ['quality_impact', 'listing_impact', 'other_documents'] as const;
 </script>
@@ -22,20 +29,22 @@ const NOTES = ['quality_impact', 'listing_impact', 'other_documents'] as const;
       :draft
    >
       <FormField
+         v-if="showCost('cost_impact')"
          class="!flex-auto !max-w-none w-full"
          fluid
          :label="$t('ops.change_request.fields.cost_impact')"
          :error="errors.cost_impact"
-         :readonly
+         :readonly="readonly || costLocked"
          v-slot="slotProps"
       >
          <Textarea v-bind="slotProps" v-model="values.cost_impact" auto-resize rows="2" />
       </FormField>
       <FormField
+         v-if="showCost('cost_payer')"
          fluid
          :label="$t('ops.change_request.fields.cost_payer')"
          :error="errors.cost_payer"
-         :readonly
+         :readonly="readonly || costLocked"
          v-slot="slotProps"
       >
          <SelectEnum

@@ -37,13 +37,28 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
       // Every add dialog shares one draft, so a new line takes the incident from the route.
       toPayload: (data) =>
          data.id || !props.incidentId
-            ? toIncidentLogPayload(data)
+            ? toIncidentLogPayload(data, { costLocked: costLocked.value })
             : {
-                 ...toIncidentLogPayload({ ...data, incident_id: props.incidentId }),
+                 ...toIncidentLogPayload(
+                    { ...data, incident_id: props.incidentId },
+                    { costLocked: costLocked.value }
+                 ),
                  tenant_id: incident.value?.tenant_id
               }
    });
 await ready;
+
+// The cost of a line of an incident on a provider's order is the provider's: read-only, and hidden
+// when masked (NULL for a user without the read right on the provider's side).
+const { data: parent } = incidentResource.useOne(() =>
+   props.id ? (props.incidentId ?? values.value.incident_id) : null
+);
+const costLocked = computed(() => {
+   const linked = incident.value ?? parent.value;
+   return !!linked?.entity_tenant_id && linked.entity_tenant_id !== linked.tenant_id;
+});
+const costVisible = (field: 'cost_amount' | 'cost_currency' | 'cost_payer') =>
+   !costLocked.value || values.value[field] != null;
 
 const TEXT_FIELDS = ['counterparty', 'decision'] as const;
 </script>
@@ -103,11 +118,12 @@ const TEXT_FIELDS = ['counterparty', 'decision'] as const;
             </small>
          </FormField>
          <FormField
+            v-if="costVisible('cost_amount')"
             field="cost_amount"
             fluid
             :label="$t('ops.incident.log.fields.cost_amount')"
             :error="errors.cost_amount"
-            :readonly
+            :readonly="readonly || costLocked"
             v-slot="slotProps"
          >
             <InputNumber
@@ -119,21 +135,23 @@ const TEXT_FIELDS = ['counterparty', 'decision'] as const;
             />
          </FormField>
          <FormField
+            v-if="costVisible('cost_currency')"
             field="cost_currency"
             fluid
             :label="$t('ops.incident.log.fields.cost_currency')"
             :error="errors.cost_currency"
-            :readonly
+            :readonly="readonly || costLocked"
             v-slot="slotProps"
          >
             <SelectCurrency v-bind="slotProps" v-model="values.cost_currency" showClear />
          </FormField>
          <FormField
+            v-if="costVisible('cost_payer')"
             field="cost_payer"
             fluid
             :label="$t('ops.incident.log.fields.cost_payer')"
             :error="errors.cost_payer"
-            :readonly
+            :readonly="readonly || costLocked"
             v-slot="slotProps"
          >
             <SelectEnum

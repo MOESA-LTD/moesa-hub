@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { amazonStoryPrelude, assertLocalApiUrl, bigPdf, countChecks, edgeSecretsSql, GENERATED_BIG_PDF, main, MEDIA, parseCheckRows, parseStatus, ROOT, run } from './seed-story.mjs';
+import { amazonStoryPrelude, assertLocalApiUrl, bigPdf, countChecks, edgeSecretsSql, GENERATED_BIG_PDF, main, MEDIA, mediaFolder, parseCheckRows, parseStatus, ROOT, run, STORY_TENANT_IDS, storyTransfer } from './seed-story.mjs';
 
 test('bigPdf is sample.pdf padded with comment lines to exactly 12 MiB', () => {
    const sample = readFileSync(path.join(ROOT, 'supabase', 'seed_files', 'sample.pdf'));
@@ -34,11 +34,53 @@ test('check rows become FAIL lines; checks are counted by their leading SELECT',
    assert.equal(countChecks('BEGIN;\n  SELECT 1;\nSELECT 1;\nSELECT 2 FROM t\n  WHERE x;\n'), 2);
 });
 
+test("uploads media under each row's tenant", async () => {
+   assert.equal(mediaFolder({ tenant_id: 'T', id: 'M' }), 'T/M');
+
+   // The story's own tenants have fixed ids (the files go up before the story creates them); the
+   // seed's tenants are looked up by name.
+   assert.equal(STORY_TENANT_IDS['Kernhaus Living GmbH'], '5eed0001-0000-4000-8000-000000000001');
+   const storySql = readFileSync(path.join(ROOT, 'supabase', 'seed_story.sql'), 'utf8');
+   for (const id of Object.values(STORY_TENANT_IDS)) assert.ok(storySql.includes(id), `${id} missing from seed_story.sql`);
+
+   const folders = [];
+   const original = console.log;
+   console.log = () => {};
+   try {
+      await main({
+         keys: () => ({ apiUrl: 'http://127.0.0.1:1', serviceRoleKey: 'unused' }),
+         sql: (text) => {
+            if (text.startsWith('SELECT EXISTS')) return 'f\n';
+            const name = /^SELECT id FROM public\.tenant WHERE display_name = '(.+)'$/.exec(text)?.[1];
+            if (name) return `id-of-${name}\n`;
+            if (text === 'SELECT current_date') return '2026-11-06\n';
+            return '';
+         },
+         upload: async (_apiUrl, _key, files) => {
+            for (const f of files) folders.push([f.media.id, f.folder]);
+         },
+         transfer: async () => {},
+         exit: (code) => {
+            throw new Error(`exit ${code}`);
+         },
+      });
+   } finally {
+      console.log = original;
+   }
+   assert.equal(folders.length, MEDIA.length);
+   const byId = Object.fromEntries(folders);
+   for (const m of MEDIA) {
+      const tenantId = STORY_TENANT_IDS[m.tenant] ?? `id-of-${m.tenant}`;
+      assert.equal(byId[m.id], `${tenantId}/${m.id}`, m.id);
+   }
+   assert.deepEqual([...new Set(MEDIA.map((m) => m.tenant))].sort(), ['Kernhaus Living GmbH', 'MOESA LTD', 'THOMETZKI ONLINE HANDEL']);
+});
+
 test('MEDIA lists the step 09 files: unique ids, existing sources, one generated 12 MB PDF', () => {
-   assert.equal(MEDIA.length, 12);
+   assert.equal(MEDIA.length, 13);
    for (const m of MEDIA) {
       assert.match(m.id, /^5eed0009-0000-4000-8000-0000000000\d\d$/);
-      assert.ok(m.file && m.upload && m.mime);
+      assert.ok(m.file && m.upload && m.mime && m.tenant);
       assert.doesNotMatch(m.upload, /\//);
       if (m.file !== GENERATED_BIG_PDF) assert.ok(existsSync(path.join(ROOT, 'supabase', 'seed_files', m.file)), m.file);
       if (m.thumb) assert.ok(existsSync(path.join(ROOT, 'supabase', 'seed_files', m.thumb)), m.thumb);
@@ -49,7 +91,7 @@ test('MEDIA lists the step 09 files: unique ids, existing sources, one generated
    for (const m of MEDIA) assert.ok(storySql.includes(m.id), `${m.id} missing from seed_story.sql`);
 });
 
-test('the KRN guard stops the run before any upload or story SQL', async () => {
+test('refuses a second run when Kernhaus Living GmbH exists', async () => {
    assert.ok(MEDIA.length > 0, 'the guard is only meaningful with files to upload');
    const queries = [];
    let uploads = 0;
@@ -61,11 +103,12 @@ test('the KRN guard stops the run before any upload or story SQL', async () => {
          keys: () => ({ apiUrl: 'http://127.0.0.1:1', serviceRoleKey: 'unused' }),
          sql: (text) => {
             queries.push(text);
-            return '1\n';
+            return 't\n';
          },
          upload: async () => {
             uploads += 1;
          },
+         transfer: async () => {},
          exit: (code) => {
             exited.push(code);
          },
@@ -76,7 +119,7 @@ test('the KRN guard stops the run before any upload or story SQL', async () => {
    assert.deepEqual(exited, [1]);
    assert.equal(uploads, 0);
    assert.equal(queries.length, 1);
-   assert.match(queries[0], /code = 'KRN'/);
+   assert.ok(queries[0].includes("display_name = 'Kernhaus Living GmbH'"), queries[0]);
 });
 
 test('the check runs with the story date the database had before the story began', async () => {
@@ -89,12 +132,13 @@ test('the check runs with the story date the database had before the story began
          keys: () => ({ apiUrl: 'http://127.0.0.1:1', serviceRoleKey: 'unused' }),
          sql: (text, opts) => {
             calls.push({ text, opts });
-            if (text.startsWith('SELECT count(*) FROM public.customer')) return '0\n';
+            if (text.startsWith('SELECT EXISTS')) return 'f\n';
             if (text.startsWith('SELECT id FROM public.tenant')) return 'tenant-id\n';
             if (text === 'SELECT current_date') return '2026-11-06\n';
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -124,13 +168,14 @@ test('edgeSecretsSql sets both secrets after the story and before the check', as
       await main({
          keys: () => ({ apiUrl: 'http://127.0.0.1:1', serviceRoleKey: 'svc-key' }),
          sql: (text, opts) => {
-            if (text.startsWith('SELECT count(*) FROM public.customer')) return '0';
+            if (text.startsWith('SELECT EXISTS')) return 'f';
             if (text.startsWith('SELECT id FROM public.tenant')) return 'tenant-id';
             if (text === 'SELECT current_date') return '2026-11-06';
             order.push(text.includes('edge_service_key') && text.includes('vault.create_secret') ? 'secrets' : opts?.singleTransaction ? 'story' : 'check');
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -213,13 +258,14 @@ test('the story SQL runs after the prelude, in the same transaction', async () =
       await main({
          keys: () => ({ apiUrl: 'http://127.0.0.1:1', serviceRoleKey: 'svc-key' }),
          sql: (text, opts) => {
-            if (text.startsWith('SELECT count(*) FROM public.customer')) return '0';
+            if (text.startsWith('SELECT EXISTS')) return 'f';
             if (text.startsWith('SELECT id FROM public.tenant')) return 'tenant-id';
             if (text === 'SELECT current_date') return '2026-11-06';
             if (opts?.singleTransaction && !text.includes('vault.create_secret')) statements.push(text);
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -230,4 +276,27 @@ test('the story SQL runs after the prelude, in the same transaction', async () =
    assert.equal(statements.length, 1);
    assert.match(statements[0], /^SELECT set_config\('story\.amazon_definition'/);
    assert.ok(statements[0].indexOf('story.amazon_seller_id') < statements[0].indexOf('seed_story: already loaded'));
+});
+
+test('the story transfer copies each file the run lists, then checks the files', async () => {
+   const calls = [];
+   const id = '11111111-2222-3333-4444-555555555555';
+   const files = [{ from: 'src/a.png', to: 'dst/a.png' }];
+   await storyTransfer('http://127.0.0.1:1', 'unused', (text) => {
+      calls.push('sql');
+      if (text.includes("'copy',")) {
+         assert.match(text, /clear_gtin/);
+         assert.match(text, /report_hash/);
+         return `{"sub": "x"}\n${JSON.stringify({ id, files })}\n`;
+      }
+      assert.ok(text.includes(`transfer_check_files('${id}'`));
+      return 'done\n';
+   }, async (_url, _key, list) => {
+      calls.push(`copy ${list.map((f) => `${f.from}>${f.to}`).join()}`);
+   });
+   assert.deepEqual(calls, ['sql', 'copy src/a.png>dst/a.png', 'sql']);
+   await assert.rejects(
+      storyTransfer('http://127.0.0.1:1', 'unused', (text) => (text.includes("'copy',") ? JSON.stringify({ id, files: [] }) : 'partial\n'), async () => {}),
+      /not done/
+   );
 });

@@ -49,7 +49,6 @@ vi.mock('vue-router', async (importOriginal) => ({
    useRoute: () => ({ query: {} }),
    useRouter: () => ({ push: vi.fn() })
 }));
-vi.mock('@/store/customerFilter', () => ({ useCustomerFilter: () => ({ customerId: null }) }));
 vi.mock('@/api/useLookup', async () => {
    const { computed } = await import('vue');
    return { useLookup: () => ({ data: computed(() => undefined) }) };
@@ -106,7 +105,6 @@ vi.mock('@/composables/useUpsertForm', async () => {
 });
 
 const CR = '00000000-0000-4000-8000-000000000021';
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
 const PROJECT = '00000000-0000-4000-8000-000000000002';
 
 const card = (values: Partial<ChangeRequestCard> = {}) =>
@@ -114,8 +112,6 @@ const card = (values: Partial<ChangeRequestCard> = {}) =>
       id: CR,
       tenant_id: 't1',
       code: 'CR-THO-2026-001',
-      customer_id: CUSTOMER,
-      customer: { code: 'THO', display_name: 'Thomas' },
       project_id: PROJECT,
       project: {
          code: 'PRJ-THO-001',

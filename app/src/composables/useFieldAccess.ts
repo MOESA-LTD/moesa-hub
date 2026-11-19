@@ -1,5 +1,13 @@
 import { ability, isFieldWriteForbidden } from '@plugins/casl';
-import { inject, provide, shallowRef, type InjectionKey } from 'vue';
+import { isClientVisible } from '@/composables/useSharedRow';
+import {
+   inject,
+   provide,
+   shallowRef,
+   toValue,
+   type InjectionKey,
+   type MaybeRefOrGetter
+} from 'vue';
 
 // Bumped whenever the rights change, so templates and computeds asking below follow them.
 const version = shallowRef(0);
@@ -32,10 +40,19 @@ const FIELD_ACCESS: InjectionKey<FieldAccess> = Symbol('fieldAccess');
 
 /**
  * Makes `table` the one whose fields the FormFields below name (their `field` prop): a field the
- * user may not read is not rendered, one they may not write is read-only.
+ * user may not read is not rendered, one they may not write is read-only. While `shared` (a
+ * provider's row shared with the user's side, see useSharedRow), only the client-visible fields
+ * show, all read-only: the others read NULL and nothing of the row may be written.
  */
-export function provideFieldAccess(table: string): FieldAccess {
-   const access = useFieldAccess(table);
+export function provideFieldAccess(
+   table: string,
+   shared: MaybeRefOrGetter<boolean> = false
+): FieldAccess {
+   const own = useFieldAccess(table);
+   const access: FieldAccess = {
+      canRead: (field) => (toValue(shared) ? isClientVisible(table, field) : own.canRead(field)),
+      canWrite: (field) => !toValue(shared) && own.canWrite(field)
+   };
    provide(FIELD_ACCESS, access);
    return access;
 }
@@ -72,7 +89,7 @@ export const readableColumns = <C extends { field?: unknown }>(table: string, co
  * user.email is left out: users are invited through the user Edge Function, not saveRow.
  */
 export const REQUIRED_MASKED_FIELDS: Readonly<Record<string, readonly string[]>> = {
-   customer_contact: ['name'],
+   contact: ['name'],
    incident_log: ['note'],
    purchase_order: ['supplier_id'],
    purchase_order_line: ['unit_price'],

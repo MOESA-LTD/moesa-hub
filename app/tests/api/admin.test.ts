@@ -5,6 +5,8 @@ const plan = (overrides: Partial<PlanWithTerms> = {}): PlanWithTerms => ({
    id: 'plan',
    display_name: 'Pro',
    description: null,
+   audience: null,
+   target: 'all',
    price: 499,
    currency: 'TRY',
    billing_period: 'month',
@@ -38,5 +40,15 @@ describe('plan form', () => {
       expect(payload.limits).toEqual({ max_branches: 3, max_users: null });
       expect(payload.plan).not.toHaveProperty('modules');
       expect(payload.plan.description).toBeNull();
+      expect(payload.plan.audience).toBeNull();
+   });
+
+   // Decision 21: the plan's structured target, offered to all unless set.
+   it('reads and sends the target, a new plan offered to all', () => {
+      expect(toPlanFormValues(null).target).toBe('all');
+      const values = toPlanFormValues(plan({ target: 'provider' }));
+      expect(values.target).toBe('provider');
+      expect(toPlanPayload(planSchema.parse(values)).plan.target).toBe('provider');
+      expect(planSchema.safeParse({ ...values, target: 'everyone' }).success).toBe(false);
    });
 });

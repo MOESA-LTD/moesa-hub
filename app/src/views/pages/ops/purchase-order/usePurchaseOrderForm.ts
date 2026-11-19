@@ -1,5 +1,6 @@
 import {
    isPurchaseOrderLocked,
+   lineProduct,
    purchaseOrderResource,
    purchaseOrderSchema,
    toPurchaseOrderFormValues,
@@ -9,9 +10,9 @@ import {
    type PurchaseOrderOverviewRow
 } from '@/api/purchaseOrder';
 import { piDifferences, type FigureLine } from '@/api/purchaseOrder/figures';
+import { useLinkedClient } from '@/api/relationship';
 import { useUpsertForm } from '@/composables/useUpsertForm';
-import { useCustomerFilter } from '@/store/customerFilter';
-import { computed, inject, ref, type InjectionKey, type Ref } from 'vue';
+import { computed, inject, ref, watch, type InjectionKey, type Ref } from 'vue';
 
 /**
  * The purchase order card's tabs: the form's general tab, the lines, the PI check (the form's PI
@@ -34,31 +35,28 @@ export const tabForField = (field: string): 'general' | 'pi' =>
 
 const queryValue = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 
-/** The customer and project a link opens a new order for (?customer_id=…&project_id=…). */
-export type PurchaseOrderLink = { customerId?: unknown; projectId?: unknown };
+/** The project a link opens a new order for (?project_id=…). */
+export type PurchaseOrderLink = { projectId?: unknown };
 
 /**
- * The order card's one form: the general and PI tabs each show their part of it. A new order
- * starts with the customer the lists are filtered by, or the customer and project a link names
- * (?customer_id=…&project_id=…). The route passes those as props: a route dialog renders the page
- * outside the router, where useRoute sees the page under the dialog. Once a new order is saved, its
- * "new" draft is dropped: the card goes on under the order's id (see PurchaseOrderCard).
+ * The order card's one form: the general and PI tabs each show their part of it. A new order starts
+ * with the project a link names (?project_id=…). The route passes it as props: a route dialog
+ * renders the page outside the router, where useRoute sees the page under the dialog. Once a new
+ * order is saved, its "new" draft is dropped: the card goes on under the order's id (see
+ * PurchaseOrderCard). A project of a client names the order's client (an active provider-procures
+ * relationship); a project of a tenant with no such relationship is refused (`linkError`) instead
+ * of a form the database would refuse.
  */
 export function usePurchaseOrderForm(
    id: () => string | null | undefined,
    onSaved?: (order: PurchaseOrderCard) => void,
    link: PurchaseOrderLink = {}
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const prefill = () => {
-      const customerId = queryValue(link.customerId) ?? customerFilter.customerId;
       const projectId = queryValue(link.projectId);
-      return {
-         ...(customerId ? { customer_id: customerId } : {}),
-         ...(projectId ? { project_id: projectId } : {})
-      };
+      return projectId ? { project_id: projectId } : {};
    };
 
    const form = useUpsertForm({
@@ -76,7 +74,29 @@ export function usePurchaseOrderForm(
          onSaved?.(order);
       }
    });
-   return form;
+
+   /** Why the project's link cannot open an order (an errors.<code>), if it cannot. */
+   const linkError = ref<string | null>(null);
+   const linkedProjectId = isNew ? queryValue(link.projectId) : undefined;
+   const linked = useLinkedClient(
+      () => linkedProjectId,
+      () => form.tenantId.value
+   );
+   watch(
+      linked,
+      (state) => {
+         if (!linkedProjectId) return;
+         if (state.status === 'client') form.values.value.client_tenant_id = state.clientTenantId;
+         else if (state.status === 'own') form.values.value.client_tenant_id = null;
+         else if (state.status === 'forbidden') {
+            linkError.value = 'relationship_inactive';
+            form.values.value.project_id = null;
+         }
+      },
+      { immediate: true }
+   );
+
+   return { ...form, linkError };
 }
 
 /** The card's form with a submit that opens the tab of the first error. */
@@ -147,7 +167,7 @@ export function purchaseOrderPiCheck(
                pi_line_total: finite(
                   line.id in lineTotals ? lineTotals[line.id] : line.pi_line_total
                ),
-               ...(line.product?.sku ? { label: line.product.sku } : {})
+               ...(lineProduct(line).sku ? { label: lineProduct(line).sku } : {})
             }
          ];
       });

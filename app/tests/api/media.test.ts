@@ -121,7 +121,7 @@ describe('defaultLinkRole', () => {
       expect(defaultLinkRole({ kind: 'image', entityType: 'product', hasPrimary: true })).toBe(
          'gallery'
       );
-      expect(defaultLinkRole({ kind: 'image', entityType: 'customer', hasPrimary: false })).toBe(
+      expect(defaultLinkRole({ kind: 'image', entityType: 'supplier', hasPrimary: false })).toBe(
          'gallery'
       );
       expect(defaultLinkRole({ kind: 'pdf', entityType: 'product', hasPrimary: false })).toBe(
@@ -176,7 +176,7 @@ describe('mediaLinkRows', () => {
 });
 
 describe('uploadMedia', () => {
-   const ctx = { tenantId: 't1', customerId: 'c1', maxBytes: LIMIT };
+   const ctx = { tenantId: 't1', maxBytes: LIMIT };
    const pdf = () => new File(['%PDF'], 'a.pdf', { type: 'application/pdf' });
    const uploadedPath = (call: number) => mock.upload.mock.calls[call]![0] as string;
 
@@ -193,7 +193,6 @@ describe('uploadMedia', () => {
       expect(mock.insert).toHaveBeenCalledWith({
          id: path.split('/')[1],
          tenant_id: 't1',
-         customer_id: 'c1',
          storage_path: path,
          thumbnail_path: null,
          file_name: 'a.pdf',
@@ -309,7 +308,6 @@ describe('mediaSchema', () => {
       title: 'Front',
       alt_text: '',
       tags: [],
-      customer_id: null,
       ...overrides
    });
 
@@ -330,7 +328,6 @@ describe('mediaSchema', () => {
       const row = {
          id: 'm1',
          tenant_id: 't1',
-         customer_id: 'c1',
          title: 'Front',
          alt_text: 'A mop',
          tags: ['mop'],
@@ -346,8 +343,7 @@ describe('mediaSchema', () => {
          id: 'm1',
          title: 'Front',
          alt_text: 'A mop',
-         tags: ['mop'],
-         customer_id: 'c1'
+         tags: ['mop']
       });
    });
 });

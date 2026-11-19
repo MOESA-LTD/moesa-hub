@@ -41,6 +41,17 @@ export declare type ResourceTableProps<
     * relation; a view without that relation names a column of its own.
     */
    branchSortField?: string;
+   /**
+    * Conditions every read carries, kept out of the table state (storage and the URL), so they
+    * follow the app's state (e.g. the tenants in scope) and cannot go stale.
+    */
+   fixedFilters?: FixedFilter[];
+};
+/** A column that must (`in`) or must not (`notIn`) hold one of `values`. */
+export declare type FixedFilter = {
+   column: string;
+   in?: readonly string[];
+   notIn?: readonly string[];
 };
 export declare type ResourceTableSlots<T = any> = CustomTableSlots<T>;
 
@@ -89,7 +100,8 @@ const listQuery = useQuery({
    queryKey: computed(() =>
       queryKeys.list(props.tenant ?? tenantId.value, props.from, {
          select: props.select,
-         meta: meta.value
+         meta: meta.value,
+         fixed: props.fixedFilters ?? null
       })
    ),
    queryFn: async ({ signal }) => {
@@ -106,7 +118,12 @@ const listQuery = useQuery({
          props.tenant
       );
 
-      const filtered = applyTableMeta(query, tableMeta);
+      let fixed = applyTableMeta(query, tableMeta);
+      for (const { column, in: within, notIn } of props.fixedFilters ?? []) {
+         if (within) fixed = fixed.in(column, [...within]);
+         if (notIn?.length) fixed = fixed.not(column, 'in', `(${notIn.join(',')})`);
+      }
+      const filtered = fixed;
       const { data, count } = await (
          branches.length ? filtered.in('tenant_id', branches) : filtered
       ).throwOnError();
@@ -161,7 +178,7 @@ const columns = computed(() => {
    return showBranch.value
       ? [
            ...readable,
-           { field: 'tenant_id', header: t('component.branch_picker.column'), sortable: true }
+           { field: 'tenant_id', header: t('component.tenant_picker.column'), sortable: true }
         ]
       : readable;
 });
@@ -193,7 +210,7 @@ const withBranchColumn = (value: TableMeta | null) => {
 };
 
 const tableProps = computed(() => ({
-   ..._omit(props, ['stateKey', 'model', 'tenant', 'branchSortField']),
+   ..._omit(props, ['stateKey', 'model', 'tenant', 'branchSortField', 'fixedFilters']),
    ...attrs,
    filters: { ...BRANCH_FILTER, ...props.filters },
    columns: columns.value
@@ -224,7 +241,7 @@ const tableProps = computed(() => ({
             :options="authStore.scopeTenants"
             optionLabel="display_name"
             optionValue="id"
-            :placeholder="t('component.branch_picker.column')"
+            :placeholder="t('component.tenant_picker.column')"
             display="chip"
             class="w-full min-w-56"
          />

@@ -52,13 +52,16 @@ const api = vi.hoisted(() => ({
    deleteRow: vi.fn()
 }));
 
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRoute: () => ({ query: {} }),
    useRouter: () => ({ push: vi.fn() })
 }));
-vi.mock('@/store/customerFilter', () => ({ useCustomerFilter: () => ({ customerId: null }) }));
 vi.mock('@/composables/useUpsertForm', async () => {
    const { ref } = await import('vue');
    return {
@@ -71,18 +74,20 @@ vi.mock('@/composables/useUpsertForm', async () => {
             isDirty: ref(false),
             isSubmitting: ref(false),
             readonly: ref(false),
+            shared: ref(false),
             reset: vi.fn(),
             save: vi.fn(),
             ready: Promise.resolve(),
             draft: {},
             row: ref(null),
+            tenantId: ref('t1'),
             discardDraft: vi.fn()
          };
       }
    };
 });
 // A lookup with an `in` filter yields its rows only once the filter has values (as the real one
-// would load them for that customer, order line or shipment).
+// would load them for that tenant, order line or shipment).
 vi.mock('@/api/useLookup', async () => {
    const { computed, toValue } = await import('vue');
    return {
@@ -119,7 +124,6 @@ vi.mock('@/api/shipment', async (importOriginal) => {
    };
 });
 
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
 const SHIPMENT = '00000000-0000-4000-8000-000000000101';
 const PO1 = '00000000-0000-4000-8000-000000000201';
 const PO2 = '00000000-0000-4000-8000-000000000202';
@@ -136,12 +140,11 @@ const shipment = (
       tenant_id: 't1',
       code: 'SHP-THO-2026-001',
       status,
-      customer_id: CUSTOMER,
+      client_tenant_id: null,
       delivery_warehouse_id: 'w1',
       quantity_matches: null,
       has_damage: null,
-      customer: { code: 'THO', display_name: 'Thomas' },
-      customer_warehouse: null,
+      warehouse: null,
       shipment_purchase_order: [
          {
             purchase_order: {
@@ -196,6 +199,7 @@ const standInForm = (row: ShipmentCard | null, warehouses: unknown[] = []) => ({
    isDirty: ref(false),
    isSubmitting: ref(false),
    readonly: ref(false),
+   shared: ref(false),
    reset: vi.fn(),
    submit: vi.fn(),
    draft: {},
@@ -209,8 +213,6 @@ const Slot = defineComponent({
       () =>
          h('div', slots.default?.({}))
 });
-const Stub = (name: string) =>
-   defineComponent({ name, props: ['modelValue'], setup: () => () => h('span') });
 const CustomLink = defineComponent({
    props: ['to'],
    setup:
@@ -249,8 +251,8 @@ const mountTab = (
          stubs: {
             FormBox: Slot,
             FormField: Slot,
-            SelectCustomer: Stub('SelectCustomer'),
             CustomLink,
+            SelectClient: true,
             teleport: true
          }
       }
@@ -290,29 +292,38 @@ describe('tabForField', () => {
 });
 
 describe('useShipmentForm', () => {
-   it("gives a new shipment the chosen customer's default warehouse", async () => {
-      api.lookups.customer_warehouse = [{ id: 'w1', is_default: true }];
+   it("gives a new shipment its tenant's default warehouse", async () => {
+      api.lookups.warehouse = [{ id: 'w1', is_default: true }];
       useShipmentForm(() => null);
-
-      api.values.value.customer_id = CUSTOMER;
       await nextTick();
 
       expect(api.values.value.delivery_warehouse_id).toBe('w1');
       expect(api.lookupCalls.at(-1)).toMatchObject({
-         table: 'customer_warehouse',
-         options: { in: { column: 'customer_id', values: [CUSTOMER] } }
+         table: 'warehouse',
+         options: { in: { column: 'tenant_id', values: ['t1'] } }
       });
    });
 
-   it('keeps a warehouse of the customer already chosen', async () => {
-      api.lookups.customer_warehouse = [
+   it("lists the client's warehouses on a client shipment", async () => {
+      api.lookups.warehouse = [{ id: 'cw1', is_default: true }];
+      api.values.value.client_tenant_id = 'client';
+      useShipmentForm(() => null);
+      await nextTick();
+
+      expect(api.lookupCalls.at(-1)).toMatchObject({
+         table: 'warehouse',
+         options: { in: { column: 'tenant_id', values: ['client'] }, tenantId: 'client' }
+      });
+      expect(api.values.value.delivery_warehouse_id).toBe('cw1');
+   });
+
+   it('keeps a warehouse of the tenant already chosen', async () => {
+      api.lookups.warehouse = [
          { id: 'w1', is_default: true },
          { id: 'w2', is_default: false }
       ];
-      useShipmentForm(() => null);
-
-      api.values.value.customer_id = CUSTOMER;
       api.values.value.delivery_warehouse_id = 'w2';
+      useShipmentForm(() => null);
       await nextTick();
 
       expect(api.values.value.delivery_warehouse_id).toBe('w2');
@@ -321,7 +332,6 @@ describe('useShipmentForm', () => {
    it('saves the dispute deadline only when it was edited after loading', () => {
       const loaded = toShipmentFormValues({
          id: SHIPMENT,
-         customer_id: CUSTOMER,
          mode: 'road',
          delivery_warehouse_id: '00000000-0000-4000-8000-000000000401',
          dispute_deadline_at: '2027-01-12T10:00:00+00:00'
@@ -453,11 +463,13 @@ describe('orders tab', () => {
       expect(api.deleteRow).toHaveBeenCalledExactlyOnceWith({ id: 'sl0' });
    });
 
-   it("offers the customer's open orders that are not on it, and links one", async () => {
+   it("offers the open orders of the shipment's tenant and client not on it, and links one", async () => {
+      const own = { tenant_id: 't1', client_tenant_id: null };
       api.lookups.purchase_order_overview = [
-         { id: PO1, code: 'PO-THO-2026-001', status: 'deposit_paid', customer_id: CUSTOMER },
-         { id: 'po3', code: 'PO-THO-2026-003', status: 'ready', customer_id: CUSTOMER },
-         { id: 'po4', code: 'PO-XYZ-2026-001', status: 'ready', customer_id: 'other' }
+         { id: PO1, code: 'PO-THO-2026-001', status: 'deposit_paid', ...own },
+         { id: 'po3', code: 'PO-THO-2026-003', status: 'ready', ...own },
+         { id: 'po4', code: 'PO-XYZ-2026-001', status: 'ready', ...own, client_tenant_id: 'c2' },
+         { id: 'po5', code: 'PO-ABC-2026-001', status: 'ready', ...own, tenant_id: 't2' }
       ];
       const wrapper = mountTab(Orders, standInForm(shipment('planned')), {
          psi_missing_po_codes: ['PO-THO-2026-002']
@@ -471,7 +483,7 @@ describe('orders tab', () => {
 
       const { options } = api.lookupCalls.find(({ table }) => table === 'purchase_order_overview')!;
       expect(options).toEqual({
-         select: 'id, code, status, customer_id',
+         select: 'id, code, status, tenant_id, client_tenant_id',
          in: {
             column: 'status',
             values: ['pi_approved', 'deposit_paid', 'in_production', 'ready', 'balance_paid']

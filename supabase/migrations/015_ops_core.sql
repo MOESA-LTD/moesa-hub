@@ -1,4 +1,4 @@
--- Operations core: what the business modules (customers, suppliers, products, documents,
+-- Operations core: what the business modules (clients, suppliers, products, documents,
 -- projects) build on.
 --
 -- setting        Numbers management has yet to settle (deposit %, safety stock days, …) kept as
@@ -10,16 +10,16 @@
 --                (private.audit_statement) identifies every audited row by a UUID `id`.
 -- platform       The marketplaces (amazon, ebay, …): global reference data like public.module and
 --                public.plan, the same for every tenant, so it has no tenant_id. Its id is the
---                code other tables refer to (customer_platform_account.platform_id). Read by every
+--                code other tables refer to (platform_account.platform_id). Read by every
 --                signed-in user and written only by migrations, so it has no permissions and is
 --                not audited (its TEXT id is not a UUID the audit trail could record).
--- code_sequence  The counters behind the business codes (K5): per tenant, kind, customer code and
---                year. Written only by public.next_code; no permissions, so no direct access.
+-- code_sequence  The counters behind the business codes (K5): per tenant, kind, scope code and
+--                year. Written only by private.next_code; no permissions, so no direct access.
 --
--- public.next_code is SECURITY DEFINER: code_sequence has RLS with only the restrictive tenant
--- policies and no permissive one, so the caller could neither read nor write it. It writes the
--- active tenant's row only (private.tenant_id(), checked against the user's tenants), and fails
--- without one.
+-- private.next_code is SECURITY DEFINER: code_sequence has RLS with only the restrictive tenant
+-- policies and no permissive one, so the caller could neither read nor write it. The code triggers
+-- call it with the row's tenant; public.next_code calls it with the active tenant
+-- (private.tenant_id(), checked against the user's tenants), and fails without one.
 
 -- Modules of the business modules, part of every plan. Their permissions come with the tasks that
 -- add their tables; ops_setting has the settings'.
@@ -29,7 +29,7 @@ VALUES
    ('ops_setting', TRUE, 100),
    ('document', TRUE, 110),
    ('supplier', TRUE, 120),
-   ('customer', TRUE, 130),
+   ('client', TRUE, 130),
    ('product', TRUE, 140),
    ('project', TRUE, 150)
 ON CONFLICT (id) DO NOTHING;
@@ -142,56 +142,101 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.code_sequence (
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
    kind TEXT NOT NULL,
-   -- The customer code the codes are numbered under.
+   -- The code the codes are numbered under (private.code_scope).
    scope TEXT NOT NULL,
    year INT NOT NULL,
    last_no INT NOT NULL DEFAULT 0,
    CONSTRAINT code_sequence_pkey PRIMARY KEY (tenant_id, kind, scope, year)
 );
 
--- The next code of `kind` for the customer `scope` in the active tenant, this year:
--- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr → <KIND>-<SCOPE>-<YYYY>-<NNN>. The upsert locks the
--- counter row, so concurrent calls wait for each other and never get the same number.
-CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
+-- The next code of `p_kind` for the `p_scope` (private.code_scope) in tenant `p_tenant`, this year:
+-- project → <SCOPE>-<YYYY>-<NNN>; po, shp, cr → <KIND>-<SCOPE>-<YYYY>-<NNN>. The code triggers pass
+-- the row's own tenant, which may differ from the active one (a provider row written while the
+-- client is active), so the number always comes from the counter of the tenant the row belongs to.
+-- Callers cannot run it (only the SECURITY DEFINER triggers and public.next_code do). The upsert
+-- locks the counter row, so concurrent calls wait for each other and never get the same number.
+CREATE OR REPLACE FUNCTION private.next_code (p_tenant UUID, p_kind TEXT, p_scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
-    active UUID := private.tenant_id();
     current_year INT := extract(year FROM now())::INT;
     number INT;
     formatted TEXT;
 BEGIN
-    IF active IS NULL THEN
+    IF p_tenant IS NULL THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
             DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
     END IF;
 
-    IF next_code.kind IS NULL OR next_code.kind NOT IN ('project', 'po', 'shp', 'cr')
-       OR next_code.scope IS NULL OR next_code.scope !~ '^[A-Z0-9]+$' THEN
+    IF p_kind IS NULL OR p_kind NOT IN ('project', 'po', 'shp', 'cr')
+       OR p_scope IS NULL OR p_scope !~ '^[A-Z0-9]+$' THEN
         RAISE SQLSTATE 'PGRST' USING
             MESSAGE = json_build_object('code', 'P0001', 'message', 'invalid_code_kind_or_scope')::TEXT,
             DETAIL = json_build_object('status', 400, 'headers', json_build_object())::TEXT;
     END IF;
 
     INSERT INTO public.code_sequence AS cs (tenant_id, kind, scope, year, last_no)
-    VALUES (active, next_code.kind, next_code.scope, current_year, 1)
+    VALUES (p_tenant, p_kind, p_scope, current_year, 1)
     ON CONFLICT ON CONSTRAINT code_sequence_pkey DO UPDATE SET last_no = cs.last_no + 1
     RETURNING cs.last_no INTO number;
 
     -- At least three digits; a 1000th code still gets its full number.
-    formatted := next_code.scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
+    formatted := p_scope || '-' || current_year || '-' || lpad(number::TEXT, greatest(3, length(number::TEXT)), '0');
 
-    IF next_code.kind = 'project' THEN
+    IF p_kind = 'project' THEN
         RETURN formatted;
     END IF;
-    RETURN upper(next_code.kind) || '-' || formatted;
+    RETURN upper(p_kind) || '-' || formatted;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.next_code (UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+
+-- The next code in the active tenant (private.tenant_id(), checked against the user's tenants);
+-- fails without one. The code triggers call private.next_code with the row's own tenant instead.
+CREATE OR REPLACE FUNCTION public.next_code (kind TEXT, scope TEXT) RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    active UUID := private.tenant_id();
+BEGIN
+    IF active IS NULL THEN
+        RAISE SQLSTATE 'PGRST' USING
+            MESSAGE = json_build_object('code', 'P0001', 'message', 'tenant_required')::TEXT,
+            DETAIL = json_build_object('status', 403, 'headers', json_build_object())::TEXT;
+    END IF;
+    RETURN private.next_code(active, next_code.kind, next_code.scope);
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.next_code (TEXT, TEXT) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.next_code (TEXT, TEXT) TO authenticated;
+
+-- The code a number is drawn under. A row of the tenant's own (p_client NULL) is numbered under the
+-- tenant's code; a row kept for a client tenant under the code the provider gave that client in
+-- their relationship. NULL when there is none, which next_code refuses. SECURITY DEFINER because
+-- the caller may not read the other side of the relationship.
+CREATE OR REPLACE FUNCTION private.code_scope (p_tenant UUID, p_client UUID) RETURNS TEXT LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    scope TEXT;
+BEGIN
+    -- plpgsql, so the body is not checked until it runs: provider_relationship is made in
+    -- 018_tenant_relations.sql.
+    IF p_client IS NULL THEN
+        SELECT t.code INTO scope FROM public.tenant t WHERE t.id = p_tenant;
+    ELSE
+        SELECT r.client_code INTO scope FROM public.provider_relationship r
+        WHERE r.tenant_id = p_tenant AND r.client_tenant_id = p_client;
+    END IF;
+    RETURN scope;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.code_scope (UUID, UUID) FROM PUBLIC, anon, authenticated;
 
 -- Tenant policies (006_init_permissions.sql covers only the tables that existed then).
 SELECT

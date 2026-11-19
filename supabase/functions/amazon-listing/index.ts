@@ -1,5 +1,5 @@
 // amazon-listing: one cell's Amazon listing. Every action is POST { action, ... } and needs
-// insert on listing_submission (each one spends the customer's grant or writes state).
+// insert on listing_submission (each one spends the tenant's grant or writes state).
 //
 //   check        { cell_id }                   -> { missing, match, state }
 //                match = { asin, restricted, reasons, checked_at } | null (no connected account)
@@ -87,12 +87,15 @@ import {
    putListingsItem,
    requireLanguageTag,
    skuFor,
+   markActiveProviders,
+   SOURCING_LISTING_COLUMNS,
+   sourcingArtNo,
    withNewItemAvailability
 } from './listing.ts';
 
 type Db = SupabaseClient<Database>;
 
-/** Every action: the check and the status spend the customer's grant and write state too. */
+/** Every action: the check and the status spend the tenant's grant and write state too. */
 const WRITE: Requirement = [['insert', 'listing_submission']];
 /** The static sandbox serves the VALIDATION_PREVIEW mock only on its NA host, for this marketplace. */
 const SANDBOX_PREVIEW_MARKETPLACE = 'ATVPDKIKX0DER';
@@ -168,6 +171,23 @@ const loadContext = async (db: Db, tenantId: string, id: string): Promise<CellCo
    if (!product.amazon_product_type) throw new HttpError(422, 'listing_product_type_missing');
 
    const parent = product.parent_id ? await loadProduct(db, tenantId, product.parent_id) : null;
+   // Q3: the article number of the sourcing row the caller reads, through api (masked when not
+   // readable); the model and part number are derived from it.
+   const { data: sourcing, error: sourcingError } = await db
+      .from('sourcing')
+      .select(SOURCING_LISTING_COLUMNS)
+      .eq('product_tenant_id', tenantId)
+      .in('product_id', parent ? [product.id, parent.id] : [product.id]);
+   if (sourcingError) throw sourcingError;
+   // M5: a provider's row is preferred while its relationship is active (client-visible columns).
+   const { data: relationships, error: relationshipError } = await db
+      .from('provider_relationship')
+      .select('tenant_id, client_tenant_id, status')
+      .eq('status', 'active');
+   if (relationshipError) throw relationshipError;
+   const rows = markActiveProviders(sourcing ?? [], relationships ?? []);
+   product.manufacturer_art_no = sourcingArtNo(rows, tenantId, product.id);
+   if (parent) parent.manufacturer_art_no = sourcingArtNo(rows, tenantId, parent.id);
    let parentCell: MarketCellRow | null = null;
    if (parent) {
       const { data, error } = await db
@@ -236,16 +256,10 @@ const missingFor = (definition: DefinitionRow, ctx: CellContext): MissingField[]
    );
 };
 
-/** N2: a cell whose customer account is not connected is treated as draft. */
+/** N2: a cell whose tenant account is not connected is treated as draft. */
 const accountOrNull = async (run: Run, ctx: CellContext): Promise<AmazonAccount | null> => {
    try {
-      return await amazonAccountFor(
-         run.db,
-         run.service,
-         ctx.cell.customer_id,
-         run.tenantId,
-         run.env
-      );
+      return await amazonAccountFor(run.db, run.service, run.tenantId, run.env);
    } catch (error) {
       if (error instanceof HttpError && error.message === 'amazon_not_connected') return null;
       throw error;
@@ -392,7 +406,7 @@ const bodyFor = (ctx: CellContext, imageUrls: Record<string, string>, definition
    );
 
 const requireAccount = async (run: Run, ctx: CellContext) =>
-   amazonAccountFor(run.db, run.service, ctx.cell.customer_id, run.tenantId, run.env);
+   amazonAccountFor(run.db, run.service, run.tenantId, run.env);
 
 const validate = async (run: Run, id: string) => {
    const ctx = await loadContext(run.db, run.tenantId, id);
@@ -449,9 +463,11 @@ const publishCell = async (run: Run, id: string, asParent = false): Promise<Publ
 
    // 3. A child needs its parent's cell (created when missing) and the parent listed first (R7).
    if (ctx.parent && !asParent) {
-      const { data: parentCellId, error } = await run.db.schema('public').rpc('listing_parent_cell', {
-         p_cell_id: ctx.cell.id
-      });
+      const { data: parentCellId, error } = await run.db
+         .schema('public')
+         .rpc('listing_parent_cell', {
+            p_cell_id: ctx.cell.id
+         });
       if (error) throw error;
       if (parentCellId) {
          const parentSubs = await submissionsOf(run.db, run.tenantId, parentCellId);
@@ -534,13 +550,7 @@ const loadDeleteTarget = async (run: Run, id: string) => {
 
 const remove = async (run: Run, id: string): Promise<Response> => {
    const ctx = await loadDeleteTarget(run, id);
-   const account = await amazonAccountFor(
-      run.db,
-      run.service,
-      ctx.cell.customer_id,
-      run.tenantId,
-      run.env
-   );
+   const account = await amazonAccountFor(run.db, run.service, run.tenantId, run.env);
    const submission = await beginSubmission(run, ctx, 'delete', {});
 
    // A delete must not walk the business status (listing_apply_submission would): the

@@ -20,6 +20,7 @@ import {
    mediaRefs,
    parseSubmission,
    PRODUCT_LISTING_COLUMNS,
+   SOURCING_LISTING_COLUMNS,
    type ProductRow,
    publicImageUrl,
    requireLanguageTag,
@@ -41,7 +42,6 @@ const storyAttributes = JSON.parse(
 const DE = 'A1PA6795UKMFR9';
 const FR = 'A13V1IB3VIYZZH';
 const TENANT = '00000000-0000-4000-8000-0000000000a1';
-const CUSTOMER = '00000000-0000-4000-8000-0000000000c1';
 const MEDIA = '5eed0009-0000-4000-8000-000000000001';
 const MEDIA_2 = '5eed0009-0000-4000-8000-000000000002';
 const PUBLIC_BASE = 'http://127.0.0.1:54321';
@@ -55,8 +55,7 @@ const product = (over: Partial<ProductRow> = {}): ProductRow =>
    ({
       id: '00000000-0000-4000-8000-00000000ad01',
       tenant_id: TENANT,
-      customer_id: CUSTOMER,
-      sku: 'THO-MOP40-2P',
+      sku: 'AMZ-MOP40-2P',
       gtin: '4260696025800',
       parent_id: null,
       amazon_product_type: 'LUGGAGE',
@@ -68,7 +67,6 @@ const cell = (over: Partial<MarketCellRow> = {}): MarketCellRow =>
    ({
       id: '00000000-0000-4000-8000-00000000ce01',
       tenant_id: TENANT,
-      customer_id: CUSTOMER,
       product_id: '00000000-0000-4000-8000-00000000ad01',
       platform_id: 'amazon',
       country: 'DE',
@@ -281,7 +279,7 @@ Deno.test('buildListingBody refuses a media reference without a copied image', (
 Deno.test('buildListingBody makes a parent without GTIN and a child that points at it', () => {
    const parent = product({
       id: '00000000-0000-4000-8000-00000000ad02',
-      sku: 'THO-MOP-PARENT',
+      sku: 'AMZ-MOP-PARENT',
       gtin: '4260696025999',
       listing_attributes: {
          ...structuredClone(storyAttributes),
@@ -352,9 +350,9 @@ Deno.test('the listing language is the cell language, else the default; none is 
 });
 
 Deno.test('skuFor prefers the cell SKU', () => {
-   assertEquals(skuFor(cell({ platform_sku: 'THO-MOP40-2P-DE' }), product()), 'THO-MOP40-2P-DE');
-   assertEquals(skuFor(cell({ platform_sku: '  ' }), product()), 'THO-MOP40-2P');
-   assertEquals(skuFor(null, product()), 'THO-MOP40-2P');
+   assertEquals(skuFor(cell({ platform_sku: 'AMZ-MOP40-2P-DE' }), product()), 'AMZ-MOP40-2P-DE');
+   assertEquals(skuFor(cell({ platform_sku: '  ' }), product()), 'AMZ-MOP40-2P');
+   assertEquals(skuFor(null, product()), 'AMZ-MOP40-2P');
 });
 
 Deno.test('refuses non-public image URLs in production', () => {
@@ -831,11 +829,10 @@ const story = (): State =>
       product: [product()],
       // The fixture under its own key (en_GB) and under DE's production key (de_DE).
       amazon_product_type_definition: [definitionRow(), { ...definitionRow(), locale: 'de_DE' }],
-      customer_platform_account: [
+      platform_account: [
          {
             id: 'acc-1',
             tenant_id: TENANT,
-            customer_id: CUSTOMER,
             platform_id: 'amazon',
             api_connection: 'connected',
             seller_id: 'A2SELLER'
@@ -992,7 +989,7 @@ Deno.test(
       assertEquals(insert.client, 'user');
       assertEquals(insert.row.created_by, 'user-1');
       assertEquals(insert.row.kind, 'create');
-      assertEquals(insert.row.sku, 'THO-MOP40-2P');
+      assertEquals(insert.row.sku, 'AMZ-MOP40-2P');
       assertEquals(insert.row.marketplace_id, DE);
       assertEquals(insert.row.tenant_id, TENANT);
 
@@ -1000,7 +997,7 @@ Deno.test(
       assertEquals(calls[0].method, 'PUT');
       assert(
          calls[0].url.startsWith(
-            'https://sandbox.sellingpartnerapi-eu.amazon.com/listings/2021-08-01/items/A2SELLER/THO-MOP40-2P?'
+            'https://sandbox.sellingpartnerapi-eu.amazon.com/listings/2021-08-01/items/A2SELLER/AMZ-MOP40-2P?'
          )
       );
       assert(calls[0].url.includes('marketplaceIds=A1PA6795UKMFR9'));
@@ -1068,7 +1065,7 @@ Deno.test(
       ]);
 
       const unconnected = withMediaObject(story());
-      unconnected.tables.customer_platform_account[0].api_connection = 'none';
+      unconnected.tables.platform_account[0].api_connection = 'none';
       const res2 = await handler(
          post({ action: 'publish', cell_id: '00000000-0000-4000-8000-00000000ce01' }),
          deps(unconnected, amazon)
@@ -1155,7 +1152,7 @@ Deno.test('publish of a child creates the parent cell and publishes the parent f
    state.tables.product.push(
       product({
          id: '00000000-0000-4000-8000-00000000ad02',
-         sku: 'THO-MOP40',
+         sku: 'AMZ-MOP40',
          gtin: null,
          listing_attributes: {
             ...structuredClone(storyAttributes),
@@ -1184,14 +1181,14 @@ Deno.test('publish of a child creates the parent cell and publishes the parent f
    );
    assertEquals(
       calls.map((c) => new URL(c.url).pathname.split('/').pop()),
-      ['THO-MOP40', 'THO-MOP40-2P']
+      ['AMZ-MOP40', 'AMZ-MOP40-2P']
    );
    const [parentBody, childBody] = calls.map(
       (c) => c.body as { attributes: Record<string, Array<Record<string, unknown>>> }
    );
    assertEquals(parentBody.attributes.parentage_level[0].value, 'parent');
    assertEquals(parentBody.attributes.externally_assigned_product_identifier, undefined);
-   assertEquals(childBody.attributes.child_parent_sku_relationship[0].parent_sku, 'THO-MOP40');
+   assertEquals(childBody.attributes.child_parent_sku_relationship[0].parent_sku, 'AMZ-MOP40');
    assertEquals(childBody.attributes.variation_theme[0].value, 'SIZE');
 
    // A second publish while the child's own create is in flight is refused (C2, C13).
@@ -1247,7 +1244,7 @@ Deno.test(
          const { deps: amazon, calls } = fakeAmazon((call) =>
             call.method === 'GET'
                ? exists
-                  ? Response.json({ sku: 'THO-MOP40-2P', summaries: [] })
+                  ? Response.json({ sku: 'AMZ-MOP40-2P', summaries: [] })
                   : Response.json(
                        { errors: [{ code: 'NOT_FOUND', message: 'nf' }] },
                        { status: 404 }
@@ -1274,7 +1271,7 @@ Deno.test(
       const matched = withMediaObject(story());
       cellRow(matched, CELL).listing_match = { asin: 'B07N4M94X4', restricted: false, reasons: [] };
       const { deps: amazon, calls } = fakeAmazon((call) =>
-         call.method === 'GET' ? Response.json({ sku: 'THO-MOP40-2P' }) : PUT_ACCEPTED()
+         call.method === 'GET' ? Response.json({ sku: 'AMZ-MOP40-2P' }) : PUT_ACCEPTED()
       );
       await handler(post({ action: 'publish', cell_id: CELL }), deps(matched, amazon, prod));
       assertEquals(
@@ -1440,7 +1437,7 @@ Deno.test('check matches the GTIN and reads restrictions in production', async (
 
 Deno.test('check counts the attributes derived from the product card as filled', async () => {
    const state = story();
-   state.tables.customer_platform_account[0].api_connection = 'revoked';
+   state.tables.platform_account[0].api_connection = 'revoked';
    state.tables.product[0] = carded({ listing_attributes: structuredClone(unbranded) });
    const { deps: amazon } = fakeAmazon(() => PUT_ACCEPTED());
    const res = await handler(
@@ -1475,9 +1472,106 @@ Deno.test('validate sends the derived attributes under the user values', async (
    assertEquals(sent.number_of_items, [{ value: 2, marketplace_id: DE }]);
 });
 
+// Q3: the model and part number come from the manufacturer article number of the sourcing row the
+// caller reads for the product (its own, else its provider's shared row), read through the user
+// client on api so masking applies. The R3 fixture has neither attribute, so they are added here.
+const PROVIDER = '00000000-0000-4000-8000-0000000000b1';
+const PRODUCT_ID = '00000000-0000-4000-8000-00000000ad01';
+const textAttribute = {
+   type: 'array',
+   items: {
+      type: 'object',
+      properties: { value: { type: 'string' }, marketplace_id: { type: 'string' } }
+   }
+};
+const withPartNumbers = (state: State) => {
+   for (const row of state.tables.amazon_product_type_definition) {
+      const schema = row.schema as AmazonSchema;
+      row.schema = {
+         ...schema,
+         properties: {
+            ...schema.properties,
+            model_number: textAttribute,
+            part_number: textAttribute
+         }
+      };
+   }
+   return state;
+};
+const sourcingRow = (tenant: string, artNo: string | null) => ({
+   id: `src-${tenant}`,
+   tenant_id: tenant,
+   client_tenant_id: tenant === TENANT ? null : TENANT,
+   product_tenant_id: TENANT,
+   product_id: PRODUCT_ID,
+   manufacturer_art_no: artNo,
+   purchase_price: 1.1
+});
+const validateSent = async (state: State) => {
+   clearTokenCache();
+   const { deps: amazon, calls } = fakeAmazon(() => Response.json(SANDBOX_INVALID));
+   await handler(post({ action: 'validate', cell_id: CELL }), deps(state, amazon));
+   return (calls[0].body as ListingBody).attributes;
+};
+
+Deno.test(
+   "validate derives the model and part number from the provider's shared sourcing row",
+   async () => {
+      const state = withPartNumbers(withMediaObject(story()));
+      state.tables.sourcing = [sourcingRow(PROVIDER, 'MOP-40')];
+      const sent = await validateSent(state);
+      assertEquals(sent.model_number, [{ value: 'MOP-40', marketplace_id: DE }]);
+      assertEquals(sent.part_number, [{ value: 'MOP-40', marketplace_id: DE }]);
+      // Read by the caller's client: the article number and nothing sensitive.
+      assertEquals(
+         state.selects.filter((s) => s.table === 'sourcing'),
+         [{ table: 'sourcing', columns: SOURCING_LISTING_COLUMNS, client: 'user' }]
+      );
+   }
+);
+
+Deno.test("validate prefers the tenant's own sourcing row (the client procures)", async () => {
+   const state = withPartNumbers(withMediaObject(story()));
+   state.tables.sourcing = [sourcingRow(PROVIDER, 'MOP-40'), sourcingRow(TENANT, 'OWN-7')];
+   assertEquals((await validateSent(state)).model_number, [{ value: 'OWN-7', marketplace_id: DE }]);
+});
+
+// Final review M5: of two providers' rows, the one whose relationship is active, whatever the order.
+Deno.test('validate prefers the row of a provider with an active relationship', async () => {
+   for (const order of [0, 1]) {
+      const state = withPartNumbers(withMediaObject(story()));
+      const active = { ...sourcingRow(PROVIDER, 'ACTIVE-1'), updated_at: '2026-01-01' };
+      const ended = {
+         ...sourcingRow('ended-provider', 'ENDED-1'),
+         client_tenant_id: TENANT,
+         updated_at: '2026-11-01'
+      };
+      state.tables.sourcing = order ? [ended, active] : [active, ended];
+      state.tables.provider_relationship = [
+         { tenant_id: PROVIDER, client_tenant_id: TENANT, status: 'active' },
+         { tenant_id: 'ended-provider', client_tenant_id: TENANT, status: 'ended' }
+      ];
+      assertEquals((await validateSent(state)).model_number, [
+         { value: 'ACTIVE-1', marketplace_id: DE }
+      ]);
+   }
+});
+
+Deno.test(
+   'validate derives no model or part number from a masked (NULL) or missing number',
+   async () => {
+      const masked = withPartNumbers(withMediaObject(story()));
+      masked.tables.sourcing = [sourcingRow(PROVIDER, null)];
+      const sent = await validateSent(masked);
+      assertEquals([sent.model_number, sent.part_number], [undefined, undefined]);
+      const none = withPartNumbers(withMediaObject(story()));
+      assertEquals((await validateSent(none)).model_number, undefined);
+   }
+);
+
 Deno.test('check treats a cell without a connected account as draft', async () => {
    const state = story();
-   state.tables.customer_platform_account[0].api_connection = 'revoked';
+   state.tables.platform_account[0].api_connection = 'revoked';
    const { deps: amazon, calls } = fakeAmazon(() => PUT_ACCEPTED());
    const res = await handler(
       post({ action: 'check', cell_id: '00000000-0000-4000-8000-00000000ce01' }),
@@ -1526,7 +1620,7 @@ const submitted = (state: State, status = 'accepted', id = 's-1') => {
       tenant_id: TENANT,
       cell_id: CELL,
       kind: 'create',
-      sku: 'THO-MOP40-2P',
+      sku: 'AMZ-MOP40-2P',
       marketplace_id: DE,
       status,
       issues: [],
@@ -1545,7 +1639,7 @@ Deno.test('status applies the sandbox item to the latest submission (user route)
    assertEquals(body.cell.listing_state, 'issues');
    assertEquals(body.submission.status, 'done');
    const url = new URL(calls[0].url);
-   assertEquals(url.pathname, '/listings/2021-08-01/items/A2SELLER/THO-MOP40-2P');
+   assertEquals(url.pathname, '/listings/2021-08-01/items/A2SELLER/AMZ-MOP40-2P');
    assertEquals(url.searchParams.get('includedData'), 'summaries,issues');
    const apply = state.rpcs.find((r) => r.name === 'listing_apply_submission')!;
    assertEquals([apply.args.p_status, apply.args.p_listing_state], ['done', 'issues']);
@@ -1578,7 +1672,7 @@ Deno.test('refreshListingStatus never brings back a removed listing (C2, review 
       tenant_id: TENANT,
       cell_id: CELL,
       kind: 'delete',
-      sku: 'THO-MOP40-2P',
+      sku: 'AMZ-MOP40-2P',
       marketplace_id: DE,
       status: 'done',
       issues: [],
@@ -1777,7 +1871,7 @@ Deno.test('publish_bulk reports products without a cell as skipped_no_cell', asy
    clearTokenCache();
    const state = withMediaObject(story());
    state.tables.product.push(
-      product({ id: '00000000-0000-4000-8000-00000000ad03', sku: 'THO-OTHER' })
+      product({ id: '00000000-0000-4000-8000-00000000ad03', sku: 'AMZ-OTHER' })
    );
    const { deps: amazon } = fakeAmazon(() => PUT_ACCEPTED());
    const res = await handler(
@@ -1815,7 +1909,7 @@ Deno.test('publish_bulk reports incomplete and failed cells and goes on', async 
    state.tables.product.push(
       product({
          id: '00000000-0000-4000-8000-00000000ad04',
-         sku: 'THO-TWO',
+         sku: 'AMZ-TWO',
          listing_attributes: {}
       })
    );
@@ -1864,7 +1958,7 @@ Deno.test('a child publish does not send a parent that Amazon is still processin
    state.tables.product.push(
       product({
          id: PARENT,
-         sku: 'THO-MOP40',
+         sku: 'AMZ-MOP40',
          gtin: null,
          listing_attributes: {
             ...structuredClone(storyAttributes),
@@ -1901,7 +1995,7 @@ Deno.test('delete withdraws a cell whose product type and language were cleared'
    const res = await handler(post({ action: 'delete', cell_id: CELL }), deps(state, amazon));
    assertEquals(res.status, 200);
    assertEquals(calls[0].method, 'DELETE');
-   assertEquals(state.inserts[0].row.sku, 'THO-MOP40-2P');
+   assertEquals(state.inserts[0].row.sku, 'AMZ-MOP40-2P');
    assertEquals(state.inserts[0].row.marketplace_id, DE);
 });
 
@@ -2112,7 +2206,7 @@ Deno.test('begin sends no SKU or marketplace: 046 derives them from the cell', a
    assertEquals(Object.keys(begin.args).sort(), ['p_cell_id', 'p_kind', 'p_payload']);
    assertEquals(
       [state.inserts[0].row.sku, state.inserts[0].row.marketplace_id],
-      ['THO-MOP40-2P', DE]
+      ['AMZ-MOP40-2P', DE]
    );
 });
 
@@ -2154,8 +2248,19 @@ Deno.test('amazon-listing selects no sensitive product or cell column', () => {
    const product = PRODUCT_LISTING_COLUMNS.split(',').map((s) => s.trim());
    const cell = MARKET_CELL_LISTING_COLUMNS.split(',').map((s) => s.trim());
    for (const c of SENSITIVE) assert(!product.includes(c), c);
-   // Read through the caller's api client only (masked NULL without the right).
-   assert(product.includes('manufacturer_art_no'));
+   // Supplier identity sits on the sourcing row, never on the product read; the sourcing read
+   // carries the (client-visible, Q3) article number and nothing sensitive.
+   assert(!product.includes('manufacturer_art_no'));
+   const sourcing = SOURCING_LISTING_COLUMNS.split(',').map((s) => s.trim());
+   assertEquals(sourcing, [
+      'id',
+      'product_id',
+      'tenant_id',
+      'client_tenant_id',
+      'manufacturer_art_no',
+      'updated_at'
+   ]);
+   for (const c of SENSITIVE) assert(!sourcing.includes(c), c);
    assert(!cell.includes('notes'));
 });
 
@@ -2180,7 +2285,9 @@ Deno.test('amazon-listing never selects * from a table with sensitive columns', 
    assert(state.selects.some((s) => s.table === 'product'));
    // The supplier identity number is never selected by the service client.
    assertEquals(
-      state.selects.filter((s) => s.client === 'service' && s.columns.includes('manufacturer_art_no')),
+      state.selects.filter(
+         (s) => s.client === 'service' && s.columns.includes('manufacturer_art_no')
+      ),
       []
    );
 });

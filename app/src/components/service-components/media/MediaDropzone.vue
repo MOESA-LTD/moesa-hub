@@ -8,7 +8,6 @@ import type { FileUploadUploaderEvent } from 'primevue/fileupload';
 // fails is reported and the others go on. The uploaded files are emitted together, in drop order.
 const props = withDefaults(
    defineProps<{
-      customerId: string | null;
       /** The tenant the files go to (that of the record they are for); else the active one. */
       tenantId?: string | null;
       multiple?: boolean;
@@ -38,7 +37,6 @@ const onUpload = async (event: FileUploadUploaderEvent) => {
             uploaded.push(
                await upload.mutateAsync({
                   file,
-                  customerId: props.customerId,
                   tenantId: props.tenantId
                })
             );

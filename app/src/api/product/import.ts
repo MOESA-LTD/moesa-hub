@@ -12,7 +12,7 @@ export type ImportResult =
 
 /**
  * Saves the rows of an S10 file in one call (public.import_products), in the active tenant alone:
- * its customer codes are looked up there, not among the other branches shown.
+ * its supplier codes are looked up there, not among the other branches shown.
  */
 export function useImportProducts() {
    const queryClient = useQueryClient();

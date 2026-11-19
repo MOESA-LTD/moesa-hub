@@ -21,9 +21,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
-vi.mock('@/store/customerFilter', () => ({
-   useCustomerFilter: () => ({ customerId: null })
-}));
 vi.mock('@/api/useLookup', async () => {
    const { ref } = await import('vue');
    return { useLookup: () => ({ data: ref(undefined) }) };
@@ -32,10 +29,10 @@ vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
    useRouter: () => ({ push: vi.fn(), replace: vi.fn() })
 }));
-vi.mock('@/api/customer', async (importOriginal) => {
+vi.mock('@/api/platform', async (importOriginal) => {
    const { ref } = await import('vue');
    return {
-      ...(await importOriginal<typeof import('@/api/customer')>()),
+      ...(await importOriginal<typeof import('@/api/platform')>()),
       usePlatformOptions: () => ({ data: ref([{ id: 'amazon', countries: ['DE', 'PL'] }]) })
    };
 });

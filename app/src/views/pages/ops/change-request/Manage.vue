@@ -9,8 +9,7 @@ const props = defineProps<{
    id?: string | null;
    /** The tab opened first (the route's tab segment). */
    tab?: string | null;
-   /** A new request's customer and project, from a link (the route's query). */
-   customer_id?: string | null;
+   /** A new request's project, from a link (the route's query). */
    project_id?: string | null;
 }>();
 
@@ -46,7 +45,7 @@ const onSaved = (id: string) => (changeRequestId.value = id);
       <ChangeRequestCard
          :key="changeRequestId ?? 'new'"
          :id="changeRequestId"
-         :prefill="{ customer_id: props.customer_id, project_id: props.project_id }"
+         :prefill="{ project_id: props.project_id }"
          v-model:tab="activeTab"
          @saved="onSaved($event.id)"
       />

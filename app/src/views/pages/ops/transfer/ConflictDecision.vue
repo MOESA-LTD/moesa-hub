@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { CUSTOMER_CODE } from '@/api/customer';
 import { SUPPLIER_CODE } from '@/api/supplier';
-import type { TableName } from '@/api/queryKeys';
 import type { TransferAction, TransferConflict, TransferDecision } from '@/api/transfer';
 import { useLookup } from '@/api/useLookup';
 
-// One conflict of the rehearsal and its decision. Only the actions the server offers for it are
-// listed. A customer or supplier code may be linked to any of the target's customers or suppliers
-// (looked up in the target tenant: ReportStep provides it as the form tenant) or given a typed
-// code; every other map links to the row the server found (existing_id), the only one it accepts.
+// One conflict of the rehearsal and its decision. Only the actions the database offers for it are
+// listed: a supplier code may be mapped to a supplier of the target or given a new code; a SKU is
+// renamed with a suffix (or skipped in a copy); an active GTIN is cleared (or the product skipped).
+// The report carries no names, so the row is labelled by what the caller read through the views.
 const props = defineProps<{
    conflict: TransferConflict;
    decision: TransferDecision | null;
    target: string;
-   /** Another code conflict of this table is given the same new code (the run refuses it). */
+   /** The SKU or supplier code of the conflict's row; null when the caller may not read it. */
+   label: string | null;
+   /** Another supplier is given the same new code (the report marks it taken after a rehearsal). */
    duplicate?: boolean;
+   /** The decisions changed since the rehearsal, so its taken marks no longer describe them. */
+   stale?: boolean;
 }>();
 const emit = defineEmits<{ decide: [decision: TransferDecision | null] }>();
 
@@ -22,12 +24,9 @@ const { t, te } = useI18n();
 
 const tableLabel = (table: string) => (te(`fields.${table}`) ? t(`fields.${table}`) : table);
 
-const typedCode = computed(
-   () => props.conflict.kind === 'customer_code' || props.conflict.kind === 'supplier_code'
-);
-const codePattern = computed(() =>
-   props.conflict.kind === 'customer_code' ? CUSTOMER_CODE : SUPPLIER_CODE
-);
+const SUFFIX = /^[A-Za-z0-9._-]{1,20}$/;
+
+const shown = computed(() => props.label ?? props.conflict.source_id.slice(0, 8));
 
 const skipDrops = computed(() =>
    Object.entries(props.conflict.skip_drops ?? {})
@@ -62,18 +61,17 @@ const action = computed({
    }
 });
 
-// The target's rows of the conflict's table, for a code kind: the rows to map to, and the codes a
-// new code must not take.
+// The target's suppliers, to map a supplier to and to know the codes a new code must not take.
+const isSupplier = computed(() => props.conflict.kind === 'supplier_code');
 const lookupEnabled = computed(
-   () => typedCode.value && (action.value === 'map' || action.value === 'new_code')
+   () => isSupplier.value && (action.value === 'map' || action.value === 'new_code')
 );
 const { data: rows, isLoading: rowsLoading } = useLookup<{
    id: string;
    code: string;
    display_name: string;
 }>(
-   // A conflict keeps its table: the component is keyed by the conflict.
-   props.conflict.table as TableName,
+   'supplier',
    () => ({
       select: 'id, code, display_name',
       order: 'code',
@@ -99,25 +97,35 @@ const code = computed({
    set: (value: string) =>
       emit('decide', { action: 'new_code', ...(value ? { code: value.toUpperCase() } : {}) })
 });
-// Why a typed code cannot be used: the rehearsal leaves such a conflict unresolved (format,
-// taken in the target or kept by another package row), or the run refuses it (the same code twice
-// in one table).
-const codeReason = computed(() => {
-   if (!code.value) return null;
-   if (!codePattern.value.test(code.value)) return t('ops.transfer.conflict.code_format');
-   if (
-      props.conflict.taken_code === code.value ||
-      (rows.value ?? []).some((row) => row.code === code.value)
-   )
+const suffix = computed({
+   get: () => props.decision?.suffix ?? '',
+   set: (value: string) => emit('decide', { action: 'rename', ...(value ? { suffix: value } : {}) })
+});
+
+// Why a typed value cannot be used: the format, a value taken in the target or by another row of
+// the package (the rehearsal marks the conflict taken), or the same code twice.
+const typedReason = computed(() => {
+   if (action.value === 'new_code' && code.value) {
+      if (!SUPPLIER_CODE.test(code.value)) return t('ops.transfer.conflict.code_format');
+      if ((rows.value ?? []).some((row) => row.code === code.value))
+         return t('ops.transfer.conflict.code_taken');
+      if (props.duplicate) return t('ops.transfer.conflict.duplicate_code');
+   }
+   if (action.value === 'rename' && suffix.value && !SUFFIX.test(suffix.value))
+      return t('ops.transfer.conflict.suffix_format');
+   if (props.conflict.taken && !props.stale && (code.value || suffix.value))
       return t('ops.transfer.conflict.code_taken');
-   if (props.duplicate) return t('ops.transfer.conflict.duplicate_code');
    return null;
 });
 
+const newSku = computed(() =>
+   props.label && suffix.value
+      ? t('ops.transfer.decision.new_sku', { sku: props.label + suffix.value })
+      : null
+);
+
 const message = computed(() =>
-   t(`ops.transfer.conflict.${props.conflict.kind}`, {
-      code: props.conflict.label ?? props.conflict.source_id
-   })
+   t(`ops.transfer.conflict.${props.conflict.kind}`, { label: shown.value })
 );
 </script>
 
@@ -145,35 +153,43 @@ const message = computed(() =>
             </template>
          </Select>
 
-         <template v-if="action === 'map'">
-            <Select
-               v-if="typedCode"
-               v-model="targetId"
-               :options="rowOptions"
-               optionLabel="label"
-               optionValue="id"
-               :loading="rowsLoading"
-               :placeholder="$t('ops.transfer.decision.target')"
-               filter
-               class="min-w-60"
-               data-target-row
-            />
-            <span v-else class="self-center" data-existing>
-               {{ $t('ops.transfer.decision.target') }}:
-               {{ conflict.label ?? conflict.existing_id }}
-            </span>
-         </template>
+         <Select
+            v-if="action === 'map' && isSupplier"
+            v-model="targetId"
+            :options="rowOptions"
+            optionLabel="label"
+            optionValue="id"
+            :loading="rowsLoading"
+            :placeholder="$t('ops.transfer.decision.target')"
+            filter
+            class="min-w-60"
+            data-target-row
+         />
 
-         <span v-if="action === 'new_code' && typedCode" class="flex flex-col gap-1">
+         <span v-if="action === 'new_code'" class="flex flex-col gap-1">
             <InputText
                v-model="code"
                :placeholder="$t('ops.transfer.decision.code')"
                :aria-label="$t('ops.transfer.decision.code')"
-               :invalid="!!codeReason"
+               :invalid="!!typedReason"
                data-code
             />
-            <small v-if="codeReason" class="text-red-500" data-code-reason>{{ codeReason }}</small>
          </span>
+
+         <span v-if="action === 'rename'" class="flex flex-col gap-1">
+            <InputText
+               v-model="suffix"
+               :placeholder="$t('ops.transfer.decision.suffix')"
+               :aria-label="$t('ops.transfer.decision.suffix')"
+               :invalid="!!typedReason"
+               data-suffix
+            />
+            <small v-if="newSku" class="text-muted-color" data-new-sku>{{ newSku }}</small>
+         </span>
+
+         <small v-if="typedReason" class="self-center text-red-500" data-typed-reason>
+            {{ typedReason }}
+         </small>
 
          <small
             v-if="action === 'skip' && skipDrops"

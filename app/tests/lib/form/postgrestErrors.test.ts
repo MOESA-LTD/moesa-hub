@@ -16,6 +16,21 @@ describe('mapPostgrestError', () => {
       ).toEqual({ national_id: i18n.t('form.already_exists') });
    });
 
+   // Cleanup concern 1: the company e-mail's key is an index on lower(email), whose details name
+   // the expression, not the column.
+   it('maps a taken company e-mail, whatever its case, to the e-mail field', () => {
+      expect(
+         mapPostgrestError(
+            {
+               code: '23505',
+               message: 'duplicate key value violates unique constraint "tenant_email_lower_key"',
+               details: 'Key (lower(email))=(info@atlas.test) already exists.'
+            },
+            FIELDS
+         )
+      ).toEqual({ email: i18n.t('errors.company_email_exists') });
+   });
+
    it('falls back to the constraint name when details are hidden', () => {
       expect(
          mapPostgrestError(
@@ -98,7 +113,7 @@ describe('mapPostgrestError', () => {
       ).toBeNull();
    });
    it('maps the errors the media tables raise by name', () => {
-      const fields = ['id', 'media_id', 'role', 'customer_id'];
+      const fields = ['id', 'media_id', 'role'];
 
       expect(
          mapPostgrestError({ code: '23514', message: 'media_too_large' }, ['media_id'])
@@ -126,15 +141,12 @@ describe('mapPostgrestError', () => {
       expect(mapPostgrestError({ code: '23503', message: 'media_in_use' }, fields)).toEqual({
          id: i18n.t('errors.media_in_use')
       });
-      expect(
-         mapPostgrestError({ code: '23514', message: 'media_customer_locked' }, fields)
-      ).toEqual({ customer_id: i18n.t('errors.media_customer_locked') });
       expect(mapPostgrestError({ code: '23503', message: 'media_missing' }, fields)).toEqual({
          media_id: i18n.t('errors.media_missing')
       });
    });
    it('maps the duplicate GTIN and SKU of a product to their fields', () => {
-      const fields = ['customer_id', 'sku', 'gtin', 'display_name'];
+      const fields = ['sku', 'gtin', 'display_name'];
 
       expect(
          mapPostgrestError(
@@ -152,8 +164,8 @@ describe('mapPostgrestError', () => {
             {
                code: '23505',
                message:
-                  'duplicate key value violates unique constraint "product_customer_id_sku_key"',
-               details: 'Key (customer_id, sku)=(c, THO-1) already exists.'
+                  'duplicate key value violates unique constraint "product_tenant_id_sku_key"',
+               details: 'Key (tenant_id, sku)=(t, THO-1) already exists.'
             },
             fields
          )
@@ -169,7 +181,13 @@ describe('mapPostgrestError', () => {
             },
             ['product_id']
          )
-      ).toEqual({ product_id: i18n.t('errors.po_line_product_customer') });
+      ).toEqual({ product_id: i18n.t('errors.po_line_product_scope') });
+      expect(
+         mapPostgrestError({ code: '23514', message: 'po_line_product_required' }, ['product_id'])
+      ).toEqual({ product_id: i18n.t('errors.po_line_product_required') });
+      expect(
+         mapPostgrestError({ code: '23514', message: 'po_project_locked' }, ['project_id'])
+      ).toEqual({ project_id: i18n.t('errors.po_project_locked') });
       expect(
          mapPostgrestError(
             {
@@ -195,9 +213,17 @@ describe('mapPostgrestError', () => {
                message:
                   'insert or update on table "shipment" violates foreign key constraint "shipment_warehouse_fkey"'
             },
-            ['delivery_warehouse_id', 'customer_id']
+            ['delivery_warehouse_id']
          )
-      ).toEqual({ delivery_warehouse_id: i18n.t('errors.shipment_warehouse_customer') });
+      ).toEqual({ delivery_warehouse_id: i18n.t('errors.shipment_warehouse_scope') });
+      expect(
+         mapPostgrestError({ code: '23514', message: 'shipment_warehouse_required' }, [
+            'delivery_warehouse_id'
+         ])
+      ).toEqual({ delivery_warehouse_id: i18n.t('errors.shipment_warehouse_required') });
+      expect(
+         mapPostgrestError({ code: '23514', message: 'client_mismatch' }, ['purchase_order_id'])
+      ).toEqual({ purchase_order_id: i18n.t('errors.client_mismatch') });
       expect(
          mapPostgrestError(
             {
@@ -217,7 +243,7 @@ describe('mapPostgrestError', () => {
             },
             ['purchase_order_id']
          )
-      ).toEqual({ purchase_order_id: i18n.t('errors.shipment_po_customer') });
+      ).toEqual({ purchase_order_id: i18n.t('errors.shipment_po_scope') });
       expect(
          mapPostgrestError(
             {
@@ -242,8 +268,8 @@ describe('mapPostgrestError', () => {
          mapPostgrestError({ code: '23514', message: 'shipment_locked' }, ['quantity'])
       ).toEqual({ quantity: i18n.t('errors.shipment_locked') });
       expect(
-         mapPostgrestError({ code: '23514', message: 'shipment_immutable_field' }, ['customer_id'])
-      ).toEqual({ customer_id: i18n.t('errors.shipment_immutable_field') });
+         mapPostgrestError({ code: '23514', message: 'shipment_immutable_field' }, ['code'])
+      ).toBeNull();
    });
    it('never maps a shipment status error to a field', () => {
       for (const name of [
@@ -255,7 +281,9 @@ describe('mapPostgrestError', () => {
          'shipment_delivery_time_required',
          'shipment_delivery_receipt_required',
          'shipment_acceptance_issue',
-         'shipment_po_has_lines'
+         'shipment_po_has_lines',
+         'shipment_scope_missing',
+         'shipment_po_link_immutable'
       ]) {
          expect(NAMED_ERRORS.filter((entry) => entry.name === name)).toEqual([
             { code: '23514', name, message: `errors.${name}` }
@@ -295,7 +323,7 @@ describe('mapPostgrestError', () => {
             },
             ['product_id', 'project_id']
          )
-      ).toEqual({ product_id: i18n.t('errors.market_cell_product_customer') });
+      ).toEqual({ product_id: i18n.t('errors.market_cell_product_scope') });
       expect(
          mapPostgrestError(
             {
@@ -305,7 +333,7 @@ describe('mapPostgrestError', () => {
             },
             ['product_id', 'project_id']
          )
-      ).toEqual({ project_id: i18n.t('errors.market_cell_project_customer') });
+      ).toEqual({ project_id: i18n.t('errors.market_cell_project_scope') });
       expect(
          mapPostgrestError(
             {
@@ -409,9 +437,6 @@ describe('mapPostgrestError', () => {
          )
       ).toEqual({ entity_type: i18n.t('errors.incident_entity_invalid') });
       expect(
-         mapPostgrestError({ code: '23503', message: 'incident_customer_missing' }, ['customer_id'])
-      ).toEqual({ customer_id: i18n.t('errors.incident_customer_missing') });
-      expect(
          mapPostgrestError(
             { code: '42501', message: 'incident_severity_downgrade_requires_management' },
             ['severity']
@@ -429,7 +454,8 @@ describe('mapPostgrestError', () => {
          'incident_closure_incomplete',
          'incident_closed',
          'gate_rollback_incident_required',
-         'gate_incident_invalid'
+         'gate_incident_invalid',
+         'incident_scope_missing'
       ]) {
          expect(NAMED_ERRORS.filter((entry) => entry.name === name)).toEqual([
             { code: '23514', name, message: `errors.${name}` }
@@ -441,20 +467,15 @@ describe('mapPostgrestError', () => {
    });
    it('maps the errors of change requests to their fields', () => {
       expect(
-         mapPostgrestError({ code: '23503', message: 'change_request_customer_missing' }, [
-            'customer_id'
-         ])
-      ).toEqual({ customer_id: i18n.t('errors.change_request_customer_missing') });
-      expect(
          mapPostgrestError(
             {
                code: '23503',
                message:
                   'insert or update on table "change_request" violates foreign key constraint "change_request_project_fkey"'
             },
-            ['project_id', 'customer_id']
+            ['project_id']
          )
-      ).toEqual({ project_id: i18n.t('errors.cr_project_customer') });
+      ).toEqual({ project_id: i18n.t('errors.cr_project_scope') });
       expect(
          mapPostgrestError(
             {
@@ -464,7 +485,7 @@ describe('mapPostgrestError', () => {
             },
             ['product_ids']
          )
-      ).toEqual({ product_ids: i18n.t('errors.cr_product_customer') });
+      ).toEqual({ product_ids: i18n.t('errors.cr_product_scope') });
       expect(
          mapPostgrestError(
             {
@@ -496,7 +517,8 @@ describe('mapPostgrestError', () => {
          'change_request_status_order',
          'change_request_customer_approval_required',
          'change_request_decision_note_required',
-         'change_request_new_version_required'
+         'change_request_new_version_required',
+         'change_request_scope_missing'
       ]) {
          expect(NAMED_ERRORS.filter((entry) => entry.name === name)).toEqual([
             { code: '23514', name, message: `errors.${name}` }
@@ -510,38 +532,63 @@ describe('mapPostgrestError', () => {
          ).toBeNull();
       }
    });
-   it('never maps a transfer error to a field', () => {
-      // The codes the transfer migrations raise (040, 042, 045).
-      const names = [
-         'audit_transfer_not_revertable',
-         'transfer_invalid_mode',
-         'transfer_same_tenant',
-         'transfer_owner_required',
-         'transfer_target_read_only',
-         'transfer_target_plan',
-         'transfer_forbidden',
-         'transfer_source_read_only',
-         'transfer_customer_missing',
-         'transfer_products_invalid',
-         'transfer_gate_invalid',
-         'transfer_report_required',
-         'transfer_report_stale',
-         'transfer_decision_required',
-         'transfer_decision_invalid',
-         'transfer_code_invalid',
-         'transfer_product_in_use',
-         'transfer_files_pending',
-         'transfer_not_found'
-      ];
-      expect(names).toHaveLength(19);
-      expect(
-         NAMED_ERRORS.filter(({ name }) => /^(audit_)?transfer_/.test(name)).map(({ name }) => name)
-      ).toEqual(names);
-      for (const code of names) {
-         expect(NAMED_ERRORS.filter((entry) => entry.name === code)).toEqual([
-            { code: 'P0001', name: code, message: `errors.${code}` }
-         ]);
-         expect(mapPostgrestError({ code: 'P0001', message: code }, ['customer_id'])).toBeNull();
+   it.each([
+      'relationship_inactive',
+      'client_link_forbidden',
+      'client_tenant_immutable',
+      'client_mismatch',
+      'relationship_immutable',
+      'relationship_ended_final',
+      'relationship_end_forbidden',
+      'client_code_immutable'
+   ])('names the relationship error %s in Turkish and English', (name) => {
+      const [entry] = NAMED_ERRORS.filter((error) => error.name === name);
+      expect(entry?.message).toBe(`errors.${name}`);
+      for (const locale of [en, tr]) {
+         const text = (locale as { errors: Record<string, string> }).errors[name];
+         expect(typeof text === 'string' && text.length > 0).toBe(true);
       }
+   });
+   it('maps the relationship errors with a form field to it', () => {
+      expect(
+         mapPostgrestError({ code: '23514', message: 'relationship_inactive' }, [
+            'client_tenant_id'
+         ])
+      ).toEqual({ client_tenant_id: i18n.t('errors.relationship_inactive') });
+      expect(
+         mapPostgrestError({ code: '23514', message: 'client_code_immutable' }, ['client_code'])
+      ).toEqual({ client_code: i18n.t('errors.client_code_immutable') });
+      for (const name of [
+         'client_link_forbidden',
+         'relationship_immutable',
+         'relationship_ended_final',
+         'relationship_contract_restricted',
+         'purchase_order_scope_missing'
+      ])
+         expect(mapPostgrestError({ code: '23514', message: name }, ['status'])).toBeNull();
+      expect(
+         mapPostgrestError({ code: '42501', message: 'relationship_end_forbidden' }, ['status'])
+      ).toBeNull();
+   });
+   it('names no transfer error any more', () => {
+      expect(NAMED_ERRORS.filter(({ name }) => /transfer/.test(name))).toEqual([]);
+   });
+
+   it.each([
+      ['provider_link_forbidden', '23514'],
+      ['order_tenant_immutable', '23514'],
+      ['incident_entity_tenant_immutable', '23514'],
+      ['cost_link_forbidden', '42501'],
+      // A client tenant a relationship names is not deleted (071, F14).
+      ['tenant_has_provider_relationship', '23503']
+   ])('maps the provider link error %s to a toast, in Turkish and English', (name, code) => {
+      const [entry] = NAMED_ERRORS.filter((error) => error.name === name);
+      expect(entry).toMatchObject({ code, message: `errors.${name}` });
+      expect(entry?.field).toBeUndefined();
+      for (const locale of [en, tr]) {
+         const text = (locale as { errors: Record<string, string> }).errors[name];
+         expect(typeof text === 'string' && text.length > 0).toBe(true);
+      }
+      expect(mapPostgrestError({ code, message: name }, ['entity_id'])).toBeNull();
    });
 });

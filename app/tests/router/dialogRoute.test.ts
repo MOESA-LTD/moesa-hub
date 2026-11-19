@@ -44,11 +44,11 @@ describe('dialogRoute', () => {
 
    it('leaves a child of a non-manage parent unchanged', () => {
       const contact = route({
-         name: 'ops-customer-contact-add',
+         name: 'ops-supplier-contact-add',
          matched: [
             ops,
-            { name: 'ops-customer' },
-            { name: 'ops-customer-contact-add', components: { default: {} } }
+            { name: 'ops-supplier' },
+            { name: 'ops-supplier-contact-add', components: { default: {} } }
          ]
       });
       expect(dialogRoute(contact)).toBe(contact);

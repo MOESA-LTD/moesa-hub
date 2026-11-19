@@ -124,7 +124,8 @@
       "tax_number": "",
       "address": "",
       "district": "",
-      "address_details": ""
+      "address_details": "",
+      "transfer": ""
    },
    "audit_log": {
       "no_changes_detected": "",
@@ -168,7 +169,7 @@
       "select_currency": ""
    },
    "component": {
-      "branch_picker": {
+      "tenant_picker": {
          "column": "",
          "hint": "",
          "label": "",
@@ -239,6 +240,8 @@
    },
    "errors": {
       "audit_already_reverted": "",
+      "transfer_report_stale": "",
+      "transfer_move_would_lose_data": "",
       "audit_conflict": "",
       "access_denied": "",
       "confirmation_required": "",
@@ -361,10 +364,52 @@
       "branch_move_forbidden": "",
       "plan_default_required": "",
       "plan_default_inactive": "",
+      "super_admin_required": "",
+      "platform_setting_invalid": "",
+      "platform_setting_unknown": "",
+      "plan_not_found": "",
+      "standard_role_unknown": "",
+      "company_payload_invalid": "",
+      "plan_inactive": "",
+      "plan_not_for_clients": "",
+      "invitation_forbidden": "",
+      "invitation_payload_invalid": "",
+      "invitation_staff_invalid": "",
+      "invitation_throttled": "",
+      "invitation_invalid": "",
+      "invitation_pending_exists": "",
+      "invitation_self_invite": "",
+      "invitation_mail_failed": "",
+      "invitation_unconfigured": "",
+      "client_code_taken": "",
+      "invitation_email_mismatch": "",
+      "company_email_exists": "",
+      "company_phone_exists": "",
+      "tenant_has_provider_relationship": "",
       "invalid_website": "",
       "invalid_tax_number": "",
       "logo_type": "",
-      "logo_size": ""
+      "logo_size": "",
+      "signup_closed": "",
+      "signup_unconfirmed": "",
+      "signup_completed": "",
+      "signup_payload_invalid": "",
+      "signup_not_pending": "",
+      "signup_unconfigured": "",
+      "transfer_mode_invalid": "",
+      "transfer_same_tenant": "",
+      "transfer_forbidden": "",
+      "transfer_target_unavailable": "",
+      "transfer_permissions_required": "",
+      "transfer_field_rights_required": "",
+      "transfer_source_read_only": "",
+      "transfer_files_pending": "",
+      "transfer_decision_required": "",
+      "transfer_decision_invalid": "",
+      "transfer_code_invalid": "",
+      "transfer_product_in_use": "",
+      "transfer_products_invalid": "",
+      "transfer_not_found": ""
    },
    "route": {
       "label": {
@@ -381,6 +426,7 @@
          "login": "",
          "enter-auth-otp-code": "",
          "access-denied": "",
+         "invitation": "",
          "branch": "",
          "branch-user": "",
          "manage-user": "",
@@ -402,7 +448,9 @@
          "admin_subscription_list": "",
          "admin_subscription_manage": "",
          "admin_plans": "",
-         "admin_plan_list": ""
+         "admin_plan_list": "",
+         "register_complete": "",
+         "admin_platform": ""
       }
    },
    "account": {
@@ -449,7 +497,8 @@
       "general_info": "",
       "security": "",
       "owner_of": "",
-      "owner_above": ""
+      "owner_above": "",
+      "profile_managed_elsewhere": ""
    },
    "form": {
       "required": "",
@@ -522,6 +571,13 @@
             "year": ""
          },
          "description": "",
+         "audience": "",
+         "target": "",
+         "targets": {
+            "client": "",
+            "provider": "",
+            "all": ""
+         },
          "pricing": "",
          "billing_period": "",
          "unlimited": "",
@@ -549,6 +605,12 @@
          "history": "",
          "ends_after_start": "",
          "replaced": ""
+      },
+      "platform": {
+         "title": "",
+         "open_signup": "",
+         "open_signup_hint": "",
+         "saved": ""
       }
    },
    "branch_profile": {
@@ -562,5 +624,159 @@
       "change_logo": "",
       "remove_logo": "",
       "logo_hint": ""
+   },
+   "invitation": {
+      "title": "",
+      "intro": "",
+      "no_session_title": "",
+      "no_session_text": "",
+      "loading": "",
+      "expires": "",
+      "steps": {
+         "account": "",
+         "company": "",
+         "plan": ""
+      },
+      "back": "",
+      "next": "",
+      "account": {
+         "title": "",
+         "text": "",
+         "has_password": "",
+         "save": ""
+      },
+      "company": {
+         "title": "",
+         "text": ""
+      },
+      "plan": {
+         "title": "",
+         "text": "",
+         "seats": "",
+         "recommended_by": "",
+         "choose": "",
+         "chosen": "",
+         "free": "",
+         "per": "",
+         "trial": "",
+         "no_trial": "",
+         "audience": "",
+         "core_modules": "",
+         "included": "",
+         "not_included": "",
+         "too_small": "",
+         "changes": "",
+         "upgrade": "",
+         "downgrade": "",
+         "switch": "",
+         "adds": "",
+         "removes": "",
+         "limit_to": "",
+         "limit_raise": "",
+         "limit_removed": "",
+         "same": "",
+         "none": "",
+         "on_request": ""
+      },
+      "staff": {
+         "title": "",
+         "text": "",
+         "unnamed": "",
+         "none_kept": "",
+         "role": {
+            "management": "",
+            "coordinator": "",
+            "viewer": ""
+         }
+      },
+      "accept": {
+         "action": "",
+         "contract": ""
+      },
+      "error": {
+         "invitation_invalid": "",
+         "invitation_email_mismatch": "",
+         "invitation_self_invite": "",
+         "invitation_throttled": "",
+         "invitation_payload_invalid": "",
+         "company_email_exists": "",
+         "company_phone_exists": "",
+         "plan_inactive": "",
+         "plan_not_for_clients": "",
+         "plan_limit_users": "",
+         "generic": ""
+      },
+      "sign_out": "",
+      "sign_in": "",
+      "resend_hint": "",
+      "retry": "",
+      "load_failed": "",
+      "reload_needed": "",
+      "reload": ""
+   },
+   "signup": {
+      "loading": "",
+      "closed_title": "",
+      "closed_text": "",
+      "to_login": "",
+      "email_text": "",
+      "next": "",
+      "sending": "",
+      "check_title": "",
+      "check_text": "",
+      "check_existing": "",
+      "complete": {
+         "title": "",
+         "intro": "",
+         "no_session_title": "",
+         "no_session_text": "",
+         "sign_in": "",
+         "nothing_pending": "",
+         "to_dashboard": "",
+         "steps": {
+            "account": "",
+            "company": "",
+            "plan": ""
+         },
+         "plan_title": "",
+         "plan_text": "",
+         "plans_none": "",
+         "back": "",
+         "action": "",
+         "loading": "",
+         "reload_needed": "",
+         "reload": "",
+         "link_expired": "",
+         "sign_up_again": ""
+      },
+      "error": {
+         "signup_closed": "",
+         "signup_throttled": "",
+         "signup_payload_invalid": "",
+         "signup_unconfirmed": "",
+         "signup_not_pending": "",
+         "signup_unconfigured": "",
+         "company_email_exists": "",
+         "company_phone_exists": "",
+         "plan_inactive": "",
+         "plan_not_for_clients": "",
+         "generic": ""
+      },
+      "company_text": ""
+   },
+   "signed_in": {
+      "as": "",
+      "not_you": ""
+   },
+   "ops": {
+      "transfer": {
+         "report": {
+            "withheld_title": "",
+            "withheld_intro": "",
+            "withheld": "",
+            "blanked": ""
+         },
+         "move_loses_data": ""
+      }
    }
 }

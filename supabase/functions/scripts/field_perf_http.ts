@@ -9,11 +9,16 @@
 //    the same requests with Accept-Profile: public, then REVOKE in a finally block, and a check that
 //    no public relation grants anything to anon/authenticated afterwards (exit 3 if one does).
 // 3. The same requests through api. 30 per case per actor (after 3 warm-ups): the product list
-//    (50, with customer(code),supplier(code)), the purchase-order overview (50) and a PATCH with
+//    (50), the sourcing list (50, with supplier(code)), the purchase-order overview (50) and a PATCH with
 //    return=representation. Medians compared against R10's budget (amended 2026-11-09): reads
 //    internal ≤ max(+15%, +5 ms), restricted and mixed ≤ max(+40%, +10 ms) (the per-query fixed
 //    cost of masking dominates indexed lists); writes (a case with a method) ≤ +15 ms absolute,
 //    whatever the actor (the forwarder's fixed cost dominates a ~7 ms write).
+// 4. Sharing (Plan 2, Task 10): THO, the client of MOESA LTD, over the load's shared orders and
+//    shipments. thomas (owner of THO, scope {THO}) lists 50 orders with their lines embedded and 50
+//    shipments (restricted); akif (management in MOESA LTD and THO, scope {MOESA LTD, THO}) lists 50
+//    orders with their lines (internal) and PATCHes an open field (ready_on) of a shared order (write).
+//    The baseline is the same request on the public profile, under the same RLS, as above.
 //    Exit 1 when over budget.
 //
 // No secret is printed; the service key stays in helpers.ts. Not run in CI.
@@ -27,17 +32,23 @@ const WARMUP = 3;
 const WRITE_BUDGET_MS = 15;
 const READ_ALLOWANCE_MS = { internal: 5, restricted: 10, mixed: 10 } as const;
 const PERF_PRODUCT = 'feed0001-0000-4000-8000-000000000001';
+const PERF_SHARED_PO = 'feed0007-0000-4000-8000-000000000001';
 const MEASURED = [
    'public.product',
-   'public.customer',
+   'public.sourcing',
+   'public.provider_relationship',
    'public.supplier',
    'public.purchase_order',
    'public.purchase_order_line',
+   'public.shipment',
    'public.purchase_order_payment',
    'public.project',
    'public.document',
    'public.purchase_order_overview',
 ];
+// Read by the client_select draft term (067), selectable by api_owner alone: the baseline caller
+// needs it to pay the same policies. Granted and revoked with MEASURED, and checked for leaks.
+const POLICY_READ = 'private.purchase_order_released';
 
 if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(API_URL)) throw new Error('local stack only');
 
@@ -60,19 +71,44 @@ async function psql(sql: string): Promise<string> {
 
 const publicGrants = () =>
    psql(`SELECT count(*) FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) x
-      WHERE c.relnamespace = 'public'::regnamespace AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);`);
+      WHERE (c.relnamespace = 'public'::regnamespace OR c.oid = '${POLICY_READ}'::regclass)
+        AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);`);
 
-type Actor = { name: 'internal' | 'restricted' | 'mixed'; token: string; headers: Record<string, string> };
+type Actor = { name: 'internal' | 'restricted' | 'mixed'; token: string; headers: Record<string, string>; label?: string };
 type Case = { name: string; path: string; method?: string; body?: unknown; prefer?: string };
 
 const CASES: Case[] = [
-   { name: 'product list 50 + embeds', path: 'product?select=*,customer(code),supplier(code)&order=created_at.desc&limit=50' },
+   { name: 'product list 50', path: 'product?select=*&order=created_at.desc&limit=50' },
+   { name: 'sourcing list 50 + embed', path: 'sourcing?select=*,supplier(code)&order=created_at.desc&limit=50' },
    { name: 'purchase_order_overview 50', path: 'purchase_order_overview?select=*&limit=50' },
    {
       name: 'PATCH return=representation',
       path: `product?id=eq.${PERF_PRODUCT}`,
       method: 'PATCH',
       body: { display_name: 'perf' },
+      prefer: 'return=representation',
+   },
+];
+
+// The sharing scenarios: each with its own actor (filled in once the fixture is up).
+const SHARED_CASES: (Case & { actor: 'clientOwner' | 'providerTwoTenants' })[] = [
+   {
+      name: 'shared_client_owner_po_list',
+      actor: 'clientOwner',
+      path: 'purchase_order?select=*,purchase_order_line(*)&order=created_at.desc&limit=50',
+   },
+   { name: 'shared_client_owner_shipment_list', actor: 'clientOwner', path: 'shipment?select=*&order=created_at.desc&limit=50' },
+   {
+      name: 'provider_two_tenants_po_list',
+      actor: 'providerTwoTenants',
+      path: 'purchase_order?select=*,purchase_order_line(*)&order=created_at.desc&limit=50',
+   },
+   {
+      name: 'provider_po_update_shared',
+      actor: 'providerTwoTenants',
+      path: `purchase_order?id=eq.${PERF_SHARED_PO}`,
+      method: 'PATCH',
+      body: { ready_on: '2026-12-02' },
       prefer: 'return=representation',
    },
 ];
@@ -109,9 +145,11 @@ async function time(actor: Actor, c: Case, profile: 'api' | 'public'): Promise<n
    }
 }
 
-async function measure(actors: Actor[], profile: 'api' | 'public'): Promise<Map<string, number>> {
+type Run = { actor: Actor; c: Case };
+
+async function measure(runs: Run[], profile: 'api' | 'public'): Promise<Map<string, number>> {
    const out = new Map<string, number>();
-   for (const a of actors) for (const c of CASES) out.set(`${a.name}|${c.name}`, await time(a, c, profile));
+   for (const { actor, c } of runs) out.set(`${actor.label ?? actor.name}|${c.name}`, await time(actor, c, profile));
    return out;
 }
 
@@ -130,13 +168,26 @@ try {
       { name: 'restricted', token: f.restricted, headers: { 'x-tenant-id': f.moesa } },
       { name: 'mixed', token: f.mixed, headers: { 'x-tenant-id': f.moesa, 'x-tenant-ids': `${f.moesa},${f.europe}` } },
    ];
+   const sharedActors: Record<'clientOwner' | 'providerTwoTenants', Actor> = {
+      clientOwner: { name: 'restricted', label: 'client owner', token: f.clientOwner, headers: { 'x-tenant-id': f.client, 'x-tenant-ids': f.client } },
+      providerTwoTenants: {
+         name: 'internal',
+         label: 'provider {P, C}',
+         token: internal,
+         headers: { 'x-tenant-id': f.moesa, 'x-tenant-ids': `${f.moesa},${f.client}` },
+      },
+   };
+   const runs: Run[] = [
+      ...actors.flatMap((actor) => CASES.map((c) => ({ actor, c }))),
+      ...SHARED_CASES.map(({ actor, ...c }) => ({ actor: sharedActors[actor], c })),
+   ];
 
    let base: Map<string, number>;
-   await psql(`GRANT SELECT, UPDATE ON ${MEASURED.join(', ')} TO authenticated;`);
+   await psql(`GRANT SELECT, UPDATE ON ${MEASURED.join(', ')} TO authenticated; GRANT SELECT ON ${POLICY_READ} TO authenticated;`);
    try {
-      base = await measure(actors, 'public');
+      base = await measure(runs, 'public');
    } finally {
-      await psql(`REVOKE SELECT, UPDATE ON ${MEASURED.join(', ')} FROM authenticated;`);
+      await psql(`REVOKE SELECT, UPDATE ON ${MEASURED.join(', ')} FROM authenticated; REVOKE SELECT ON ${POLICY_READ} FROM authenticated;`);
       const left = await publicGrants();
       if (left !== '0') {
          console.error(`LEAK: ${left} public ACL entries for anon/authenticated remain after the baseline`);
@@ -144,27 +195,25 @@ try {
       }
    }
    if (exitCode) throw new Error('public grants remain');
-   const api = await measure(actors, 'api');
+   const api = await measure(runs, 'api');
 
    const rows: string[] = [];
    const over: string[] = [];
    rows.push('| actor | case | public ms | api ms | delta | budget | verdict |', '|---|---|---|---|---|---|---|');
-   for (const a of actors) {
-      for (const c of CASES) {
-         const key = `${a.name}|${c.name}`;
-         const b = base.get(key)!;
-         const x = api.get(key)!;
-         const write = c.method !== undefined;
-         const limit = a.name === 'internal' ? 1.15 : 1.4;
-         const ok = write ? x - b <= WRITE_BUDGET_MS : x <= Math.max(b * limit, b + READ_ALLOWANCE_MS[a.name]);
-         const verdict = !ok ? 'OVER' : 'ok';
-         if (verdict === 'OVER') over.push(key);
-         const delta = Number.isNaN(x / b)
-            ? 'error'
-            : `${x / b >= 1 ? '+' : ''}${((x / b - 1) * 100).toFixed(1)}% (${x - b >= 0 ? '+' : ''}${(x - b).toFixed(2)} ms)`;
-         const budget = write ? `+${WRITE_BUDGET_MS} ms` : `max(+${Math.round((limit - 1) * 100)}%, +${READ_ALLOWANCE_MS[a.name]} ms)`;
-         rows.push(`| ${a.name} | ${c.name} | ${b.toFixed(2)} | ${x.toFixed(2)} | ${delta} | ${budget} | ${verdict} |`);
-      }
+   for (const { actor: a, c } of runs) {
+      const key = `${a.label ?? a.name}|${c.name}`;
+      const b = base.get(key)!;
+      const x = api.get(key)!;
+      const write = c.method !== undefined;
+      const limit = a.name === 'internal' ? 1.15 : 1.4;
+      const ok = write ? x - b <= WRITE_BUDGET_MS : x <= Math.max(b * limit, b + READ_ALLOWANCE_MS[a.name]);
+      const verdict = !ok ? 'OVER' : 'ok';
+      if (verdict === 'OVER') over.push(key);
+      const delta = Number.isNaN(x / b)
+         ? 'error'
+         : `${x / b >= 1 ? '+' : ''}${((x / b - 1) * 100).toFixed(1)}% (${x - b >= 0 ? '+' : ''}${(x - b).toFixed(2)} ms)`;
+      const budget = write ? `+${WRITE_BUDGET_MS} ms` : `max(+${Math.round((limit - 1) * 100)}%, +${READ_ALLOWANCE_MS[a.name]} ms)`;
+      rows.push(`| ${a.label ?? a.name} | ${c.name} | ${b.toFixed(2)} | ${x.toFixed(2)} | ${delta} | ${budget} | ${verdict} |`);
    }
    console.log(`\nHTTP medians of ${N} requests (after ${WARMUP} warm-ups), PostgREST at ${API_URL}`);
    console.log(rows.join('\n'));

@@ -32,6 +32,7 @@ import { defaultCurrencyFor } from '@/constants/currency';
 import { glossaryKey } from '@/api/glossary';
 import { marketCellResource, STOCK_SOURCES } from '@/api/marketMatrix';
 import { productResource } from '@/api/product';
+import { useListingSourcing } from '@/api/sourcing';
 import type { ResourceInput } from '@/api/defineResource';
 import { invalidateTables } from '@/api/queryKeys';
 import AmazonAttributeField from '@/components/service-components/amazon-form/AmazonAttributeField.vue';
@@ -50,6 +51,7 @@ import {
    missingAttributes,
    providedAttributes,
    requiredAttributes,
+   sourcingArtNo,
    type AmazonSchema,
    type PropertyGroups,
    type ProvidedAttributes
@@ -62,12 +64,12 @@ import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
 
 // The Amazon side of a market cell, opened from the cell's dialog, in two tabs. The listing tab:
-// whether the customer's account is connected, what the product still misses for THIS marketplace
+// whether the tenant's account is connected, what the product still misses for THIS marketplace
 // and language, the cell's marketplace fields, Amazon's catalogue match and restriction, the
 // submissions with Amazon's issues verbatim, and the actions. The content tab: the product's whole
 // Amazon content, with the product's Amazon tab form. Both tabs edit one state of the product's
 // attributes. Every Amazon call goes through the API module (which sends the tenant header). A
-// cell whose customer is not connected is shown as draft (ruling N2).
+// cell whose tenant is not connected is shown as draft (ruling N2).
 type DrawerTab = 'listing' | 'content';
 const props = defineProps<{ cellId: string }>();
 /** The tab shown; the cell's dialog widens the drawer for the content tab. */
@@ -85,17 +87,32 @@ const canSubmit = computed(() => ability.can('create', 'listing_submission'));
 const canEditCell = computed(() => ability.can('update', 'market_cell'));
 const canEditProduct = computed(() => ability.can('update', 'product'));
 
-// --- the cell, its product and its customer's account ---
+// --- the cell, its product and its tenant's account ---
 
 const { data: cellData } = marketCellResource.useOne(() => props.cellId);
 const cell = computed(() => cellData.value ?? null);
 const { data: product } = productResource.useOne(() => cell.value?.product_id ?? null);
 const { data: isParent } = useProductIsParent(() => cell.value?.product_id ?? null);
+// The product card the attributes derive from, with the article number of the sourcing row read
+// for it (F24): the product row never carries it.
+const { data: sourcing } = useListingSourcing(() => cell.value?.product_id ?? null);
+const listingCard = computed(() =>
+   product.value
+      ? {
+           ...product.value,
+           manufacturer_art_no: sourcingArtNo(
+              sourcing.value ?? [],
+              product.value.tenant_id,
+              product.value.id
+           )
+        }
+      : null
+);
 // Without the right to read the accounts the connection is not known here: the stored state is
 // shown and the function decides. While they load there is no verdict either.
-const canReadAccounts = computed(() => ability.can('select', 'customer_platform_account'));
+const canReadAccounts = computed(() => ability.can('select', 'platform_account'));
 const { data: accounts } = useAmazonAccounts(() =>
-   cell.value && canReadAccounts.value ? { customerId: cell.value.customer_id } : null
+   cell.value && canReadAccounts.value ? { tenantId: cell.value.tenant_id } : null
 );
 const account = computed(() => accounts.value?.[0] ?? null);
 /** The account's connection; null while it is not known (loading, or not readable). */
@@ -142,7 +159,7 @@ const { data: definition, error: definitionError } = useDefinition(() =>
            productType: productType.value,
            country: country.value,
            locale: AMAZON_SCHEMA_LOCALE,
-           customerId: product.value.customer_id
+           tenantId: product.value.tenant_id
         }
       : null
 );
@@ -168,8 +185,8 @@ const providedIn = (
    languageTag: string | null,
    productSchema: AmazonSchema | null
 ): ProvidedAttributes =>
-   product.value && cell.value && isParent.value !== undefined && languageTag
-      ? providedAttributes(product.value, cell.value, productSchema, {
+   listingCard.value && cell.value && isParent.value !== undefined && languageTag
+      ? providedAttributes(listingCard.value, cell.value, productSchema, {
            marketplaceId: marketplaceId.value ?? '',
            languageTag,
            isParent: isParent.value
@@ -579,12 +596,7 @@ const askRemove = () =>
                   </span>
                   <Message v-if="notConnected" severity="warn" class="w-full">
                      {{ $t('ops.amazon.cell.not_connected') }}
-                     <RouterLink
-                        :to="{
-                           name: 'ops-customer-manage-platforms',
-                           params: { id: cell.customer_id }
-                        }"
-                     >
+                     <RouterLink data-open-platforms :to="{ name: 'ops-company-platforms' }">
                         {{ $t('ops.amazon.cell.open_platforms') }}
                      </RouterLink>
                   </Message>
@@ -631,7 +643,6 @@ const askRemove = () =>
                            :productId="product?.id"
                            :marketplaceId
                            :readonly="!canEditProduct"
-                           :customerId="product?.customer_id"
                            :tenantId="product?.tenant_id"
                            :resetKey
                            @update:modelValue="attributes = $event"

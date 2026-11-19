@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-   PURCHASE_ORDER_STATUS_SEVERITY,
    nextPurchaseOrderStatuses,
    piChecklistComplete,
    psiWarning,
@@ -9,6 +8,8 @@ import {
    type PurchaseOrderCard,
    type PurchaseOrderStatus
 } from '@/api/purchaseOrder';
+import OrderStatusTag from '@/components/service-components/purchase-order-table/OrderStatusTag.vue';
+import { useSharedRow } from '@/composables/useSharedRow';
 import Documents from './tabs/Documents.vue';
 import General from './tabs/General.vue';
 import Lines from './tabs/Lines.vue';
@@ -32,7 +33,7 @@ import {
 // Manage re-creates the card when a new order is saved, so the form goes on under its id.
 const props = defineProps<{
    id: string | null;
-   /** A new order's customer and project, when a project's link names them. */
+   /** A new order's project, when a project's link names it. */
    link?: PurchaseOrderLink;
 }>();
 const emit = defineEmits<{ saved: [order: PurchaseOrderCard] }>();
@@ -64,6 +65,21 @@ const { data: overview } = usePurchaseOrderOverview(() => props.id);
 provide(PURCHASE_ORDER_OVERVIEW, overview);
 
 const order = computed(() => form.row.value ?? null);
+
+// A provider's order shared with the client side opens read-only, with what the client reads: the
+// general terms and the lines. PI, payments, production updates, documents and media stay the
+// provider's.
+const { shared } = form;
+const { providerName } = useSharedRow();
+const SHARED_TABS: readonly PurchaseOrderCardTab[] = ['general', 'lines'];
+const tabs = computed(() => (shared.value ? SHARED_TABS : PO_CARD_TABS));
+watch(
+   tabs,
+   (shown) => {
+      if (!shown.includes(activeTab.value)) activeTab.value = 'general';
+   },
+   { immediate: true }
+);
 
 // --- status actions ---
 
@@ -105,11 +121,16 @@ const title = computed(() =>
 <template>
    <div v-if="order" class="m-4 mb-0 flex flex-wrap items-center gap-2">
       <h2 class="m-0 text-xl font-semibold" v-text="title" />
-      <Tag
-         :value="$t(`ops.purchase_order.status.${order.status}`)"
-         :severity="PURCHASE_ORDER_STATUS_SEVERITY[order.status]"
-      />
-      <span class="ms-auto flex flex-wrap gap-2">
+      <OrderStatusTag :order />
+      <template v-if="shared">
+         <SharedTag :provider="providerName(order)" />
+         <small
+            class="ms-auto text-muted-color"
+            data-test="shared-hint"
+            v-text="$t('ops.shared.read_only')"
+         />
+      </template>
+      <span v-else class="ms-auto flex flex-wrap gap-2">
          <slot name="actions" :order>
             <StatusActions
                v-if="$can('update', 'purchase_order')"
@@ -132,7 +153,7 @@ const title = computed(() =>
    </div>
    <Tabs v-model:value="activeTab">
       <TabList>
-         <Tab v-for="key in PO_CARD_TABS" :key :value="key" :disabled="key !== 'general' && !id">
+         <Tab v-for="key in tabs" :key :value="key" :disabled="key !== 'general' && !id">
             {{ $t(`ops.purchase_order.tabs.${key}`) }}
          </Tab>
       </TabList>

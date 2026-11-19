@@ -9,37 +9,52 @@ NOTIFY pgrst,
 
 -- Reference data (permissions, audit config, owner role, plans) lives in the migrations; this file
 -- only adds demo data: companies on each kind of subscription with their branches, roles and
--- members.
+-- members, and a provider with a client tenant it procures for.
 --
--- Demo accounts (local only), all with the password Demo1234!
---   admin@moesa-panel.test    super admin (manages plans and subscriptions, no company)
---   ayse@moesa-panel.test     owner of Atlas Danışmanlık (Pro, branch limit reached: 3/3)
---   mehmet@moesa-panel.test   branch manager, Atlas Avcılar
---   zeynep@moesa-panel.test   staff, Atlas Kadıköy and Atlas Moda (two memberships)
---   can@moesa-panel.test      auditor, Atlas Danışmanlık
+-- Demo accounts (local only), all with the password Demo1234!, and what each one sees:
+--   admin@moesa-panel.test    super admin: manages plans and subscriptions, no company
+--   ayse@moesa-panel.test     owner of Atlas Danışmanlık (Pro, branch limit reached: 3/3): all of it
+--   mehmet@moesa-panel.test   branch manager, Atlas Avcılar: that branch
+--   zeynep@moesa-panel.test   staff, Atlas Kadıköy and Atlas Moda (two memberships): reads the
+--                             branches, users and roles there
+--   can@moesa-panel.test      auditor, Atlas Danışmanlık: the change history, reads the rest
 --   ali@moesa-panel.test      owner of Nova Yazılım (Basic trial ending in 5 days)
 --   elif@moesa-panel.test     staff, Nova Yazılım
 --   deniz@moesa-panel.test    owner of Kuzey Holding (Enterprise, branches two levels deep)
---   burak@moesa-panel.test    branch manager, Kuzey Ankara
+--   burak@moesa-panel.test    branch manager, Kuzey Ankara and the branch under it
 --   selin@moesa-panel.test    owner of Eski Ticaret (Pro, expired: read-only)
---   baris@moesa-panel.test    owner of MOESA LTD (Enterprise; the business modules' demo data)
---   akif@moesa-panel.test     management, MOESA LTD
---   koordinator@moesa-panel.test  coordinator, MOESA LTD
---   portal@moesa-panel.test   customer_viewer (customer portal), MOESA LTD
+--   baris@moesa-panel.test    owner of MOESA LTD (Enterprise; the provider of the business demo)
+--                             and of MOESA Trading GmbH; sees none of THO's own rows
+--   akif@moesa-panel.test     management in MOESA LTD and MOESA Europe, and in THO (invited):
+--                             everything in each, sensitive fields included
+--   koordinator@moesa-panel.test  coordinator in MOESA LTD (settings, users, roles and the company
+--                             read-only, no media deletes), and management in THO (invited)
+--   thomas@moesa-panel.test   owner of THOMETZKI ONLINE HANDEL (THO): all of THO, nothing of MOESA LTD
+--   portal@moesa-panel.test   viewer in THO: reads THO's products, projects, market cells, media and
+--                             documents; of the sensitive fields only the sell price, contract and
+--                             personal data; writes nothing; sees nothing of MOESA LTD
 --
--- Transfer demo tenants (M21): MOESA Europe, a branch of MOESA LTD with the Phase 1 roles (akif
--- is management there), and MOESA Trading GmbH, a second company (Enterprise) owned by baris with
--- the same roles: a transfer between them crosses companies, so the caller must own both.
---
--- MOESA LTD has the two Phase 1 roles (spec §7), built by private.seed_ops_roles:
---   management   every permission of the business modules (ops_setting, document, supplier,
---                customer, product, project, purchase_order, shipment, market_matrix, incident,
---                change_request, media, transfer) and of branch, user, role and audit_log
+-- MOESA LTD and its branch MOESA Europe have the two Phase 1 roles (spec §7), built by
+-- private.seed_ops_roles:
+--   management   every permission of the business modules (ops_setting, document, supplier, client,
+--                product, project, purchase_order, shipment, market_matrix, incident,
+--                change_request, media, listing) and of branch, user, role and audit_log
 --   coordinator  the same, but the settings, the users, the roles and the company and its branches
---                read-only, no deleting media (spec M19: management only) and no transfers
--- and the THOMETZKI customer (THO) with its warehouse, Amazon account, brand and a contact; five
--- approved suppliers; three products on sale (THO-MOP40-2P with a signed spec sheet); and the
--- "Mop ailesi çok ülke pilotu" project, its gates all pending (it waits on G1).
+--                read-only, and no deleting media (spec M19: management only)
+-- MOESA Trading GmbH, a second company of baris with the same roles, stays for the copy-tool demo.
+--
+-- THOMETZKI ONLINE HANDEL (THO, Germany, its own Pro subscription) is a client tenant of MOESA LTD,
+-- which procures for it (provider_relationship, client code THO). Its roles come from
+-- private.seed_client_roles: management (as above) and viewer. THO owns its warehouse, Amazon
+-- account, brand, contact, three products on sale (THO-MOP40-2P with a signed spec sheet) and the
+-- "Mop ailesi çok ülke pilotu" project, its gates all pending (it waits on G1). MOESA LTD owns the
+-- five approved suppliers and the sourcing of THO's products (cost and supplier), each sourcing row
+-- naming THO as its client.
+
+-- The plans' targets (decision 21): Basic suits a client company, Pro anyone, and Enterprise (every
+-- module, without limits) is for providers, so an invitation or a self-signup does not offer it.
+UPDATE public.plan SET target = 'client' WHERE display_name = 'Basic';
+UPDATE public.plan SET target = 'provider' WHERE display_name = 'Enterprise';
 
 -- Demo helpers, dropped at the end.
 
@@ -113,53 +128,50 @@ BEGIN
 END;
 $$;
 
--- The two Phase 1 roles of MOESA (spec §7): management (every permission of the business and core
--- modules) and coordinator (the same, without changing the settings, the users, the roles or the
--- company and its branches).
+-- A business role of a tenant: management (every permission of every module) or coordinator (the
+-- same, without changing the settings, the users, the roles or the company and its branches, and
+-- without deleting media), with the field defaults of its profile. Built by the migrations' standard
+-- role builder (070), which new companies get too.
+CREATE OR REPLACE FUNCTION private.seed_business_role (tenant_id UUID, role_name TEXT) RETURNS VOID LANGUAGE plpgsql
+SET
+    search_path = '' AS $$
+BEGIN
+    PERFORM private.create_standard_role(seed_business_role.tenant_id, seed_business_role.role_name);
+END;
+$$;
+
+-- The two Phase 1 roles of a provider (spec §7): management and coordinator.
 CREATE OR REPLACE FUNCTION private.seed_ops_roles (tenant_id UUID) RETURNS VOID LANGUAGE plpgsql
 SET
     search_path = '' AS $$
 BEGIN
+    PERFORM private.seed_business_role(seed_ops_roles.tenant_id, 'management');
+    PERFORM private.seed_business_role(seed_ops_roles.tenant_id, 'coordinator');
+END;
+$$;
+
+-- The roles of a client tenant: management, and viewer, which reads the tenant's products, projects,
+-- market cells, media and documents, and of the sensitive fields only the sell price, contract and
+-- personal data. THO's viewer stays narrower than the standard viewer (no purchase orders, shipments
+-- or provider relationship; Plan 2 Task 11 ruling); its field rights are the viewer profile's.
+CREATE OR REPLACE FUNCTION private.seed_client_roles (tenant_id UUID) RETURNS VOID LANGUAGE plpgsql
+SET
+    search_path = '' AS $$
+DECLARE
+    viewer UUID;
+BEGIN
+    PERFORM private.seed_business_role(seed_client_roles.tenant_id, 'management');
+
     INSERT INTO public.role (display_name, tenant_id)
-    SELECT name, seed_ops_roles.tenant_id
-    FROM unnest(ARRAY['management', 'coordinator', 'customer_viewer']) AS name;
+    VALUES ('viewer', seed_client_roles.tenant_id)
+    RETURNING id INTO viewer;
 
     INSERT INTO public.role_permission (role_id, permission_id)
-    SELECT r.id, p.id
-    FROM public.role r
-    JOIN public.permission p
-        ON p.group_name IN ('ops_setting', 'document', 'supplier', 'customer', 'product', 'project',
-                            'purchase_order', 'shipment', 'market_matrix', 'incident',
-                            'change_request', 'media', 'transfer', 'listing', 'branch', 'user', 'role',
-                            'audit_log')
-       AND (r.display_name = 'management'
-            OR NOT (p.group_name = 'ops_setting' AND p.command = 'update'
-                    OR p.group_name IN ('role', 'user') AND p.command <> 'select'
-                    OR p.resource_name = 'public.tenant' AND p.command <> 'select'
-                    OR p.resource_name = 'public.media' AND p.command = 'delete'
-                    OR p.group_name = 'transfer'))
-    WHERE r.tenant_id = seed_ops_roles.tenant_id AND r.display_name IN ('management', 'coordinator');
+    SELECT viewer, p.id
+    FROM public.permission p
+    WHERE p.command = 'select' AND p.group_name IN ('product', 'project', 'market_matrix', 'media', 'document');
 
-    -- The customer portal user: reads only, and only the tables of its own customer's work.
-    INSERT INTO public.role_permission (role_id, permission_id)
-    SELECT r.id, p.id
-    FROM public.role r
-    JOIN public.permission p
-        ON p.command = 'select'
-       AND p.resource_name IN ('public.customer', 'public.customer_brand', 'public.customer_contact',
-                               'public.customer_platform_account', 'public.customer_warehouse',
-                               'public.product', 'public.project', 'public.project_gate',
-                               'public.project_product', 'public.shipment', 'public.shipment_event',
-                               'public.shipment_line', 'public.market_cell', 'public.incident',
-                               'public.incident_deadline', 'public.change_request',
-                               'public.change_request_product', 'public.document', 'public.media',
-                               'public.media_link')
-    WHERE r.tenant_id = seed_ops_roles.tenant_id AND r.display_name = 'customer_viewer';
-
-    PERFORM private.apply_field_defaults(r.id, r.display_name)
-    FROM public.role r
-    WHERE r.tenant_id = seed_ops_roles.tenant_id
-      AND r.display_name IN ('management', 'coordinator', 'customer_viewer');
+    PERFORM private.apply_field_defaults(viewer, 'viewer');
 END;
 $$;
 
@@ -203,6 +215,7 @@ DECLARE
     akif UUID := private.seed_user('akif@moesa-panel.test', 'Akif Ayçiçek');
     koordinator UUID := private.seed_user('koordinator@moesa-panel.test', 'Koordinatör');
     portal UUID := private.seed_user('portal@moesa-panel.test', 'Müşteri Portalı');
+    thomas UUID := private.seed_user('thomas@moesa-panel.test', 'Thomas Thometzki');
     atlas UUID;
     kadikoy UUID;
     nova UUID;
@@ -210,6 +223,7 @@ DECLARE
     ankara UUID;
     eski UUID;
     moesa UUID;
+    tho UUID;
     europe UUID;
     trading UUID;
 BEGIN
@@ -245,10 +259,19 @@ BEGIN
     PERFORM private.seed_owner(moesa, baris);
     PERFORM private.seed_member(moesa, akif, 'management');
     PERFORM private.seed_member(moesa, koordinator, 'coordinator');
-    PERFORM private.seed_member(moesa, portal, 'customer_viewer');
+
+    -- THOMETZKI ONLINE HANDEL: a client tenant of MOESA LTD (the relationship follows below), Pro.
+    -- akif and koordinator joined it by invitation, as management.
+    tho := private.seed_tenant('THOMETZKI ONLINE HANDEL', NULL, 'info@thometzki.test');
+    UPDATE public.tenant SET code = 'THO', country = 'Germany' WHERE id = tho;
+    PERFORM private.seed_client_roles(tho);
+    PERFORM private.seed_owner(tho, thomas);
+    PERFORM private.seed_member(tho, portal, 'viewer');
+    PERFORM private.seed_member(tho, akif, 'management');
+    PERFORM private.seed_member(tho, koordinator, 'management');
 
     -- MOESA Europe (a branch of MOESA LTD) and MOESA Trading GmbH (a company of baris): the
-    -- transfer demo.
+    -- copy-tool demo.
     europe := private.seed_tenant('MOESA Europe', moesa);
     PERFORM private.seed_ops_roles(europe);
     PERFORM private.seed_member(europe, akif, 'management');
@@ -271,6 +294,7 @@ BEGIN
             (kuzey, 'Enterprise', FALSE, INTERVAL '-2 months', INTERVAL '10 months'),
             (eski, 'Pro', FALSE, INTERVAL '-13 months', INTERVAL '-10 days'),
             (moesa, 'Enterprise', FALSE, INTERVAL '-1 month', INTERVAL '11 months'),
+            (tho, 'Pro', FALSE, INTERVAL '-1 month', INTERVAL '11 months'),
             (trading, 'Enterprise', FALSE, INTERVAL '-1 month', INTERVAL '11 months')
     ) AS setting (tenant_id, plan_name, is_trial, starts, ends)
     JOIN public.plan p ON p.display_name = setting.plan_name
@@ -278,14 +302,13 @@ BEGIN
 END;
 $$;
 
--- MOESA's business data, entered as its owner working in MOESA LTD: the project code comes from
--- public.next_code, which needs the active tenant of a request.
+-- THO's own data, entered as its owner working in THO: the project code comes from private.next_code,
+-- which needs the active tenant of a request.
 DO $$
 DECLARE
-    moesa UUID := (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD');
-    baris UUID := (SELECT u.id FROM public.user u WHERE u.email = 'baris@moesa-panel.test');
+    tho UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'THO');
+    thomas UUID := (SELECT u.id FROM public.user u WHERE u.email = 'thomas@moesa-panel.test');
     koordinator UUID := (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test');
-    tho UUID;
     mop UUID;
     pilot UUID;
     gtin TEXT;
@@ -297,27 +320,70 @@ BEGIN
         END IF;
     END LOOP;
 
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', thomas, 'role', 'authenticated')::TEXT, TRUE);
+    PERFORM set_config('request.headers', json_build_object('x-tenant-id', tho, 'x-tenant-ids', tho)::TEXT, TRUE);
+
+    -- Its warehouse, Amazon account, brand and buyer.
+    INSERT INTO public.warehouse (tenant_id, display_name, type, country, city, is_default)
+    VALUES (tho, 'Rosbach', 'own', 'Germany', 'Rosbach', TRUE);
+
+    INSERT INTO public.platform_account (tenant_id, platform_id, countries, access)
+    VALUES (tho, 'amazon', ARRAY['DE', 'FR', 'IT', 'ES', 'NL'], 'authorized_user');
+
+    INSERT INTO public.brand (tenant_id, name, registration_status)
+    VALUES (tho, 'OKAEI', 'registered');
+
+    INSERT INTO public.contact (tenant_id, name, role, email, can_approve)
+    VALUES (tho, 'Thometzki Einkauf', 'Einkauf', 'einkauf@thometzki.test', TRUE);
+
+    -- Three products on sale (their sourcing is MOESA LTD's, below).
+    INSERT INTO public.product (tenant_id, sku, display_name, brand, gtin, status, compliance_status, pack_qty)
+    VALUES (tho, 'THO-MOP40-2P', 'Pamuk mop bezi 40 cm, 2''li', 'OKAEI', '4260696025800', 'on_sale', 'partial', 2)
+    RETURNING id INTO mop;
+
+    INSERT INTO public.product (tenant_id, sku, display_name, brand, gtin, status, compliance_status)
+    SELECT tho, item.sku, item.display_name, 'OKAEI', item.gtin, 'on_sale', item.compliance::public.compliance_status
+    FROM (
+        VALUES
+            ('THO-TIPS-6-50', 'Aktif karbon filtre 6 mm, 50''li', '4260696025831', 'complete'),
+            ('THO-CONES-100', 'Cones 100''lü', '4260696025848', 'partial')
+    ) AS item (sku, display_name, gtin, compliance);
+
+    -- The mop's spec sheet: signed, stamped, sent from the official e-mail and dated.
+    INSERT INTO public.document (tenant_id, entity_type, entity_id, type, version, status, url, file_name,
+                                 is_signed, is_stamped, sent_from_official_email, issued_on)
+    VALUES (tho, 'product', mop, 'spec_sheet', 2, 'signed',
+            'https://drive.google.com/example/spec-THO-MOP40-2P-v02', 'THO-MOP40-2P_SPEC_v02_20261015_imzali', TRUE, TRUE,
+            TRUE, '2026-10-15');
+
+    -- The mop family's pilot; its code and gates come from the triggers, every gate pending.
+    INSERT INTO public.project (tenant_id, display_name, type, path, packages, target_live_on, coordinator_id)
+    VALUES (tho, 'Mop ailesi çok ülke pilotu', 'npi', 'a_sourcing', ARRAY['A1', 'B', 'C'], '2027-02-15', koordinator)
+    RETURNING id INTO pilot;
+
+    INSERT INTO public.project_product (project_id, product_id, tenant_id) VALUES (pilot, mop, tho);
+
+    PERFORM set_config('request.jwt.claims', '', TRUE);
+    PERFORM set_config('request.headers', '', TRUE);
+END;
+$$;
+
+-- MOESA LTD's business data, entered as its owner working in MOESA LTD: the relationship to THO, the
+-- five suppliers and the sourcing of THO's products.
+DO $$
+DECLARE
+    moesa UUID := (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD');
+    tho UUID := (SELECT t.id FROM public.tenant t WHERE t.code = 'THO');
+    baris UUID := (SELECT u.id FROM public.user u WHERE u.email = 'baris@moesa-panel.test');
+BEGIN
     PERFORM set_config('request.jwt.claims', json_build_object('sub', baris, 'role', 'authenticated')::TEXT, TRUE);
     PERFORM set_config('request.headers', json_build_object('x-tenant-id', moesa, 'x-tenant-ids', moesa)::TEXT, TRUE);
 
-    -- THOMETZKI with its warehouse, Amazon account, brand and buyer.
-    INSERT INTO public.customer (tenant_id, code, display_name, country, commercial_model, packages, status, start_on,
-                                 deposit_rate)
-    VALUES (moesa, 'THO', 'THOMETZKI ONLINE HANDEL', 'Germany', 'trading_partner', ARRAY['A1', 'B', 'C', 'E'], 'active',
-            '2025-01-01', 30)
-    RETURNING id INTO tho;
-
-    INSERT INTO public.customer_warehouse (tenant_id, customer_id, display_name, type, country, city, is_default)
-    VALUES (moesa, tho, 'Rosbach', 'own', 'Germany', 'Rosbach', TRUE);
-
-    INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id, countries, access)
-    VALUES (moesa, tho, 'amazon', ARRAY['DE', 'FR', 'IT', 'ES', 'NL'], 'authorized_user');
-
-    INSERT INTO public.customer_brand (tenant_id, customer_id, name, registration_status)
-    VALUES (moesa, tho, 'OKAEI', 'registered');
-
-    INSERT INTO public.customer_contact (tenant_id, customer_id, name, role, email, can_approve)
-    VALUES (moesa, tho, 'Thometzki Einkauf', 'Einkauf', 'einkauf@thometzki.test', TRUE);
+    -- MOESA LTD procures for THOMETZKI, under the contract terms THOMETZKI had as a customer.
+    INSERT INTO public.provider_relationship (tenant_id, client_tenant_id, client_code, client_name, procurement_model,
+                                              commercial_model, packages, contract_status, start_on, deposit_rate)
+    VALUES (moesa, tho, 'THO', 'THOMETZKI ONLINE HANDEL', 'provider', 'trading_partner', ARRAY['A1', 'B', 'C', 'E'],
+            'active', '2025-01-01', 30);
 
     -- The five suppliers.
     INSERT INTO public.supplier (tenant_id, code, display_name, country, default_incoterm, deposit_rate,
@@ -328,42 +394,25 @@ BEGIN
            (moesa, 'CN2', 'Cixi Fujing', 'China', 'FOB', 30, NULL, 'approved'),
            (moesa, 'ID1', 'PT Kertas Energi Mulia', 'Indonesia', 'FOB', 30, NULL, 'approved');
 
-    -- Three products on sale.
-    INSERT INTO public.product (tenant_id, customer_id, sku, display_name, brand, gtin, supplier_id, status,
-                                compliance_status, pack_qty, purchase_price, purchase_currency, purchase_incoterm,
-                                landed_cost_eur, target_price_eur)
-    SELECT moesa, tho, 'THO-MOP40-2P', 'Pamuk mop bezi 40 cm, 2''li', 'OKAEI', '4260696025800', s.id, 'on_sale',
-           'partial', 2, 1.90, 'USD', 'FOB', 2.65, 12.99
-    FROM public.supplier s WHERE s.tenant_id = moesa AND s.code = 'TR1'
-    RETURNING id INTO mop;
+    -- The sourcing of THO's products: cost and supplier, each row naming THO as its client. baris
+    -- reads none of THO's products (he was not invited), so these client links are written under the
+    -- seed bypass (private.rules_bypassed), for these rows only.
+    PERFORM set_config('moesa.rules_bypass', '1', TRUE);
 
-    INSERT INTO public.product (tenant_id, customer_id, sku, display_name, brand, gtin, supplier_id, status,
-                                compliance_status)
-    SELECT moesa, tho, item.sku, item.display_name, 'OKAEI', item.gtin, s.id, 'on_sale',
-           item.compliance::public.compliance_status
-    FROM (
-        VALUES
-            ('THO-TIPS-6-50', 'Aktif karbon filtre 6 mm, 50''li', '4260696025831', 'CN1', 'complete'),
-            ('THO-CONES-100', 'Cones 100''lü', '4260696025848', 'ID1', 'partial')
-    ) AS item (sku, display_name, gtin, supplier_code, compliance)
+    INSERT INTO public.sourcing (tenant_id, client_tenant_id, product_id, supplier_id, purchase_price, purchase_currency,
+                                 purchase_incoterm, landed_cost_eur, target_price_eur)
+    SELECT moesa, tho, p.id, s.id, 1.90, 'USD', 'FOB', 2.65, 12.99
+    FROM public.product p
+    JOIN public.supplier s ON s.tenant_id = moesa AND s.code = 'TR1'
+    WHERE p.tenant_id = tho AND p.sku = 'THO-MOP40-2P';
+
+    INSERT INTO public.sourcing (tenant_id, client_tenant_id, product_id, supplier_id)
+    SELECT moesa, tho, p.id, s.id
+    FROM (VALUES ('THO-TIPS-6-50', 'CN1'), ('THO-CONES-100', 'ID1')) AS item (sku, supplier_code)
+    JOIN public.product p ON p.tenant_id = tho AND p.sku = item.sku
     JOIN public.supplier s ON s.tenant_id = moesa AND s.code = item.supplier_code;
 
-    -- The mop's spec sheet: signed, stamped, sent from the official e-mail and dated.
-    INSERT INTO public.document (tenant_id, customer_id, entity_type, entity_id, type, version, status, url, file_name,
-                                 is_signed, is_stamped, sent_from_official_email, issued_on)
-    VALUES (moesa, tho, 'product', mop, 'spec_sheet', 2, 'signed',
-            'https://drive.google.com/example/spec-THO-MOP40-2P-v02', 'THO-MOP40-2P_SPEC_v02_20261015_imzali', TRUE, TRUE,
-            TRUE, '2026-10-15');
-
-    -- The mop family's pilot; its code and gates come from the triggers, every gate pending.
-    INSERT INTO public.project (tenant_id, customer_id, display_name, type, path, packages, target_live_on,
-                                coordinator_id)
-    VALUES (moesa, tho, 'Mop ailesi çok ülke pilotu', 'npi', 'a_sourcing', ARRAY['A1', 'B', 'C'], '2027-02-15',
-            koordinator)
-    RETURNING id INTO pilot;
-
-    INSERT INTO public.project_product (project_id, product_id, tenant_id) VALUES (pilot, mop, moesa);
-
+    PERFORM set_config('moesa.rules_bypass', '', TRUE);
     PERFORM set_config('request.jwt.claims', '', TRUE);
     PERFORM set_config('request.headers', '', TRUE);
 END;
@@ -372,6 +421,8 @@ $$;
 DROP FUNCTION private.seed_user (TEXT, TEXT, BOOLEAN),
 private.seed_tenant (TEXT, UUID, TEXT),
 private.seed_roles (UUID),
+private.seed_business_role (UUID, TEXT),
 private.seed_ops_roles (UUID),
+private.seed_client_roles (UUID),
 private.seed_member (UUID, UUID, TEXT),
 private.seed_owner (UUID, UUID);

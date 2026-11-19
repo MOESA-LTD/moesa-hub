@@ -27,7 +27,7 @@ import {
 // its id.
 const props = defineProps<{
    id: string | null;
-   /** A new request's customer and project, when a link names them. */
+   /** A new request's project, when a link names it. */
    prefill?: ChangeRequestPrefill;
 }>();
 const emit = defineEmits<{ saved: [cr: ChangeRequestCard] }>();

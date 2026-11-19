@@ -2,7 +2,7 @@
 -- operations review): the views behind the boxes "market matrix summary", "open incidents" and
 -- "open change requests".
 --
--- dashboard_market          Per customer, the cells of market_cell by status: live, preparing
+-- dashboard_market          Per tenant, the cells of market_cell by status: live, preparing
 --                           (preparing or uploaded), suppressed, and the target (planned,
 --                           preparing, uploaded, live, suppressed or paused: the app's
 --                           TARGET_STATUSES; candidates, stopped and removed cells are not
@@ -20,13 +20,11 @@
 -- as the caller too, so each shows what the caller's RLS lets them read: the tenant's own cells,
 -- incidents and requests only. current_date is UTC (a known Phase 1 backlog item).
 
--- The market matrix per customer
+-- The market matrix per tenant (the cells live in the tenant that owns the products)
 CREATE OR REPLACE VIEW public.dashboard_market
 WITH
    (security_invoker = TRUE) AS
 SELECT
-   m.customer_id,
-   c.code::TEXT AS customer_code,
    m.tenant_id,
    count(*) FILTER (
       WHERE
@@ -46,14 +44,10 @@ SELECT
    )::INT AS target_count
 FROM
    public.market_cell m
-   LEFT JOIN public.customer c ON c.id = m.customer_id
-   AND c.tenant_id = m.tenant_id
 GROUP BY
-   m.customer_id,
-   c.code,
    m.tenant_id;
 
-COMMENT ON VIEW public.dashboard_market IS 'Per customer, its market cells by status: live_count, preparing_count (preparing or uploaded), suppressed_count and target_count (planned, preparing, uploaded, live, suppressed or paused, the app''s TARGET_STATUSES).';
+COMMENT ON VIEW public.dashboard_market IS 'Per tenant, its market cells by status: live_count, preparing_count (preparing or uploaded), suppressed_count and target_count (planned, preparing, uploaded, live, suppressed or paused, the app''s TARGET_STATUSES).';
 
 GRANT SELECT ON public.dashboard_market TO authenticated;
 
@@ -64,8 +58,6 @@ WITH
 SELECT
    i.id AS incident_id,
    i.code,
-   i.customer_id,
-   i.customer_code,
    i.tenant_id,
    i.severity,
    i.status,
@@ -99,8 +91,6 @@ WITH
 SELECT
    r.id AS change_request_id,
    r.code,
-   r.customer_id,
-   c.code::TEXT AS customer_code,
    r.tenant_id,
    r.status,
    r.urgency,
@@ -113,8 +103,6 @@ SELECT
    ) AS overdue
 FROM
    public.change_request r
-   LEFT JOIN public.customer c ON c.id = r.customer_id
-   AND c.tenant_id = r.tenant_id
 WHERE
    r.status IN ('open', 'approved');
 

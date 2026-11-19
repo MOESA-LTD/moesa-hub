@@ -4,7 +4,7 @@ import { projectResource, useLinkProduct, useUnlinkProduct } from '@/api/project
 import { useLookup } from '@/api/useLookup';
 import { appErrorHandler } from '@/lib/appErrorHandler';
 
-// The products the project is about: linked from its customer's products, unlinked at will.
+// The products the project is about: linked from its tenant's products, unlinked at will.
 // The links come embedded in the card's cached project.
 const props = defineProps<{ id: string }>();
 
@@ -21,7 +21,7 @@ const { data: products } = useLookup<ProductOption>(
    () => ({
       select: 'id, sku, display_name',
       order: 'sku',
-      in: { column: 'customer_id', values: [project.value?.customer_id] }
+      in: { column: 'tenant_id', values: [project.value?.tenant_id] }
    }),
    () => !!project.value
 );

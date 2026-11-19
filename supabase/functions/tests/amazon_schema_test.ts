@@ -303,12 +303,11 @@ Deno.test(
             if (query.table === 'amazon_product_type_definition')
                return { data: [stale], error: null };
             if (has(query, 'limit'))
-               return { data: [{ customer_id: 'c1', tenant_id: 't1' }], error: null };
+               return { data: [{ tenant_id: 't1' }], error: null };
             return {
                data: {
                   id: 'acc-1',
                   tenant_id: 't1',
-                  customer_id: 'c1',
                   seller_id: 'S1',
                   api_connection: 'connected'
                },
@@ -382,12 +381,11 @@ const productionRefresh = async (opts: {
          if (query.table === 'amazon_product_type_definition')
             return { data: opts.stale, count: opts.count, error: null };
          if (has(query, 'limit'))
-            return { data: [{ customer_id: 'c1', tenant_id: 't1' }], error: null };
+            return { data: [{ tenant_id: 't1' }], error: null };
          return {
             data: {
                id: 'acc-1',
                tenant_id: 't1',
-               customer_id: 'c1',
                seller_id: 'S1',
                api_connection: 'connected'
             },
@@ -476,7 +474,7 @@ Deno.test(
       const { deps: amazon, calls } = fakeFetch({});
       const res = await handler(
          get(
-            'action=definition&product_type=LUGGAGE&country=DE&customer_id=00000000-0000-4000-8000-000000000001'
+            'action=definition&product_type=LUGGAGE&country=DE'
          ),
          deps({
             admin: () => db,
@@ -499,7 +497,7 @@ Deno.test('a user route without a JWT is refused by withAuthorization', async ()
    const { authorize: _fake, ...real } = deps();
    const res = await handler(
       new Request(
-         'http://localhost/amazon-schema?action=search&keywords=x&country=DE&customer_id=00000000-0000-4000-8000-000000000001'
+         'http://localhost/amazon-schema?action=search&keywords=x&country=DE'
       ),
       real
    );
@@ -511,7 +509,7 @@ Deno.test('definition in sandbox serves the fixture row for every marketplace', 
    const { db } = fakeDb(() => ({ data: [fixtureRow()], error: null }));
    const res = await handler(
       get(
-         'action=definition&product_type=LUGGAGE&country=FR&customer_id=00000000-0000-4000-8000-000000000001'
+         'action=definition&product_type=LUGGAGE&country=FR'
       ),
       deps({ userDb: () => db })
    );
@@ -524,7 +522,7 @@ Deno.test('definition in sandbox without a cached row is amazon_schema_missing',
    const { db } = fakeDb(() => ({ data: [], error: null }));
    const res = await handler(
       get(
-         'action=definition&product_type=LUGGAGE&country=FR&customer_id=00000000-0000-4000-8000-000000000001'
+         'action=definition&product_type=LUGGAGE&country=FR'
       ),
       deps({ userDb: () => db })
    );
@@ -550,7 +548,6 @@ Deno.test('definition in production fetches a missing row and caches it', async 
               data: {
                  id: 'acc-1',
                  tenant_id: 'tenant-1',
-                 customer_id: 'c1',
                  seller_id: 'S1',
                  api_connection: 'connected'
               },
@@ -569,7 +566,7 @@ Deno.test('definition in production fetches a missing row and caches it', async 
 
    const res = await handler(
       get(
-         'action=definition&product_type=LUGGAGE&country=FR&customer_id=00000000-0000-4000-8000-000000000001'
+         'action=definition&product_type=LUGGAGE&country=FR'
       ),
       deps({
          env: () => PROD,
@@ -588,7 +585,7 @@ Deno.test('definition in production fetches a missing row and caches it', async 
    // The cache is read for the exact key; the account is the caller's tenant's.
    assertEquals(arg(userQueries[0], 'eq', 'marketplace_id'), FR);
    assertEquals(arg(userQueries[0], 'eq', 'locale'), 'fr_FR');
-   assertEquals(userQueries[1].table, 'customer_platform_account');
+   assertEquals(userQueries[1].table, 'platform_account');
    assertEquals(arg(userQueries[1], 'eq', 'tenant_id'), 'tenant-1');
    assert(calls.some((c) => c.url.includes('sellerId=S1')));
    assertEquals(
@@ -608,7 +605,6 @@ Deno.test('search returns the product types of the country marketplace', async (
       data: {
          id: 'acc-1',
          tenant_id: 'tenant-1',
-         customer_id: 'c1',
          seller_id: null,
          api_connection: 'connected'
       },
@@ -616,7 +612,7 @@ Deno.test('search returns the product types of the country marketplace', async (
    }));
    const res = await handler(
       get(
-         'action=search&keywords=luggage&country=DE&customer_id=00000000-0000-4000-8000-000000000001'
+         'action=search&keywords=luggage&country=DE'
       ),
       deps({ userDb: () => db, service: () => serviceRole(db), amazon })
    );
@@ -627,7 +623,7 @@ Deno.test('search returns the product types of the country marketplace', async (
 Deno.test('a country outside the EU marketplaces is refused', async () => {
    const res = await handler(
       get(
-         'action=definition&product_type=LUGGAGE&country=US&customer_id=00000000-0000-4000-8000-000000000001'
+         'action=definition&product_type=LUGGAGE&country=US'
       ),
       deps()
    );
@@ -648,14 +644,13 @@ Deno.test('an Amazon error answers its code and status, never a token', async ()
       data: {
          id: 'acc-1',
          tenant_id: 'tenant-1',
-         customer_id: 'c1',
          seller_id: 'S1',
          api_connection: 'connected'
       },
       error: null
    }));
    const res = await handler(
-      get('action=search&keywords=x&country=DE&customer_id=00000000-0000-4000-8000-000000000001'),
+      get('action=search&keywords=x&country=DE'),
       deps({ userDb: () => db, service: () => serviceRole(db), amazon })
    );
    assertEquals(res.status, 422);

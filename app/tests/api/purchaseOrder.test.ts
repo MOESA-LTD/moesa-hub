@@ -24,15 +24,38 @@ import {
    toPurchaseOrderUpdateFormValues,
    toPurchaseOrderUpdatePayload
 } from '@/api/purchaseOrder';
-import i18n from '@plugins/i18n';
-import { describe, expect, it } from 'vitest';
+import '../setup/mockMain';
+import { applyTableMeta } from '@/api/postgrest/tableQuery';
+import PurchaseOrderTable from '@/components/service-components/purchase-order-table/PurchaseOrderTable.vue';
+import i18n, { i18NPlugin } from '@plugins/i18n';
+import { flushPromises, mount } from '@vue/test-utils';
+import PrimeVue from 'primevue/config';
+import { describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, ref } from 'vue';
 
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
+const table = vi.hoisted(() => ({ filters: null as unknown }));
+
+vi.mock('@/composables/useSharedRow', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/composables/useSharedRow')>()),
+   useSharedRow: () => ({ isShared: () => false, providerName: () => null })
+}));
+vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('vue-router', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('vue-router')>()),
+   useRoute: () => ({ query: {} }),
+   useRouter: () => ({ push: vi.fn() })
+}));
+vi.mock('@/api/purchaseOrder', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/api/purchaseOrder')>()),
+   usePurchaseOrderIds: () => ({ data: ref(undefined) })
+}));
+
 const SUPPLIER = '00000000-0000-4000-8000-000000000002';
 const ORDER = '00000000-0000-4000-8000-000000000003';
 const PRODUCT = '00000000-0000-4000-8000-000000000004';
 const validValues = toPurchaseOrderFormValues({
-   customer_id: CUSTOMER,
    supplier_id: SUPPLIER,
    currency: 'USD',
    incoterm: 'FOB',
@@ -199,6 +222,10 @@ describe('piDifferences', () => {
 });
 
 describe('status flow', () => {
+   it('offers no step when the status is masked (a client reads client_status only)', () => {
+      expect(nextPurchaseOrderStatuses({ status: null, deposit_rate: null })).toEqual([]);
+   });
+
    it('offers the next status (rule 1), then cancelling', () => {
       expect(nextPurchaseOrderStatuses({ status: 'draft', deposit_rate: 30 })).toEqual([
          'sent',
@@ -284,12 +311,11 @@ describe('purchase order form', () => {
       expect(parse({ pi_check: { '31': 'ok' } }).success).toBe(false);
       expect(parse({ pi_check: { '1': 'yes' } }).success).toBe(false);
       expect(parse({ pi_check: { '1': 'ok', '30': 'missing' } }).success).toBe(true);
-      expect(parse({ customer_id: null }).success).toBe(false);
+      expect(parse({ supplier_id: null }).success).toBe(false);
    });
 
-   it('sends the customer and supplier for a new order only, never the status or code', () => {
+   it('sends the supplier for a new order only, never the status or code', () => {
       expect(toPurchaseOrderPayload(purchaseOrderSchema.parse(validValues))).toMatchObject({
-         customer_id: CUSTOMER,
          supplier_id: SUPPLIER,
          currency: 'USD',
          incoterm: 'FOB',
@@ -304,15 +330,39 @@ describe('purchase order form', () => {
          'draft'
       );
       expect(draft).toMatchObject({ id: 'p1', currency: 'USD' });
-      for (const key of [
-         'customer_id',
-         'supplier_id',
-         'status',
-         'code',
-         'pi_checked_by',
-         'pi_checked_at'
-      ])
+      for (const key of ['supplier_id', 'status', 'code', 'pi_checked_by', 'pi_checked_at'])
          expect(draft).not.toHaveProperty(key);
+   });
+
+   it('payload carries client_tenant_id and no legacy key', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000009';
+      expect(purchaseOrderSchema.parse(validValues).client_tenant_id).toBeNull();
+      const created = toPurchaseOrderPayload(
+         purchaseOrderSchema.parse({ ...validValues, client_tenant_id: CLIENT })
+      );
+      expect(created).toMatchObject({ client_tenant_id: CLIENT, supplier_id: SUPPLIER });
+      expect(created).not.toHaveProperty(legacyKey);
+      expect(toPurchaseOrderPayload(purchaseOrderSchema.parse(validValues))).toMatchObject({
+         client_tenant_id: null
+      });
+      expect(
+         purchaseOrderSchema.safeParse({ ...validValues, client_tenant_id: 'THO' }).success
+      ).toBe(false);
+
+      // The client never changes (client_tenant_immutable): a saved order does not send it.
+      const update = toPurchaseOrderPayload(
+         purchaseOrderSchema.parse({ ...validValues, id: 'p1', client_tenant_id: CLIENT }),
+         'draft'
+      );
+      expect(update).not.toHaveProperty('client_tenant_id');
+      expect(update).not.toHaveProperty(legacyKey);
+      expect(toPurchaseOrderFormValues({ client_tenant_id: CLIENT }).client_tenant_id).toBe(CLIENT);
+   });
+
+   it('keeps the project once the order is past its draft (po_project_locked)', () => {
+      const values = purchaseOrderSchema.parse({ ...validValues, id: 'p1', project_id: null });
+      expect(toPurchaseOrderPayload(values, 'draft')).toHaveProperty('project_id', null);
+      expect(toPurchaseOrderPayload(values, 'sent')).not.toHaveProperty('project_id');
    });
 
    it('leaves the locked terms out once the PI is approved', () => {
@@ -321,14 +371,13 @@ describe('purchase order form', () => {
          'pi_approved'
       );
       expect(update).toMatchObject({ id: 'p1', notes: 'late' });
-      for (const key of ['currency', 'customer_id', 'supplier_id', 'status', ...PO_LOCKED_FIELDS])
+      for (const key of ['currency', 'supplier_id', 'status', ...PO_LOCKED_FIELDS])
          expect(update).not.toHaveProperty(key);
       expect(PO_LOCKED_FIELDS).toHaveLength(13);
    });
 
    it('reads a stored order back into the form', () => {
       const values = toPurchaseOrderFormValues({
-         customer_id: CUSTOMER,
          supplier_id: SUPPLIER,
          currency: 'USD',
          incoterm: 'FOB',
@@ -355,13 +404,12 @@ describe('lines', () => {
       ).toBeNull();
    });
 
-   it('validates a line and never sends its customer or line total', () => {
+   it('validates a line and never sends its line total', () => {
       const values = toPurchaseOrderLineFormValues({
          purchase_order_id: ORDER,
          product_id: PRODUCT,
          quantity: 10,
          unit_price: 1.5,
-         customer_id: CUSTOMER,
          line_total: 15
       });
       const parse = (patch: object) => purchaseOrderLineSchema.safeParse({ ...values, ...patch });
@@ -383,10 +431,7 @@ describe('lines', () => {
       const update = toPurchaseOrderLinePayload(
          purchaseOrderLineSchema.parse({ ...values, id: 'l1' })
       );
-      for (const payload of [insert, update]) {
-         expect(payload).not.toHaveProperty('customer_id');
-         expect(payload).not.toHaveProperty('line_total');
-      }
+      for (const payload of [insert, update]) expect(payload).not.toHaveProperty('line_total');
       expect(update).toMatchObject({ id: 'l1', quantity: 10 });
    });
 });
@@ -466,5 +511,41 @@ describe('document options', () => {
          { value: 'd1', label: `${i18n.t('ops.document.type.spec_sheet')} · ${version}` }
       ]);
       expect(toDocumentOptions(docs)).toEqual([{ value: 'd1', label: version }]);
+   });
+});
+
+describe('order list', () => {
+   it('lists orders without a customer filter', async () => {
+      // A filter a previous version kept across visits must not narrow the list any more.
+      localStorage.setItem('customer-filter', 'c1');
+      const ResourceTable = defineComponent({
+         name: 'ResourceTable',
+         props: ['filters'],
+         setup: (props) => {
+            table.filters = props.filters;
+            return () => h('div');
+         }
+      });
+      mount(PurchaseOrderTable, {
+         global: { plugins: [i18NPlugin, PrimeVue], stubs: { ResourceTable } }
+      });
+      await flushPromises();
+
+      const query: string[] = [];
+      const builder = {
+         filter: (column: string, operator: string, value: unknown) => {
+            query.push(`${column}=${operator}.${value}`);
+            return builder;
+         },
+         or: (group: string) => {
+            query.push(`or=(${group})`);
+            return builder;
+         },
+         order: () => builder,
+         range: () => builder
+      };
+      applyTableMeta(builder, { filters: table.filters as never });
+      expect(query.join('&')).not.toMatch(/customer/);
+      localStorage.removeItem('customer-filter');
    });
 });

@@ -13,6 +13,12 @@ import {
    serverProvided,
    withProvided
 } from '../_shared/listingCompleteness.ts';
+export {
+   markActiveProviders,
+   SOURCING_LISTING_COLUMNS,
+   sourcingArtNo,
+   type SourcingArtNoRow
+} from '../_shared/listingCompleteness.ts';
 import { type AmazonIssue, listingItemPath, toIssue } from '../_shared/listingStatus.ts';
 
 export { serverProvided };
@@ -35,7 +41,6 @@ export type ProductRow = Pick<
    Database['public']['Tables']['product']['Row'],
    | 'id'
    | 'tenant_id'
-   | 'customer_id'
    | 'parent_id'
    | 'sku'
    | 'display_name'
@@ -52,20 +57,23 @@ export type ProductRow = Pick<
    | 'pack_qty'
    | 'origin_country'
    | 'is_hazmat'
-   | 'manufacturer_art_no'
->;
+> & {
+   /**
+    * Not a product column: the manufacturer article number of the sourcing row the caller reads for
+    * the product (sourcingArtNo), set by the loader; NULL when none is readable.
+    */
+   manufacturer_art_no?: string | null;
+};
 
 /**
  * The product columns the listing reads: open ones only. The product card columns (unit/pack size,
  * weight, quantity, origin, hazmat) feed the derived attributes. The listing never needs cost,
  * supplier or notes, and a service-role read must not carry them along with a `*`. The manufacturer
- * article number is supplier identity: it is read only through the caller's api client, where it is
- * NULL without the right (then nothing is derived from it); never with the service role. The derived
- * value lands in listing_submission.payload, readable by other tenant members: accepted, as it is
- * published publicly on Amazon.
+ * article number is supplier identity and sits on the sourcing row (SOURCING_LISTING_COLUMNS), so
+ * the product read does not carry it.
  */
 export const PRODUCT_LISTING_COLUMNS =
-   'id, tenant_id, customer_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat, manufacturer_art_no';
+   'id, tenant_id, parent_id, sku, display_name, variant_label, brand, gtin, amazon_product_type, amazon_schema_version, listing_attributes, unit_dims_mm, unit_net_g, pack_dims_mm, pack_gross_g, pack_qty, origin_country, is_hazmat';
 
 export type CellContext = {
    cell: MarketCellRow;

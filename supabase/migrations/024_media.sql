@@ -2,8 +2,7 @@
 -- one file in the private `media` bucket. Later tasks link media to records (media_link) and to
 -- documents.
 --
--- media    One uploaded file and what describes it (title, alt text, tags, the customer it
---          concerns). Its file sits at <tenant_id>/<media id>/<file name>, and its thumbnail at
+-- media    One uploaded file and what describes it (title, alt text, tags). Its file sits at <tenant_id>/<media id>/<file name>, and its thumbnail at
 --          <tenant_id>/<media id>/thumb/thumb.webp (the thumb/ folder is reserved, so a user file is
 --          never stored under it). The path is derived from (tenant_id, id) alone, so a copy into
 --          another tenant (M21) is a new row with a new folder. No URL is kept: the files are
@@ -161,7 +160,6 @@ $$;
 CREATE TABLE IF NOT EXISTS public.media (
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
-   customer_id UUID,
    storage_path TEXT NOT NULL,
    thumbnail_path TEXT,
    file_name TEXT NOT NULL,
@@ -183,11 +181,8 @@ CREATE TABLE IF NOT EXISTS public.media (
    CONSTRAINT media_path_in_folder CHECK (
       storage_path ~ ('^' || tenant_id::TEXT || '/' || id::TEXT || '/[^/]+$')
       AND (thumbnail_path IS NULL OR thumbnail_path = tenant_id::TEXT || '/' || id::TEXT || '/thumb/thumb.webp')
-   ),
-   CONSTRAINT media_customer_fkey FOREIGN KEY (customer_id, tenant_id) REFERENCES public.customer (id, tenant_id) ON DELETE RESTRICT
+   )
 );
-
-CREATE INDEX IF NOT EXISTS idx_media_customer ON public.media (tenant_id, customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_media_created_at ON public.media (tenant_id, created_at DESC);
 

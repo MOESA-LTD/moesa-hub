@@ -2,21 +2,16 @@
 import { useLookup } from '@/api/useLookup';
 import type { ProductRow } from '@/api/product';
 
-/** Picks the parent of a variant among the same customer's other products. */
+/** Picks the parent of a variant among the same tenant's other products. */
 type ProductOption = Pick<ProductRow, 'id' | 'sku' | 'display_name'>;
 
-const props = defineProps<{ customerId?: string | null; productId?: string | null }>();
+const props = defineProps<{ productId?: string | null }>();
 const model = defineModel<string | null>();
 
-const { data: products } = useLookup<ProductOption>(
-   'product',
-   () => ({
-      select: 'id, sku, display_name',
-      order: 'sku',
-      in: { column: 'customer_id', values: [props.customerId] }
-   }),
-   () => !!props.customerId
-);
+const { data: products } = useLookup<ProductOption>('product', () => ({
+   select: 'id, sku, display_name',
+   order: 'sku'
+}));
 
 const options = computed(() =>
    (products.value ?? [])

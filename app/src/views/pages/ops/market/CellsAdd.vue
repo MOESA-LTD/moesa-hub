@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { usePlatformOptions } from '@/api/customer';
 import { provideFormTenant } from '@/api/formTenant';
 import {
    missingCells,
@@ -7,40 +6,34 @@ import {
    useMarketCells,
    type MarketCellRow
 } from '@/api/marketMatrix';
+import { usePlatformOptions } from '@/api/platform';
 import { useDialogRef } from '@/composables/useDialogRef';
 import { appErrorHandler } from '@/lib/appErrorHandler';
 import { useAuthStore } from '@/store/auth';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { useToast } from 'primevue/usetoast';
 import ProjectSelect from '../purchase-order/ProjectSelect.vue';
 
-// Opens a customer's products on one platform in several countries at once, each a candidate.
+// Opens products on one platform in several countries at once, each a candidate.
 // Only the cells that are not open yet are added; the toast says how many already were.
 const { t } = useI18n();
 const toast = useToast();
 const dialogRef = useDialogRef();
-const customerFilter = useCustomerFilter();
 
-// The cells go to the active tenant, so the pickers offer its customers and products only (see
+// The cells go to the active tenant, so the pickers offer its products and projects only (see
 // provideFormTenant), and each row names it.
 const authStore = useAuthStore();
 const tenantId = computed(() => authStore.currentTenant?.id ?? null);
 provideFormTenant(tenantId);
 
-const customerId = ref<string | null>(customerFilter.customerId);
 const productIds = ref<string[]>([]);
 const projectId = ref<string | null>(null);
 const platformId = ref<string | null>(null);
 const countries = ref<string[]>([]);
 const priority = ref(2);
 
-const onCustomerPick = () => {
+const clear = () => {
    productIds.value = [];
    projectId.value = null;
-};
-
-const clear = () => {
-   onCustomerPick();
    platformId.value = null;
    countries.value = [];
    priority.value = 2;
@@ -58,13 +51,13 @@ const priorityOptions = computed(() =>
    [1, 2, 3].map((value) => ({ value, label: `${value} — ${t(`ops.market.priority.${value}`)}` }))
 );
 
-// The customer's cells, to leave out the ones already open.
-const { data: existing } = useMarketCells(() => ({ customerId: customerId.value }));
+// The tenant's cells, to leave out the ones already open.
+const { data: existing } = useMarketCells(() => ({ tenantId: tenantId.value }));
 const { mutateAsync: addCells, isPending } = useAddMarketCells();
 
 const ready = computed(
    () =>
-      !!customerId.value &&
+      !!tenantId.value &&
       productIds.value.length > 0 &&
       !!platformId.value &&
       countries.value.length > 0 &&
@@ -113,24 +106,16 @@ const submit = async () => {
       @submit="submit"
       @reset="clear"
    >
-      <FormField fluid :label="$t('ops.market.fields.customer')" v-slot="slotProps">
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="customerId"
-            hide-closed
-            @update:model-value="onCustomerPick"
-         />
-      </FormField>
       <FormField
          class="!flex-auto !max-w-none w-full"
          fluid
          :label="$t('ops.market.fields.products')"
          v-slot="slotProps"
       >
-         <ProductMultiSelect v-bind="slotProps" v-model="productIds" :customerId />
+         <ProductMultiSelect v-bind="slotProps" v-model="productIds" />
       </FormField>
       <FormField fluid :label="$t('ops.market.fields.project')" v-slot="slotProps">
-         <ProjectSelect v-bind="slotProps" v-model="projectId" :customerId />
+         <ProjectSelect v-bind="slotProps" v-model="projectId" />
       </FormField>
       <FormField fluid :label="$t('ops.market.fields.platform')" v-slot="slotProps">
          <SelectPlatform

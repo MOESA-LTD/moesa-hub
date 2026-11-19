@@ -13,7 +13,6 @@ import { GATE_CODES } from '@/api/project';
 import { useLookup } from '@/api/useLookup';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import { appErrorHandler } from '@/lib/appErrorHandler';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { useMutation } from '@tanstack/vue-query';
 import { computed, inject, type InjectionKey } from 'vue';
 
@@ -109,25 +108,20 @@ function useSaveChangeRequest() {
 
 /**
  * The change request card's one form: the request, impact and decision tabs each show their part
- * of it. A new request starts with the customer the lists are filtered by, or the one a link names
- * (the route's query, as props: a route dialog renders the page outside the router). Once a new
- * request is saved, its "new" draft is dropped: the card goes on under its id.
+ * of it. A new request starts with the project a link names (the route's query, as props: a route
+ * dialog renders the page outside the router). Once a new request is saved, its "new" draft is
+ * dropped: the card goes on under its id.
  */
 export function useChangeRequestForm(
    id: () => string | null | undefined,
    onSaved?: (cr: ChangeRequestCard) => void,
    prefill: ChangeRequestPrefill = {}
 ) {
-   const customerFilter = useCustomerFilter();
    const isNew = !id();
 
    const initial = () => {
-      const customerId = queryValue(prefill.customer_id) ?? customerFilter.customerId;
       const projectId = queryValue(prefill.project_id);
-      return {
-         ...(customerId ? { customer_id: customerId } : {}),
-         ...(customerId && projectId ? { project_id: projectId } : {})
-      };
+      return projectId ? { project_id: projectId } : {};
    };
 
    const form = useUpsertForm({
@@ -139,7 +133,9 @@ export function useChangeRequestForm(
       schema: changeRequestSchema,
       toFormValues: toChangeRequestFormValues,
       toPayload: (values): ChangeRequestSave => ({
-         row: toChangeRequestPayload(values),
+         row: toChangeRequestPayload(values, null, {
+            costLocked: isCostLocked(values.order_tenant_id, form.row.value?.tenant_id)
+         }),
          productIds: values.product_ids
       }),
       onSaved: (cr) => {
@@ -150,8 +146,19 @@ export function useChangeRequestForm(
    return form;
 }
 
-/** A new request's customer and project, when a link names them. */
-export type ChangeRequestPrefill = { customer_id?: string | null; project_id?: string | null };
+/**
+ * Whether the cost of a request is the provider's: its order is another tenant's (a shared
+ * provider order). The form leaves order_tenant_id empty for an own pick, so a value on a new
+ * request is always a provider's; a saved request's own order carries its own tenant. The database
+ * refuses a client's write of it (cost_link_forbidden), and masks it.
+ */
+export const isCostLocked = (
+   orderTenantId: string | null | undefined,
+   rowTenantId: string | null | undefined
+) => !!orderTenantId && orderTenantId !== rowTenantId;
+
+/** A new request's project, when a link names it. */
+export type ChangeRequestPrefill = { project_id?: string | null };
 
 const queryValue = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 

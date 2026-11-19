@@ -2,8 +2,8 @@
 -- app/ (scripts/field-security-perf.mjs pipes this file to psql in the local database container and
 -- inlines field_security_perf_load.sql at the \ir line). Everything runs inside BEGIN … ROLLBACK.
 --
--- For each actor, the spike's Q1–Q4 (spike.md §3), Q5 (the product list's embed shape: customer join
--- and the api.supplier(p) computed relationship) and Q6 (the purchase-order overview) run against
+-- For each actor, the spike's Q1–Q4 (spike.md §3; Q4 now sums the cost on the sourcing rows, where it
+-- lives, per tenant: the join it had is gone), Q5 (the sourcing list's embed shape: the api.supplier(s) computed relationship) and Q6 (the purchase-order overview) run against
 -- api.* and against the same query on public.* (temporarily granted to authenticated, so both sides
 -- pay the same RLS). Each side: one warm-up, then 5 alternating runs; the median planning + execution
 -- time of EXPLAIN ANALYZE. Budget (R10, amended 2026-11-09): reads, internal ≤ max(+15%, +5 ms),
@@ -24,8 +24,12 @@ SELECT private.create_test_helpers();
 \o
 
 -- The baseline: the same queries on the base tables, with RLS, as the same caller.
-GRANT SELECT ON public.product, public.customer, public.supplier, public.purchase_order, public.purchase_order_line,
-    public.purchase_order_payment, public.project, public.document, public.purchase_order_overview TO authenticated;
+GRANT SELECT ON public.product, public.sourcing, public.supplier, public.purchase_order, public.purchase_order_line,
+    public.purchase_order_payment, public.project, public.document, public.purchase_order_overview,
+    public.provider_relationship TO authenticated;
+-- The client_select draft term (067) reads this view, selectable by api_owner alone; the baseline
+-- caller needs it to pay the same policies.
+GRANT SELECT ON private.purchase_order_released TO authenticated;
 
 -- Median planning + execution ms of `base` and `api`, alternating, after one warm-up of each.
 CREATE FUNCTION t.perf_pair (base TEXT, api TEXT, n INT DEFAULT 5) RETURNS TABLE (base_ms NUMERIC, api_ms NUMERIC)
@@ -63,14 +67,13 @@ INSERT INTO perf_case VALUES
     (1, 'Q1 list 50 newest', 'SELECT * FROM %1$s.product ORDER BY created_at DESC LIMIT 50'),
     (2, 'Q2 sku prefix', 'SELECT * FROM %1$s.product WHERE sku LIKE ''L-00012%%'''),
     (3, 'Q3 count', 'SELECT count(*) FROM %1$s.product'),
-    (4, 'Q4 join customer + sum(price)',
-        'SELECT c.code, count(*), sum(v.purchase_price) FROM %1$s.product v JOIN %1$s.customer c ON c.id = v.customer_id AND c.tenant_id = v.tenant_id GROUP BY c.code'),
-    (5, 'Q5 list 50 + customer, supplier embed', NULL),
+    (4, 'Q4 sum(price) per tenant',
+        'SELECT v.tenant_id, count(*), sum(v.purchase_price) FROM %1$s.sourcing v GROUP BY v.tenant_id'),
+    (5, 'Q5 sourcing list 50 + supplier embed', NULL),
     (6, 'Q6 purchase_order_overview 50', 'SELECT * FROM %1$s.purchase_order_overview LIMIT 50');
--- Q5: PostgREST's shape for product?select=*,customer(code),supplier(code): a join to customer and a
--- lateral subquery per embed; through api the supplier embed is the computed relationship.
-UPDATE perf_case SET sql = 'SELECT p.*, c.code AS customer_code, s.code AS supplier_code FROM %1$s.product p '
-    || 'LEFT JOIN %1$s.customer c ON c.id = p.customer_id '
+-- Q5: PostgREST's shape for sourcing?select=*,supplier(code): a lateral subquery per embed; through api
+-- the supplier embed is the computed relationship.
+UPDATE perf_case SET sql = 'SELECT p.*, s.code AS supplier_code FROM %1$s.sourcing p '
     || 'LEFT JOIN LATERAL (%2$s) s ON TRUE ORDER BY p.created_at DESC LIMIT 50'
 WHERE pos = 5;
 
@@ -140,6 +143,76 @@ SELECT private.unimpersonate();
 \set ON_ERROR_STOP 1
 \o
 
+-- Sharing (Plan 2, Task 10): THO, the client of MOESA LTD, over the shared orders and shipments of the
+-- load. The baseline is the same query on the base tables as postgres (no RLS) with the scope filter
+-- written out (tenant_id or client_tenant_id in the scope); the api side runs as the actor, so it pays
+-- the sharing policies, the masking and client_status. The list embeds the lines as PostgREST does
+-- (purchase_order?select=*,purchase_order_line(*)). thomas, owner of THO, is restricted (a client
+-- reads only the client-visible fields); akif, management in MOESA LTD and THO, is internal.
+CREATE FUNCTION t.perf_pair_as (base TEXT, api TEXT, actor UUID, active UUID, scope UUID[], n INT DEFAULT 5)
+RETURNS TABLE (base_ms NUMERIC, api_ms NUMERIC) LANGUAGE plpgsql AS $$
+DECLARE
+    j JSON;
+    b NUMERIC[] := '{}';
+    a NUMERIC[] := '{}';
+BEGIN
+    FOR i IN 0..n LOOP
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || base INTO j;
+        IF i > 0 THEN
+            b := b || ((j -> 0 ->> 'Planning Time')::NUMERIC + (j -> 0 ->> 'Execution Time')::NUMERIC);
+        END IF;
+        PERFORM private.impersonate_scope(actor, active, scope);
+        EXECUTE 'EXPLAIN (ANALYZE, FORMAT JSON) ' || api INTO j;
+        RESET ROLE;
+        PERFORM private.unimpersonate();
+        IF i > 0 THEN
+            a := a || ((j -> 0 ->> 'Planning Time')::NUMERIC + (j -> 0 ->> 'Execution Time')::NUMERIC);
+        END IF;
+    END LOOP;
+    base_ms := (SELECT x FROM unnest(b) x ORDER BY x OFFSET n / 2 LIMIT 1);
+    api_ms := (SELECT x FROM unnest(a) x ORDER BY x OFFSET n / 2 LIMIT 1);
+    RETURN NEXT;
+END;
+$$;
+
+CREATE TEMP TABLE s AS
+SELECT (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD') AS moesa,
+       (SELECT id FROM public.tenant WHERE code = 'THO') AS tho,
+       'SELECT v.*, l.lines FROM %1$s.purchase_order v LEFT JOIN LATERAL (SELECT json_agg(x) AS lines '
+           || 'FROM %1$s.purchase_order_line x WHERE x.purchase_order_id = v.id %3$s) l ON TRUE %2$s '
+           || 'ORDER BY v.created_at DESC LIMIT 50' AS po;
+
+CREATE TEMP TABLE perf_shared (pos INT, name TEXT, actor TEXT, email TEXT, active UUID, scope UUID[], sql TEXT);
+INSERT INTO perf_shared
+SELECT 101, 'shared_client_owner_po_list', 'restricted', 'thomas@moesa-panel.test', s.tho, ARRAY[s.tho], s.po
+FROM s
+UNION ALL
+SELECT 102, 'shared_client_owner_shipment_list', 'restricted', 'thomas@moesa-panel.test', s.tho, ARRAY[s.tho],
+       'SELECT * FROM %1$s.shipment v %2$s ORDER BY v.created_at DESC LIMIT 50'
+FROM s
+UNION ALL
+SELECT 103, 'provider_two_tenants_po_list', 'internal', 'akif@moesa-panel.test', s.moesa, ARRAY[s.moesa, s.tho], s.po
+FROM s;
+
+CREATE TEMP VIEW perf_shared_statements AS
+SELECT q.pos, format('INSERT INTO perf_result SELECT %L, %s, %L, r.base_ms, r.api_ms FROM t.perf_pair_as(%L, %L, %L, %L, %L) r',
+                     q.actor, q.pos, q.name,
+                     format(q.sql, 'public', 'WHERE ' || f.v, 'AND ' || f.x),
+                     format(q.sql, 'api', '', ''),
+                     (SELECT u.id FROM public.user u WHERE u.email = q.email), q.active, q.scope) AS sql
+FROM perf_shared q
+CROSS JOIN LATERAL (SELECT format('(v.tenant_id = ANY (%1$L) OR v.client_tenant_id = ANY (%1$L))', q.scope) AS v,
+                           format('(x.tenant_id = ANY (%1$L) OR x.client_tenant_id = ANY (%1$L))', q.scope) AS x) f;
+
+\o /dev/null
+SET LOCAL statement_timeout = '60s';
+\o
+\set ON_ERROR_STOP 0
+SELECT sql FROM perf_shared_statements ORDER BY pos \gexec
+\o /dev/null
+SET LOCAL statement_timeout = 0;
+\o
+
 \set ON_ERROR_STOP 1
 
 -- A pair without a result (timed out or failed) is reported as over budget.
@@ -147,6 +220,10 @@ INSERT INTO perf_result
 SELECT a.actor, q.pos, q.name, NULL, NULL
 FROM (VALUES ('internal'), ('restricted'), ('mixed')) a (actor) CROSS JOIN perf_queries q
 WHERE NOT EXISTS (SELECT 1 FROM perf_result r WHERE r.actor = a.actor AND r.pos = q.pos);
+INSERT INTO perf_result
+SELECT q.actor, q.pos, q.name, NULL, NULL
+FROM perf_shared q
+WHERE NOT EXISTS (SELECT 1 FROM perf_result r WHERE r.pos = q.pos);
 
 \unset QUIET
 SELECT actor, name AS query, round(base_ms, 2) AS public_ms, round(api_ms, 2) AS api_ms,

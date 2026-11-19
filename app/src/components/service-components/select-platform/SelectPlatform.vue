@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { usePlatformOptions } from '@/api/customer';
+import { usePlatformOptions } from '@/api/platform';
 
 /** Picks a marketplace (public.platform, the same for every tenant) by id. */
 defineProps<{
@@ -18,6 +18,6 @@ const { data: platforms } = usePlatformOptions();
       option-label="display_name"
       filter
       :showClear
-      :placeholder="$t('ops.customer.platform.select')"
+      :placeholder="$t('ops.market.platform_select')"
    />
 </template>

@@ -1,45 +1,82 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- The Amazon listing core (046) on the demo companies of seed.sql: the new columns and enums; the
+-- The Amazon listing core (046) on fixtures built in the file: the new columns and enums; the
 -- definition cache is read by every user and written by none, and its property groups are an
 -- ordered array; a user never writes a submission (only the service role does); listing_state and
--- the Amazon connection are server-only, and a connected account cannot move to another customer
--- (a transfer moves it disconnected); another tenant sees no submission; as the service role,
+-- the Amazon connection are server-only, and a connected account cannot move to another tenant;
+-- another tenant sees no submission and no platform account of the seller; as the service role,
 -- connecting an account stores its token in Vault (one secret per account) and disconnecting with
 -- 'none' removes it; listing_apply_submission walks market_cell.status only through the legal
--- transitions (R2: accepted → uploaded, live only with the listing data, issues keep the status
--- and write open_issue), fills the platform product ID from the ASIN and moves the cell only for
--- the cell's latest submission; listing_begin_submission records a submission, marks the cell
--- submitted and refuses a second one while one is in flight; listing_set_state writes only over
--- the version it was given and clears an Amazon open issue when leaving issues; the parent cell is
--- created on demand and shows the worst of its own submission and its children (R7); the registry
--- row, the public bucket and the coordinator's publish permission are there; a transferred account
--- starts disconnected; called as a user, begin and parent are audited as that user and refuse
--- another tenant or a user without the permission, Amazon's outcome is the service role's only
--- (audited as its p_actor), and a service write is labelled by its x-audit-role. The cells are
--- THO-MOP40-2P's on amazon PL, SE, BE, GB and NL, inserted as postgres and walked with UPDATEs.
--- What it writes is rolled back.
+-- transitions (R2: accepted → uploaded, live only with the listing data, issues keep the status and
+-- write open_issue), fills the platform product ID from the ASIN and moves the cell only for the
+-- cell's latest submission; listing_begin_submission records a submission, marks the cell submitted
+-- and refuses a second one while one is in flight; listing_set_state writes only over the version
+-- it was given and clears an Amazon open issue when leaving issues; the parent cell is created on
+-- demand and shows the worst of its own submission and its children (R7); the public bucket and the
+-- coordinator's publish permission are there; called as a user, begin and parent are audited as
+-- that user and refuse another tenant or a user without the permission, Amazon's outcome is the
+-- service role's only (audited as its p_actor), and a service write is labelled by its
+-- x-audit-role. The cells are AMZ-MOP40-2P's on amazon PL, SE, BE, GB and NL, inserted as postgres
+-- and walked with UPDATEs. What it writes is rolled back.
 BEGIN;
 
 SELECT plan(100);
 
+-- Fixture, built here as postgres (the seed is not on the new model yet): one tenant that sells on
+-- Amazon with its owner, a coordinator who may publish, a second tenant with its own owner, one
+-- product and the tenant's Amazon account (one per tenant and platform).
+INSERT INTO public.tenant (id, display_name) VALUES
+    ('00000000-0000-4000-8000-000000004601', 'Amazon Seller'),
+    ('00000000-0000-4000-8000-000000004602', 'Other Seller');
+
+INSERT INTO public.user (id, email) VALUES
+    ('00000000-0000-4000-8000-000000004611', 'owner@amazon-core.test'),
+    ('00000000-0000-4000-8000-000000004612', 'other-owner@amazon-core.test'),
+    ('00000000-0000-4000-8000-000000004613', 'coordinator@amazon-core.test');
+
+INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000004611', '00000000-0000-4000-8000-000000004601'),
+    ('00000000-0000-4000-8000-000000004612', '00000000-0000-4000-8000-000000004602');
+
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000004611', '00000000-0000-4000-8000-000000004601'),
+    ('00000000-0000-4000-8000-000000004612', '00000000-0000-4000-8000-000000004602'),
+    ('00000000-0000-4000-8000-000000004613', '00000000-0000-4000-8000-000000004601');
+
+INSERT INTO public.role (id, tenant_id, display_name) VALUES
+    ('00000000-0000-4000-8000-000000004631', '00000000-0000-4000-8000-000000004601', 'coordinator');
+
+INSERT INTO public.role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000004631', p.id
+FROM public.permission p
+WHERE (p.resource_name = 'public.listing_submission' AND p.command IN ('select', 'insert'))
+   OR (p.resource_name = 'public.platform_account' AND p.command IN ('select', 'update'));
+
+INSERT INTO public.user_role (user_id, role_id) VALUES
+    ('00000000-0000-4000-8000-000000004613', '00000000-0000-4000-8000-000000004631');
+
+INSERT INTO public.product (tenant_id, sku, display_name)
+VALUES ('00000000-0000-4000-8000-000000004601', 'AMZ-MOP40-2P', 'Mop 40');
+
+INSERT INTO public.platform_account (tenant_id, platform_id)
+VALUES ('00000000-0000-4000-8000-000000004601', 'amazon');
+
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
-    ('moesa', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
-    ('europe', (SELECT id FROM public.tenant WHERE display_name = 'MOESA Europe')),
-    ('eski', (SELECT id FROM public.tenant WHERE display_name = 'Eski Ticaret')),
-    ('akif', (SELECT id FROM public.user WHERE email = 'akif@moesa-panel.test')),
-    ('selin', (SELECT id FROM public.user WHERE email = 'selin@moesa-panel.test')),
-    ('tho', (SELECT id FROM public.customer WHERE code = 'THO')),
-    ('mop', (SELECT id FROM public.product WHERE sku = 'THO-MOP40-2P')),
-    ('acct', (SELECT a.id FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-              WHERE c.code = 'THO' AND a.platform_id = 'amazon'))
+    ('client', '00000000-0000-4000-8000-000000004601'),
+    ('other', '00000000-0000-4000-8000-000000004602'),
+    ('akif', '00000000-0000-4000-8000-000000004611'),
+    ('selin', '00000000-0000-4000-8000-000000004612'),
+    ('koord', '00000000-0000-4000-8000-000000004613'),
+    ('mop', (SELECT id FROM public.product WHERE sku = 'AMZ-MOP40-2P')),
+    ('acct', (SELECT a.id FROM public.platform_account a
+              WHERE a.tenant_id = '00000000-0000-4000-8000-000000004601' AND a.platform_id = 'amazon'))
 ) AS x (k, v);
 
 -- The five cells, as postgres: PL preparing (later complete), SE planned, BE a candidate, GB
 -- uploaded without a price, NL planned (accepted with issues).
-INSERT INTO public.market_cell (tenant_id, customer_id, product_id, platform_id, country)
-SELECT current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, current_setting('test.mop')::UUID, 'amazon', c
+INSERT INTO public.market_cell (tenant_id, product_id, platform_id, country)
+SELECT current_setting('test.client')::UUID, current_setting('test.mop')::UUID, 'amazon', c
 FROM unnest(ARRAY['PL', 'SE', 'BE', 'GB', 'NL']) AS c;
 
 SELECT set_config('test.cell_' || lower(m.country), m.id::TEXT, TRUE)
@@ -48,7 +85,7 @@ WHERE m.product_id = current_setting('test.mop')::UUID AND m.platform_id = 'amaz
 
 UPDATE public.market_cell SET status = 'planned' WHERE id IN (current_setting('test.cell_pl')::UUID, current_setting('test.cell_se')::UUID, current_setting('test.cell_gb')::UUID, current_setting('test.cell_nl')::UUID);
 UPDATE public.market_cell SET status = 'preparing' WHERE id IN (current_setting('test.cell_pl')::UUID, current_setting('test.cell_gb')::UUID);
-UPDATE public.market_cell SET status = 'uploaded', platform_sku = 'THO-MOP40-2P', platform_product_id = 'B07N4M94X4',
+UPDATE public.market_cell SET status = 'uploaded', platform_sku = 'AMZ-MOP40-2P', platform_product_id = 'B07N4M94X4',
     currency = 'GBP', stock_source = 'platform', content_status = 'approved'
 WHERE id = current_setting('test.cell_gb')::UUID;
 UPDATE public.market_cell SET price = 12.99, currency = 'PLN', stock_source = 'platform', content_status = 'approved'
@@ -62,7 +99,7 @@ DECLARE
 BEGIN
     FOR s IN SELECT * FROM (VALUES ('preparing', 'pl'), ('planned', 'se'), ('candidate', 'be'), ('no_price', 'gb'), ('issues', 'nl')) AS v (k, cell) LOOP
         INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-        VALUES (current_setting('test.moesa')::UUID, current_setting('test.cell_' || s.cell)::UUID, 'create', 'THO-MOP40-2P', 'A1C3SOZRARQ6R3', '{}')
+        VALUES (current_setting('test.client')::UUID, current_setting('test.cell_' || s.cell)::UUID, 'create', 'AMZ-MOP40-2P', 'A1C3SOZRARQ6R3', '{}')
         RETURNING id INTO new_id;
         PERFORM set_config('test.sub_' || s.k, new_id::TEXT, TRUE);
     END LOOP;
@@ -73,9 +110,20 @@ $$;
 SELECT has_column('public', 'product', 'amazon_product_type', 'product.amazon_product_type');
 SELECT has_column('public', 'product', 'amazon_schema_version', 'product.amazon_schema_version');
 SELECT has_column('public', 'product', 'listing_attributes', 'product.listing_attributes');
-SELECT has_column('public', 'customer_platform_account', 'api_connection', 'customer_platform_account.api_connection');
-SELECT has_column('public', 'customer_platform_account', 'authorized_at', 'customer_platform_account.authorized_at');
-SELECT has_column('public', 'customer_platform_account', 'seller_id', 'customer_platform_account.seller_id');
+SELECT throws_ok(
+    $$ INSERT INTO public.platform_account (tenant_id, platform_id) VALUES (current_setting('test.client')::UUID, 'amazon') $$,
+    '23505',
+    NULL,
+    'one Amazon account per tenant and platform'
+);
+SELECT is(
+    (SELECT count(*)::INT FROM public.permission WHERE resource_name = 'public.platform_account' AND group_name = 'listing'),
+    4,
+    'platform_account has its four permissions under the listing module'
+);
+SELECT has_column('public', 'platform_account', 'api_connection', 'platform_account.api_connection');
+SELECT has_column('public', 'platform_account', 'authorized_at', 'platform_account.authorized_at');
+SELECT has_column('public', 'platform_account', 'seller_id', 'platform_account.seller_id');
 SELECT has_column('public', 'market_cell', 'listing_state', 'market_cell.listing_state');
 SELECT has_column('public', 'market_cell', 'listing_checked_at', 'market_cell.listing_checked_at');
 SELECT has_column('public', 'market_cell', 'listing_language', 'market_cell.listing_language');
@@ -88,8 +136,8 @@ SELECT enum_has_labels('public', 'api_connection', ARRAY['none', 'connected', 'r
 SELECT enum_has_labels('public', 'listing_submission_kind', ARRAY['create', 'update', 'delete'], 'submission kinds');
 SELECT enum_has_labels('public', 'listing_submission_status', ARRAY['accepted', 'invalid', 'processing', 'done', 'failed'], 'submission statuses');
 
--- 16–23. akif in MOESA LTD.
-SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
+-- 16–23. the owner of the seller tenant.
+SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.client')::UUID);
 
 SELECT lives_ok($$ SELECT * FROM api.amazon_product_type_definition $$, 'a user reads the definition cache');
 SELECT throws_ok(
@@ -102,7 +150,7 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $$ INSERT INTO api.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload, status, amazon_submission_id)
-       VALUES (current_setting('test.moesa')::UUID, current_setting('test.cell_se')::UUID, 'create', 'FORGED-SKU', 'A2NODRKZP88ZB9', '{}',
+       VALUES (current_setting('test.client')::UUID, current_setting('test.cell_se')::UUID, 'create', 'FORGED-SKU', 'A2NODRKZP88ZB9', '{}',
                'done', 'forged') $$,
     '42501',
     NULL,
@@ -128,7 +176,7 @@ SELECT throws_ok(
     'listing_state is server-only'
 );
 SELECT throws_ok(
-    $$ UPDATE api.customer_platform_account SET api_connection = 'connected' WHERE id = current_setting('test.acct')::UUID $$,
+    $$ UPDATE api.platform_account SET api_connection = 'connected' WHERE id = current_setting('test.acct')::UUID $$,
     '23514',
     'platform_account_api_server_only',
     'api_connection is server-only'
@@ -142,9 +190,11 @@ SELECT throws_ok(
 
 RESET ROLE;
 
--- 24. A user of Eski Ticaret.
-SELECT private.impersonate(current_setting('test.selin')::UUID, current_setting('test.eski')::UUID);
+-- 24. A user of the other tenant.
+SELECT private.impersonate(current_setting('test.selin')::UUID, current_setting('test.other')::UUID);
 SELECT is((SELECT count(*) FROM api.listing_submission)::INT, 0, 'another tenant sees no submission');
+SELECT is((SELECT count(*) FROM api.platform_account WHERE id = current_setting('test.acct')::UUID)::INT, 0,
+   'another tenant sees no platform account of the seller');
 RESET ROLE;
 
 -- 25–30. The service role: connect, the token, disconnect.
@@ -158,25 +208,22 @@ SELECT is(
 );
 SELECT is(public.amazon_account_token(current_setting('test.acct')::UUID), 'Atzr|test', 'the token round-trips through Vault');
 SELECT ok(
-    (SELECT seller_id = 'A3TEST' AND authorized_at IS NOT NULL FROM public.customer_platform_account WHERE id = current_setting('test.acct')::UUID),
+    (SELECT seller_id = 'A3TEST' AND authorized_at IS NOT NULL FROM public.platform_account WHERE id = current_setting('test.acct')::UUID),
     'connect stores the seller id and the date'
 );
 
 RESET ROLE;
 SELECT is((SELECT count(*) FROM vault.secrets WHERE name = 'amazon:' || current_setting('test.acct'))::INT, 1, 'one secret per account');
 
--- C1. A connected account stays with its customer: its token would publish another customer's
+-- C1. A connected account stays with its tenant and platform: its token would publish another tenant's
 -- products into this seller account.
-INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.moesa')::UUID, 'ZZC', 'Zed Charlie', 'trading_partner');
-SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.client')::UUID);
 SELECT throws_ok(
-    $$ UPDATE api.customer_platform_account
-       SET customer_id = (SELECT c.id FROM api.customer c WHERE c.tenant_id = current_setting('test.moesa')::UUID AND c.code = 'ZZC')
+    $$ UPDATE api.platform_account SET platform_id = 'ebay'
        WHERE id = current_setting('test.acct')::UUID $$,
     '42501',
     'platform_account_connected',
-    'a connected account cannot move to another customer'
+    'a connected account cannot move to another platform'
 );
 RESET ROLE;
 SET LOCAL ROLE service_role;
@@ -189,7 +236,7 @@ SELECT is(public.amazon_account_token(current_setting('test.acct')::UUID), NULL,
 SELECT 1 FROM public.amazon_account_connect(current_setting('test.acct')::UUID, 'Atzr|again', 'A3TEST');
 SELECT public.amazon_account_disconnect(current_setting('test.acct')::UUID, 'revoked');
 SELECT ok(
-    (SELECT api_connection = 'revoked' AND seller_id = 'A3TEST' FROM public.customer_platform_account WHERE id = current_setting('test.acct')::UUID),
+    (SELECT api_connection = 'revoked' AND seller_id = 'A3TEST' FROM public.platform_account WHERE id = current_setting('test.acct')::UUID),
     'disconnect revoked keeps the seller id'
 );
 SELECT is(public.amazon_account_token(current_setting('test.acct')::UUID), NULL, 'disconnect revoked removes the token');
@@ -227,7 +274,7 @@ SELECT is(
 RESET ROLE;
 WITH s AS (
     INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-    VALUES (current_setting('test.moesa')::UUID, current_setting('test.cell_pl')::UUID, 'create', 'THO-MOP40-2P', 'A1C3SOZRARQ6R3', '{}')
+    VALUES (current_setting('test.client')::UUID, current_setting('test.cell_pl')::UUID, 'create', 'AMZ-MOP40-2P', 'A1C3SOZRARQ6R3', '{}')
     RETURNING id
 )
 SELECT set_config('test.sub_complete', s.id::TEXT, TRUE) FROM s;
@@ -263,7 +310,7 @@ SELECT is((SELECT platform_product_id FROM public.market_cell WHERE id = current
 -- C2/C13. listing_begin_submission: GB's last submission is done, so a new one starts; BE's is
 -- accepted (in flight), so a second one is refused. A user begins it: created_by is the caller.
 RESET ROLE;
-SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.akif')::UUID, current_setting('test.client')::UUID);
 SELECT set_config('test.sub_begin', (public.listing_begin_submission(
     current_setting('test.cell_gb')::UUID, 'update', '{"productType": "LUGGAGE"}'
 )).id::TEXT, TRUE);
@@ -320,23 +367,23 @@ SELECT is(
 RESET ROLE;
 
 WITH parent AS (
-    INSERT INTO public.product (tenant_id, customer_id, sku, display_name)
-    VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'THO-M22-PARENT', 'M22 parent')
+    INSERT INTO public.product (tenant_id, sku, display_name)
+    VALUES (current_setting('test.client')::UUID, 'AMZ-M22-PARENT', 'M22 parent')
     RETURNING id
 ), child AS (
-    INSERT INTO public.product (tenant_id, customer_id, parent_id, sku, display_name)
-    SELECT current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, parent.id, 'THO-M22-CHILD', 'M22 child' FROM parent
+    INSERT INTO public.product (tenant_id, parent_id, sku, display_name)
+    SELECT current_setting('test.client')::UUID, parent.id, 'AMZ-M22-CHILD', 'M22 child' FROM parent
     RETURNING id
 ), cell AS (
-    INSERT INTO public.market_cell (tenant_id, customer_id, product_id, platform_id, country)
-    SELECT current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, child.id, 'amazon', 'DE' FROM child
+    INSERT INTO public.market_cell (tenant_id, product_id, platform_id, country)
+    SELECT current_setting('test.client')::UUID, child.id, 'amazon', 'DE' FROM child
     RETURNING id
 )
 SELECT set_config('test.child_cell', cell.id::TEXT, TRUE) FROM cell;
 
 WITH s AS (
     INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-    VALUES (current_setting('test.moesa')::UUID, current_setting('test.child_cell')::UUID, 'create', 'THO-M22-CHILD', 'A1PA6795UKMFR9', '{}')
+    VALUES (current_setting('test.client')::UUID, current_setting('test.child_cell')::UUID, 'create', 'AMZ-M22-CHILD', 'A1PA6795UKMFR9', '{}')
     RETURNING id
 )
 SELECT set_config('test.sub_child', s.id::TEXT, TRUE) FROM s;
@@ -361,9 +408,9 @@ SELECT is(
 -- goes live once both are.
 RESET ROLE;
 INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-VALUES (current_setting('test.moesa')::UUID, current_setting('test.parent_cell')::UUID, 'create', 'THO-M22-PARENT', 'A1PA6795UKMFR9', '{}');
+VALUES (current_setting('test.client')::UUID, current_setting('test.parent_cell')::UUID, 'create', 'AMZ-M22-PARENT', 'A1PA6795UKMFR9', '{}');
 INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-VALUES (current_setting('test.moesa')::UUID, current_setting('test.child_cell')::UUID, 'update', 'THO-M22-CHILD', 'A1PA6795UKMFR9', '{}');
+VALUES (current_setting('test.client')::UUID, current_setting('test.child_cell')::UUID, 'update', 'AMZ-M22-CHILD', 'A1PA6795UKMFR9', '{}');
 SET LOCAL ROLE service_role;
 SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
 SELECT 1 FROM public.listing_apply_submission(
@@ -381,7 +428,7 @@ SELECT is(
 );
 RESET ROLE;
 INSERT INTO public.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-VALUES (current_setting('test.moesa')::UUID, current_setting('test.parent_cell')::UUID, 'update', 'THO-M22-PARENT', 'A1PA6795UKMFR9', '{}');
+VALUES (current_setting('test.client')::UUID, current_setting('test.parent_cell')::UUID, 'update', 'AMZ-M22-PARENT', 'A1PA6795UKMFR9', '{}');
 SET LOCAL ROLE service_role;
 SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
 SELECT 1 FROM public.listing_apply_submission(
@@ -396,11 +443,7 @@ SELECT is(
 
 RESET ROLE;
 
--- 48–50. The registry, the bucket, the coordinator.
-SELECT ok(
-    EXISTS (SELECT 1 FROM private.transfer_registry WHERE table_name = 'listing_submission' AND parent_table = 'market_cell'),
-    'listing_submission is registered'
-);
+-- 48–49. The bucket, the coordinator.
 SELECT ok((SELECT public FROM storage.buckets WHERE id = 'listing-images'), 'listing-images is public');
 SELECT throws_ok(
     $$ INSERT INTO public.amazon_product_type_definition (marketplace_id, product_type, locale, version, schema, property_groups)
@@ -415,7 +458,7 @@ SELECT ok(
         FROM public.role_permission rp
         JOIN public.role r ON r.id = rp.role_id
         JOIN public.permission p ON p.id = rp.permission_id
-        WHERE r.tenant_id = current_setting('test.moesa')::UUID AND r.display_name = 'coordinator'
+        WHERE r.tenant_id = current_setting('test.client')::UUID AND r.display_name = 'coordinator'
           AND p.resource_name = 'public.listing_submission' AND p.command = 'insert'
     ),
     'the coordinator may publish'
@@ -426,56 +469,13 @@ SET LOCAL ROLE service_role;
 SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
 SELECT 1 FROM public.amazon_account_connect(current_setting('test.acct')::UUID, 'Atzr|third', 'A3TEST');
 RESET ROLE;
-DELETE FROM public.customer_platform_account WHERE id = current_setting('test.acct')::UUID;
+DELETE FROM public.platform_account WHERE id = current_setting('test.acct')::UUID;
 SELECT is((SELECT count(*) FROM vault.secrets WHERE name = 'amazon:' || current_setting('test.acct'))::INT, 0, 'a deleted account leaves no secret');
 
--- 52. A connected account inserted by a transfer (the flag raised as 040's test does).
-INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.moesa')::UUID, 'ZZA', 'Zed Amazon', 'trading_partner');
+-- The account the caller's-credentials tests below connect and disconnect: the tenant's own, again.
+INSERT INTO public.platform_account (tenant_id, platform_id) VALUES (current_setting('test.client')::UUID, 'amazon');
 
-INSERT INTO public.transfer (id, tenant_id, source_tenant_id, customer_id, mode, path, started_by, report)
-VALUES ('00000000-0000-4000-8000-000000046001', current_setting('test.moesa')::UUID, current_setting('test.europe')::UUID,
-        current_setting('test.tho')::UUID, 'copy', 'copy', current_setting('test.akif')::UUID, '{}');
-
-SELECT set_config('moesa.transfer_id', '00000000-0000-4000-8000-000000046001', TRUE);
-
-WITH a AS (
-    INSERT INTO public.customer_platform_account (tenant_id, customer_id, platform_id, api_connection, authorized_at, seller_id)
-    SELECT current_setting('test.moesa')::UUID, c.id, 'amazon', 'connected', now(), 'A3SOURCE'
-    FROM public.customer c WHERE c.code = 'ZZA' AND c.tenant_id = current_setting('test.moesa')::UUID
-    RETURNING api_connection
-)
-SELECT set_config('test.transferred_connection', a.api_connection::TEXT, TRUE) FROM a;
-
-SELECT set_config('moesa.transfer_id', '', TRUE);
-
-SELECT is(current_setting('test.transferred_connection'), 'none', 'a transferred account starts disconnected');
-
--- C1. A running transfer that moves a connected account moves it disconnected, without its token.
-SET LOCAL ROLE service_role;
-SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
-SELECT 1 FROM public.amazon_account_connect(
-    (SELECT a.id FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-     WHERE c.code = 'ZZA' AND a.platform_id = 'amazon'),
-    'Atzr|moved', 'A3MOVED'
-);
-RESET ROLE;
-INSERT INTO public.customer (tenant_id, code, display_name, commercial_model)
-VALUES (current_setting('test.moesa')::UUID, 'ZZB', 'Zed Bravo', 'trading_partner');
-SELECT set_config('moesa.transfer_id', '00000000-0000-4000-8000-000000046001', TRUE);
-UPDATE public.customer_platform_account a
-SET customer_id = (SELECT id FROM public.customer WHERE code = 'ZZB' AND tenant_id = current_setting('test.moesa')::UUID)
-FROM public.customer c
-WHERE c.id = a.customer_id AND c.code = 'ZZA' AND a.platform_id = 'amazon';
-SELECT set_config('moesa.transfer_id', '', TRUE);
-SELECT ok(
-    (SELECT a.api_connection = 'none' AND a.seller_id IS NULL AND private.amazon_token(a.id) IS NULL
-     FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-     WHERE c.code = 'ZZB' AND a.platform_id = 'amazon'),
-    'a transfer moves a connected account disconnected'
-);
-
--- The caller's credentials. What is the user's act runs as the user (koordinator in MOESA LTD, who
+-- The caller's credentials. What is the user's act runs as the user (the coordinator in the seller tenant, who
 -- holds insert on listing_submission): beginning a submission, getting the parent cell,
 -- disconnecting; the audit records that user. Amazon's outcome (apply, set_state,
 -- settle_removal) only the service role may write: a user is refused EXECUTE; the service role
@@ -484,12 +484,11 @@ SELECT ok(
 -- user cannot forge; a user of another tenant, or without the permission, is refused inside the
 -- RPC; the table stays closed to direct writes. Each call starts its own audit transaction
 -- (audit.transaction_id cleared).
-SELECT set_config('test.koord', (SELECT id FROM public.user WHERE email = 'koordinator@moesa-panel.test')::TEXT, TRUE);
-SELECT set_config('test.zzb', (SELECT a.id FROM public.customer_platform_account a JOIN public.customer c ON c.id = a.customer_id
-                               WHERE c.code = 'ZZB' AND a.platform_id = 'amazon')::TEXT, TRUE);
+SELECT set_config('test.zzb', (SELECT a.id FROM public.platform_account a
+                               WHERE a.tenant_id = current_setting('test.client')::UUID AND a.platform_id = 'amazon')::TEXT, TRUE);
 
-UPDATE public.market_cell SET platform_sku = ' THO-PL-OWN ' WHERE id = current_setting('test.cell_pl')::UUID;
-SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.moesa')::UUID);
+UPDATE public.market_cell SET platform_sku = ' AMZ-PL-OWN ' WHERE id = current_setting('test.cell_pl')::UUID;
+SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.client')::UUID);
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT set_config('test.sub_user', (public.listing_begin_submission(
     current_setting('test.cell_pl')::UUID, 'update', '{}'
@@ -497,7 +496,7 @@ SELECT set_config('test.sub_user', (public.listing_begin_submission(
 SELECT set_config('test.tx_begin', current_setting('audit.transaction_id'), TRUE);
 -- A user's own x-audit-role / x-audit-actor headers are not a label.
 SELECT set_config('request.headers', json_build_object(
-    'x-tenant-id', current_setting('test.moesa'), 'x-tenant-ids', current_setting('test.moesa'),
+    'x-tenant-id', current_setting('test.client'), 'x-tenant-ids', current_setting('test.client'),
     'x-audit-role', 'amazon-poll', 'x-audit-actor', current_setting('test.akif'))::TEXT, TRUE);
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT set_config('test.sub_removal', (public.listing_begin_submission(
@@ -539,7 +538,7 @@ SELECT throws_ok(
 );
 SELECT throws_ok(
     $$ INSERT INTO api.listing_submission (tenant_id, cell_id, kind, sku, marketplace_id, payload)
-       VALUES (current_setting('test.moesa')::UUID, current_setting('test.cell_se')::UUID, 'create', 'X', 'Y', '{}') $$,
+       VALUES (current_setting('test.client')::UUID, current_setting('test.cell_se')::UUID, 'create', 'X', 'Y', '{}') $$,
     '42501',
     NULL,
     'a user with the permission still cannot insert a submission directly'
@@ -558,8 +557,8 @@ SELECT throws_ok(
 );
 RESET ROLE;
 
--- The service role: amazon-listing writing Amazon's outcome for koordinator, an OAuth callback for
--- koordinator, the poll, and an unknown label.
+-- The service role: amazon-listing writing Amazon's outcome for the coordinator, an OAuth callback for
+-- the coordinator, the poll, and an unknown label.
 SET LOCAL ROLE service_role;
 SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
 SELECT set_config('request.headers', json_build_object('x-audit-role', 'amazon-listing', 'x-audit-actor', current_setting('test.koord'))::TEXT, TRUE);
@@ -614,9 +613,9 @@ SELECT set_config('test.tx_unlabelled', current_setting('audit.transaction_id'),
 SELECT set_config('request.headers', '', TRUE);
 RESET ROLE;
 
--- koordinator disconnects the account (update on customer_platform_account); revoked is the
+-- the coordinator disconnects the account (update on platform_account); revoked is the
 -- server's word only.
-SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.client')::UUID);
 SELECT throws_ok(
     $$ SELECT public.amazon_account_disconnect(current_setting('test.zzb')::UUID, 'revoked') $$,
     '42501',
@@ -628,12 +627,12 @@ SELECT lives_ok($$ SELECT public.amazon_account_disconnect(current_setting('test
 SELECT set_config('test.tx_disconnect', current_setting('audit.transaction_id'), TRUE);
 RESET ROLE;
 SELECT ok(
-    (SELECT a.api_connection = 'none' AND private.amazon_token(a.id) IS NULL FROM public.customer_platform_account a WHERE a.id = current_setting('test.zzb')::UUID),
+    (SELECT a.api_connection = 'none' AND private.amazon_token(a.id) IS NULL FROM public.platform_account a WHERE a.id = current_setting('test.zzb')::UUID),
     'a user''s disconnect clears the connection and the token'
 );
 
 -- Another tenant's user.
-SELECT private.impersonate(current_setting('test.selin')::UUID, current_setting('test.eski')::UUID);
+SELECT private.impersonate(current_setting('test.selin')::UUID, current_setting('test.other')::UUID);
 SELECT throws_ok(
     $$ SELECT public.listing_begin_submission(current_setting('test.cell_se')::UUID, 'delete', '{}') $$,
     '42501',
@@ -654,13 +653,13 @@ SELECT throws_ok(
 );
 RESET ROLE;
 
--- koordinator without the permission.
+-- the coordinator without the permission.
 DELETE FROM public.role_permission rp
 USING public.role r, public.permission p
 WHERE rp.role_id = r.id AND rp.permission_id = p.id
-  AND r.tenant_id = current_setting('test.moesa')::UUID AND r.display_name = 'coordinator'
+  AND r.tenant_id = current_setting('test.client')::UUID AND r.display_name = 'coordinator'
   AND p.resource_name = 'public.listing_submission' AND p.command = 'insert';
-SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.moesa')::UUID);
+SELECT private.impersonate(current_setting('test.koord')::UUID, current_setting('test.client')::UUID);
 SELECT throws_ok(
     $$ SELECT public.listing_begin_submission(current_setting('test.cell_pl')::UUID, 'delete', '{}') $$,
     '42501',
@@ -678,7 +677,7 @@ RESET ROLE;
 -- The db role authenticated with a service_role claim is a user, not the service role.
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
-SELECT set_config('request.headers', json_build_object('x-tenant-id', current_setting('test.moesa'), 'x-tenant-ids', current_setting('test.moesa'))::TEXT, TRUE);
+SELECT set_config('request.headers', json_build_object('x-tenant-id', current_setting('test.client'), 'x-tenant-ids', current_setting('test.client'))::TEXT, TRUE);
 SELECT throws_ok(
     $$ SELECT public.listing_begin_submission(current_setting('test.cell_se')::UUID, 'delete', '{}') $$,
     '42501',
@@ -700,9 +699,9 @@ SELECT is(
     'created_by is the caller'
 );
 SELECT ok(
-    (SELECT s.sku = 'THO-PL-OWN' AND s.marketplace_id = 'A1C3SOZRARQ6R3'
+    (SELECT s.sku = 'AMZ-PL-OWN' AND s.marketplace_id = 'A1C3SOZRARQ6R3'
      FROM public.listing_submission s WHERE s.id = current_setting('test.sub_user')::UUID)
-    AND (SELECT s.sku = 'THO-MOP40-2P' AND s.marketplace_id = 'A2NODRKZP88ZB9'
+    AND (SELECT s.sku = 'AMZ-MOP40-2P' AND s.marketplace_id = 'A2NODRKZP88ZB9'
          FROM public.listing_submission s WHERE s.id = current_setting('test.sub_removal')::UUID),
     'begin stores the cell''s own SKU (its platform SKU, else the product''s) and its country''s marketplace'
 );

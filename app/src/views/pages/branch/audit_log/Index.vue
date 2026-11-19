@@ -69,8 +69,8 @@ const rowActions: Props['rowActions'] = [
          ({ data }) =>
          async () =>
             await revertTransaction(data.id),
-      // In the tenant of the change, which may be another of the branches shown. A transfer's
-      // transaction is never reverted (the server refuses it), so its button says why.
+      // In the tenant of the change, which may be another of the branches shown; a forbidden
+      // revert's button says why.
       disabled: ({ data }) =>
          data.reverted ||
          !!revertDisabledReason(data, (action, subject) =>

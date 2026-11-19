@@ -1,8 +1,8 @@
 // amazon-schema: product type search, the cached (or fetched) definition of a product type for a
 // marketplace, and the daily refresh that 047's cron job POSTs to amazon-schema/refresh.
 //
-//   GET  ?action=search&keywords=&country=&customer_id=                  -> { productTypes }
-//   GET  ?action=definition&product_type=&country=&locale?=&customer_id= -> the cache row
+//   GET  ?action=search&keywords=&country=                              -> { productTypes }
+//   GET  ?action=definition&product_type=&country=&locale?=                -> the cache row
 //   POST /refresh (or { action: 'refresh' }), Bearer service key         -> { refreshed, ... }
 //
 // The user routes run with the caller's JWT: the cache and the Amazon account row are read as the
@@ -64,13 +64,11 @@ export type HandlerDeps = {
 };
 
 const country = z.string().trim().toUpperCase().length(2);
-const customerId = z.string().uuid();
 
 const searchQuery = z.object({
    action: z.literal('search'),
    keywords: z.string().trim().min(1).max(200),
-   country,
-   customer_id: customerId
+   country
 });
 
 const definitionQuery = z.object({
@@ -80,8 +78,7 @@ const definitionQuery = z.object({
    locale: z
       .string()
       .regex(/^[a-z]{2}_[A-Z]{2}$/)
-      .optional(),
-   customer_id: customerId
+      .optional()
 });
 
 const userQuery = z.discriminatedUnion('action', [searchQuery, definitionQuery]);
@@ -102,13 +99,7 @@ const search = async (d: HandlerDeps, caller: Caller, q: z.infer<typeof searchQu
    const { marketplaceId } = marketplaceFor(q.country);
    const env = d.env();
    const service = d.service(caller.userId);
-   const account = await amazonAccountFor(
-      d.userDb(caller.req),
-      service,
-      q.customer_id,
-      caller.tenantId,
-      env
-   );
+   const account = await amazonAccountFor(d.userDb(caller.req), service, caller.tenantId, env);
    const call = spapiClient(account.refreshToken, env, d.amazon);
    const productTypes = await withRevocation(service, account.id, () =>
       searchProductTypes(call, q.keywords, marketplaceId)
@@ -140,7 +131,7 @@ const definition = async (d: HandlerDeps, caller: Caller, q: z.infer<typeof defi
    if (sandbox) throw new HttpError(404, 'amazon_schema_missing');
 
    const service = d.service(caller.userId);
-   const account = await amazonAccountFor(db, service, q.customer_id, caller.tenantId, env);
+   const account = await amazonAccountFor(db, service, caller.tenantId, env);
    const call = spapiClient(account.refreshToken, env, d.amazon);
    const row = await withRevocation(service, account.id, () =>
       fetchDefinition(call, { ...key, sellerId: account.sellerId }, d.amazon)
@@ -173,8 +164,8 @@ const refresh = async (d: HandlerDeps) => {
    if (!stale?.length) return json({ refreshed: 0, failed: 0, remaining: 0, sandbox: false });
 
    const { data: latest, error: accountError } = await admin
-      .from('customer_platform_account')
-      .select('customer_id, tenant_id')
+      .from('platform_account')
+      .select('tenant_id')
       .eq('platform_id', 'amazon')
       .eq('api_connection', 'connected')
       .order('authorized_at', { ascending: false, nullsFirst: false })
@@ -182,13 +173,7 @@ const refresh = async (d: HandlerDeps) => {
    if (accountError) throw accountError;
    if (!latest?.length) throw new HttpError(409, 'amazon_not_connected');
 
-   const account = await amazonAccountFor(
-      admin,
-      service,
-      latest[0].customer_id,
-      latest[0].tenant_id,
-      env
-   );
+   const account = await amazonAccountFor(admin, service, latest[0].tenant_id, env);
    const call = spapiClient(account.refreshToken, env, d.amazon);
 
    let refreshed = 0;

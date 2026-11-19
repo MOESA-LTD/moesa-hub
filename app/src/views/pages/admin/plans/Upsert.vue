@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { planSchema, toPlanFormValues, toPlanPayload, usePlan, useSavePlan } from '@/api/admin';
+import {
+   PLAN_TARGETS,
+   planSchema,
+   toPlanFormValues,
+   toPlanPayload,
+   usePlan,
+   useSavePlan
+} from '@/api/admin';
 import { LIMIT_KEYS, useModules } from '@/api/subscription';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
@@ -36,6 +43,11 @@ const periods = computed(() =>
       value,
       label: t(`admin.plan.period.${value}`)
    }))
+);
+
+/** Whom the plan is offered to (decision 21): an invitation and a self-signup offer client and all. */
+const targets = computed(() =>
+   PLAN_TARGETS.map((value) => ({ value, label: t(`admin.plan.targets.${value}`) }))
 );
 
 /** A limit is unlimited while its value is null. */
@@ -79,6 +91,40 @@ const unlimitedFlags = { max_branches: unlimitedBranches, max_users: unlimitedUs
                @update:model-value="values.description = $event"
                autoResize
                rows="2"
+            />
+         </FormField>
+
+         <FormField
+            fluid
+            :label="$t('admin.plan.audience')"
+            :error="errors.audience"
+            :readonly
+            class="!flex-auto !max-w-none w-full"
+            v-slot="slotProps"
+         >
+            <Textarea
+               v-bind="slotProps"
+               :model-value="values.audience ?? ''"
+               @update:model-value="values.audience = $event"
+               autoResize
+               rows="2"
+            />
+         </FormField>
+
+         <FormField
+            fluid
+            :label="$t('admin.plan.target')"
+            :error="errors.target"
+            :readonly
+            v-slot="slotProps"
+         >
+            <Select
+               v-bind="slotProps"
+               v-model="values.target"
+               :options="targets"
+               optionLabel="label"
+               optionValue="value"
+               data-target
             />
          </FormField>
 

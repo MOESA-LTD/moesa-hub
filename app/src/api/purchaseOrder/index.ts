@@ -22,6 +22,8 @@ import * as z from 'zod';
 
 type Enums = Db['public']['Enums'];
 export type PurchaseOrderStatus = Enums['purchase_order_status'];
+/** The stage a client tenant reads of a shared order instead of its status (067, Q1). */
+export type PurchaseOrderClientStatus = Enums['purchase_order_client_status'];
 export type PaymentKind = Enums['payment_kind'];
 export type PaymentPayer = Enums['payment_payer'];
 export type PurchaseOrderRow = Tables['purchase_order']['Row'];
@@ -32,16 +34,12 @@ export type PurchaseOrderOverviewRow = Views['purchase_order_overview']['Row'];
 
 /** A line as the order card loads it: with its product and its spec sheet. */
 export type PurchaseOrderCardLine = PurchaseOrderLineRow & {
-   product: Pick<
-      ProductRow,
-      'id' | 'sku' | 'display_name' | 'status' | 'purchase_price' | 'purchase_currency'
-   > | null;
+   product: Pick<ProductRow, 'id' | 'sku' | 'display_name' | 'status'> | null;
    spec_document: Pick<Tables['document']['Row'], 'id' | 'version' | 'status'> | null;
 };
 
 /** An order as its card loads it (PURCHASE_ORDER_SELECT). */
 export type PurchaseOrderCard = PurchaseOrderRow & {
-   customer: Pick<Tables['customer']['Row'], 'code' | 'display_name'> | null;
    supplier: Pick<
       Tables['supplier']['Row'],
       'code' | 'display_name' | 'default_incoterm' | 'deposit_rate'
@@ -79,6 +77,47 @@ export const PURCHASE_ORDER_STATUS_SEVERITY: Record<PurchaseOrderStatus, string>
    closed: 'secondary',
    cancelled: 'danger'
 };
+
+/** Every client status, in their order. */
+export const PURCHASE_ORDER_CLIENT_STATUSES = allValues<PurchaseOrderClientStatus>()([
+   'pending',
+   'confirmed',
+   'in_production',
+   'shipped',
+   'delivered',
+   'cancelled'
+]);
+
+/** The Tag severity of each client status. */
+export const PURCHASE_ORDER_CLIENT_STATUS_SEVERITY: Record<PurchaseOrderClientStatus, string> = {
+   pending: 'secondary',
+   confirmed: 'info',
+   in_production: 'warn',
+   shipped: 'info',
+   delivered: 'success',
+   cancelled: 'danger'
+};
+
+/**
+ * How an order's status shows: its status, or, when that reads NULL (a shared order on the client
+ * side, where raw status is provider-only), its client status. Null when neither is read.
+ */
+export function orderStatusLabel(order: {
+   status?: PurchaseOrderStatus | null;
+   client_status?: PurchaseOrderClientStatus | null;
+}): { key: string; severity: string } | null {
+   if (order.status)
+      return {
+         key: `ops.purchase_order.status.${order.status}`,
+         severity: PURCHASE_ORDER_STATUS_SEVERITY[order.status]
+      };
+   if (order.client_status)
+      return {
+         key: `ops.purchase_order.client_status.${order.client_status}`,
+         severity: PURCHASE_ORDER_CLIENT_STATUS_SEVERITY[order.client_status]
+      };
+   return null;
+}
 
 /** An amount for display, with two decimals and its currency (no arithmetic). */
 export const formatAmount = (value: number | null | undefined, currency?: string | null) =>
@@ -175,7 +214,8 @@ export function nextPurchaseOrderStatuses({
    status,
    deposit_rate
 }: Pick<PurchaseOrderRow, 'status' | 'deposit_rate'>): PurchaseOrderStatus[] {
-   if (status === 'closed' || status === 'cancelled') return [];
+   // A masked status (null: a client reads only client_status) offers no step.
+   if (status === null || status === 'closed' || status === 'cancelled') return [];
    if (status !== 'pi_approved') {
       return [PURCHASE_ORDER_STATUSES[statusIndex(status) + 1]!, 'cancelled'];
    }
@@ -215,10 +255,9 @@ export const supplierDefaults = ({
 /** The card's order, its parties and its lines and payments, embedded by their composite keys. */
 export const PURCHASE_ORDER_SELECT = [
    '*',
-   'customer!purchase_order_customer_fkey(code, display_name)',
    'supplier(code, display_name, default_incoterm, deposit_rate)',
    'project!purchase_order_project_fkey(code, display_name)',
-   'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status, purchase_price, purchase_currency), spec_document:document!purchase_order_line_spec_fkey(id, version, status))',
+   'purchase_order_line!purchase_order_line_po_fkey(*, product!purchase_order_line_product_fkey(id, sku, display_name, status), spec_document(id, version, status))',
    'purchase_order_payment!purchase_order_payment_po_fkey(*)'
 ].join(', ');
 
@@ -286,8 +325,10 @@ const T_PO = 'purchase_order';
 
 export const purchaseOrderSchema = z.object({
    id: z.string().optional(),
-   customer_id: required(z.uuid()),
    supplier_id: sensitive(T_PO, 'supplier_id', required(z.uuid())),
+   // The client the order is for (an active provider-procures relationship), or null for an own
+   // order. Set on a new order only (client_tenant_immutable).
+   client_tenant_id: z.uuid().nullable().default(null),
    project_id: optional(z.uuid()),
    packing_instruction_document_id: optional(z.uuid()),
    pi_document_id: sensitive(T_PO, 'pi_document_id', optional(z.uuid())),
@@ -321,8 +362,8 @@ export const toPurchaseOrderFormValues = (
    po?: Partial<PurchaseOrderRow> | null
 ): PurchaseOrderFormValues => ({
    id: po?.id ?? undefined,
-   customer_id: po?.customer_id ?? null,
    supplier_id: po?.supplier_id ?? null,
+   client_tenant_id: po?.client_tenant_id ?? null,
    project_id: po?.project_id ?? null,
    packing_instruction_document_id: po?.packing_instruction_document_id ?? null,
    pi_document_id: po?.pi_document_id ?? null,
@@ -345,12 +386,13 @@ export const toPurchaseOrderFormValues = (
 });
 
 /**
- * The row to save, empty fields as null. The customer and supplier never change, so they go with a
- * new order only. The status (useSetPurchaseOrderStatus), the code and the PI check stamp are the
- * database's; the locked terms (PO_LOCKED_FIELDS) are left out once the order's `status` locks them.
+ * The row to save, empty fields as null. The supplier and the client never change, so they go with
+ * a new order only. The status (useSetPurchaseOrderStatus), the code and the PI check stamp are the
+ * database's; the project is left out once the order is no longer a draft (po_project_locked), the
+ * locked terms (PO_LOCKED_FIELDS) once the order's `status` locks them.
  */
 export function toPurchaseOrderPayload(
-   { id, customer_id, supplier_id, ...values }: PurchaseOrderValues,
+   { id, supplier_id, client_tenant_id, ...values }: PurchaseOrderValues,
    status?: PurchaseOrderStatus
 ): ResourceInput<'purchase_order'> {
    const editable: Partial<Record<keyof typeof values, unknown>> = {
@@ -374,11 +416,12 @@ export function toPurchaseOrderPayload(
       pi_discount_amount: values.pi_discount_amount,
       pi_check: values.pi_check
    };
+   if (status && status !== 'draft') delete editable.project_id;
    if (status && isPurchaseOrderLocked(status))
       for (const field of PO_LOCKED_FIELDS) delete editable[field];
 
    if (id) return { id, ...editable } as ResourceInput<'purchase_order'>;
-   return { ...editable, customer_id, supplier_id } as ResourceInput<'purchase_order'>;
+   return { ...editable, supplier_id, client_tenant_id } as ResourceInput<'purchase_order'>;
 }
 
 /** Moves an order to another status; the database checks the flow and its gates (030). */
@@ -486,7 +529,7 @@ export const toPurchaseOrderLineFormValues = (
 });
 
 /**
- * The line to save. Its customer is the order's (set by the database) and line_total is generated,
+ * The line to save. Its client is the order's (set by the database) and line_total is generated,
  * so neither is sent; a line stays on its order, so the order goes with a new line only.
  */
 export const toPurchaseOrderLinePayload = ({
@@ -507,9 +550,34 @@ export const toPurchaseOrderLinePayload = ({
    return { purchase_order_id, ...editable } as ResourceInput<'purchase_order_line'>;
 };
 
-/** A product's purchase price as a line's unit price, when it is in the order's currency. */
+/** What an order line knows of its product: the linked product, and the snapshot it keeps. */
+export type LineProductSource = {
+   product?: { sku?: string | null; display_name?: string | null } | null;
+   product_sku?: string | null;
+   product_name?: string | null;
+};
+
+/**
+ * A line's product SKU and name: the linked product's when it can be read, else the snapshot the
+ * line kept (a client's product deleted, or not in the tenants read).
+ */
+export const lineProduct = (line: LineProductSource) => ({
+   sku: line.product?.sku ?? line.product_sku ?? '',
+   name: line.product?.display_name ?? line.product_name ?? ''
+});
+
+/** A line's product as one label: `SKU · name`. */
+export const lineProductLabel = (line: LineProductSource) => {
+   const { sku, name } = lineProduct(line);
+   return [sku, name].filter(Boolean).join(' · ');
+};
+
+/** A purchase price (the product's sourcing) as a line's unit price, in the order's currency. */
 export const defaultUnitPrice = (
-   { purchase_price, purchase_currency }: Pick<ProductRow, 'purchase_price' | 'purchase_currency'>,
+   {
+      purchase_price,
+      purchase_currency
+   }: { purchase_price: number | null; purchase_currency: string | null },
    orderCurrency: string
 ): number | null =>
    purchase_price !== null && purchase_currency === orderCurrency ? purchase_price : null;

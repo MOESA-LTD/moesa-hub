@@ -15,6 +15,5 @@ const { data: shipment } = shipmentResource.useOne(() => props.id);
       entityType="shipment"
       :entityId="id"
       :code="shipment.code"
-      :customerId="shipment.customer_id"
    />
 </template>

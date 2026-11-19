@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useFormTenant } from '@/api/formTenant';
 import { provideFieldAccess } from '@/composables/useFieldAccess';
 import {
    INCIDENT_ENTITY_TYPES,
@@ -13,6 +14,7 @@ import {
    type IncidentFamily
 } from '@/api/incident';
 import { useMemberOptions } from '@/api/project';
+import { linkTenantOf } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { useAbility } from '@casl/vue';
 import dayjs from 'dayjs';
@@ -21,8 +23,8 @@ import { injectIncidentForm } from '../useIncidentForm';
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('incident');
 
-// S17 A and B in the card's shared form. Opening (the first 15 minutes): the customer and the
-// family (on a new incident only), the Y10 card, severity, what happened and what was done at
+// S17 A and B in the card's shared form. Opening (the first 15 minutes): the family (on a new
+// incident only), the Y10 card, severity, what happened and what was done at
 // once, and the linked record. Classification: the owner, the parties, when management and the
 // customer were told. Below, the gates this incident rolled back.
 const form = injectIncidentForm();
@@ -67,15 +69,29 @@ const severityHint = computed(() => {
 
 const TEXT_FIELDS = ['current_state', 'immediate_action'] as const;
 
-// The linked record is one of the customer's; its kind comes first.
+// The linked record is one of the incident's tenant; its kind comes first.
+const formTenant = useFormTenant();
 const entityOptions = useIncidentEntityOptions(() => ({
    entityType: (values.value.entity_type ?? null) as IncidentEntityType | null,
-   customerId: values.value.customer_id ?? null
+   tenantId: formTenant?.value ?? null
 }));
+
+// A saved link to a provider's record (entity_tenant_id) is immutable: the record and its kind stay.
+const linkLocked = computed(() => !!row.value?.entity_tenant_id);
 
 const setEntityType = (entityType: string | string[] | null | undefined) => {
    values.value.entity_type = (entityType || null) as IncidentEntityType | null;
    values.value.entity_id = null;
+   values.value.entity_tenant_id = null;
+};
+
+// A shared provider record carries its tenant; an own record leaves the link NULL.
+const setEntity = (entityId: string | null | undefined) => {
+   values.value.entity_id = entityId ?? null;
+   const option = entityOptions.value.find(({ value }) => value === entityId);
+   values.value.entity_tenant_id = entityId
+      ? linkTenantOf(option?.tenantId, formTenant?.value)
+      : null;
 };
 
 // --- classification ---
@@ -110,20 +126,6 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
       <h3 class="m-0 w-full text-base font-semibold">
          {{ $t('ops.incident.sections.opening') }}
       </h3>
-      <FormField
-         fluid
-         :label="$t('ops.incident.fields.customer')"
-         :error="errors.customer_id"
-         :readonly="readonly || !!id"
-         v-slot="slotProps"
-      >
-         <SelectCustomer
-            v-bind="slotProps"
-            v-model="values.customer_id"
-            :disabled="!!id"
-            hideClosed
-         />
-      </FormField>
       <FormField
          fluid
          :label="$t('ops.incident.fields.family')"
@@ -240,6 +242,7 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
             :values="INCIDENT_ENTITY_TYPES"
             i18n-prefix="ops.document.entity"
             showClear
+            :disabled="linkLocked"
             data-field="entity_type"
          />
       </FormField>
@@ -252,13 +255,14 @@ const rolledBackGates = computed(() => row.value?.project_gate ?? []);
       >
          <Select
             v-bind="slotProps"
-            v-model="values.entity_id"
+            :model-value="values.entity_id"
+            @update:model-value="setEntity"
             :options="entityOptions"
             option-value="value"
             option-label="label"
             showClear
             filter
-            :disabled="!values.entity_type"
+            :disabled="!values.entity_type || linkLocked"
             data-field="entity_id"
          />
       </FormField>

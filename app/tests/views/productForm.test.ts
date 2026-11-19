@@ -22,8 +22,6 @@ describe('tabForField', () => {
    it('names the card tab that shows a field', () => {
       expect(tabForField('unit_net_g')).toBe('dimensions');
       expect(tabForField('pallet_type')).toBe('dimensions');
-      expect(tabForField('purchase_price')).toBe('cost');
-      expect(tabForField('landed_cost_on')).toBe('cost');
       expect(tabForField('sku')).toBe('general');
       expect(tabForField('gtin')).toBe('general');
    });

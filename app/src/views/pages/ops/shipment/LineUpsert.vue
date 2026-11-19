@@ -9,6 +9,7 @@ import {
    type ShipmentStatus
 } from '@/api/shipment';
 import { useLookup } from '@/api/useLookup';
+import LineProduct from '@/components/service-components/purchase-order-table/LineProduct.vue';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
 // Opened as a dialog from a shipment's orders: a new line puts the route's order line (query
@@ -141,8 +142,8 @@ watch(
       >
          <p v-if="orderLine" class="m-0 w-full" data-test="order-line">
             <span class="font-semibold">{{ orderLine.order.code }}</span>
-            · {{ orderLine.line.product?.sku }} {{ orderLine.line.product?.display_name }} ·
-            {{ $t('ops.shipment.fields.ordered') }}: {{ orderLine.line.quantity }}
+            · <LineProduct :line="orderLine.line" /> · {{ $t('ops.shipment.fields.ordered') }}:
+            {{ orderLine.line.quantity }}
          </p>
          <FormField
             fluid

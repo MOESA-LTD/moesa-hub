@@ -48,8 +48,8 @@ SELECT throws_ok($$ UPDATE public.supplier SET deposit_rate = 0.5 WHERE id = cur
    '42501', 'field_write_forbidden', 'T4: coordinator cannot write supplier terms');
 SELECT lives_ok($$ UPDATE public.supplier SET city = 'Ningbo' WHERE id = current_setting('test.tsp')::UUID $$,
    'T4c: open fields stay writable');
-SELECT throws_ok($$ INSERT INTO public.customer (tenant_id, code, display_name, commercial_model, deposit_rate)
-   VALUES (current_setting('test.moesa')::UUID, 'TS9', 'x', 'trading_partner', 0.3) $$,
+SELECT throws_ok($$ INSERT INTO public.supplier (tenant_id, code, display_name, country, deposit_rate)
+   VALUES (current_setting('test.moesa')::UUID, 'TS9', 'x', 'CN', 0.3) $$,
    '42501', 'field_write_forbidden', 'T5: insert with a field the writer cannot write');
 SELECT is(t.error_detail($$ UPDATE public.supplier SET deposit_rate = 0.42 WHERE id = current_setting('test.tsp')::UUID $$),
    'supplier.deposit_rate', 'the error names the field only');
@@ -60,8 +60,8 @@ SELECT throws_ok($$ SELECT t.supplier_deposit_writer() $$,
 RESET ROLE;
 SELECT private.impersonate(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID);
 SET LOCAL ROLE api_owner;
-SELECT lives_ok($$ INSERT INTO public.incident (tenant_id, customer_id, family, severity, title, what_happened)
-   VALUES (current_setting('test.moesa')::UUID, current_setting('test.tho')::UUID, 'ol', 's3', 'guard test', 'x') $$,
+SELECT lives_ok($$ INSERT INTO public.incident (tenant_id, family, severity, title, what_happened)
+   VALUES (current_setting('test.moesa')::UUID, 'ol', 's3', 'guard test', 'x') $$,
    'a NOT NULL constant default (affected_parties {}) is not a write');
 SELECT lives_ok($$ UPDATE public.purchase_order_line SET quantity = 11 WHERE id = current_setting('test.line_draft')::UUID $$,
    'a generated cost column (line_total) is not a write');
@@ -77,15 +77,15 @@ SELECT lives_ok($$ UPDATE public.user SET phone = '+90 1' WHERE id = current_set
 SELECT throws_ok($$ UPDATE public.user SET id = current_setting('test.akif')::UUID, phone = '+2' WHERE id = current_setting('test.koordinator')::UUID $$,
    '42501', 'field_write_forbidden', 'self is the stored row (OLD.id), not a client-sent id');
 
--- As elif over MOESA LTD and Europe (product and customer_brand update in both tenants).
+-- As elif over MOESA LTD and Europe (product and brand update in both tenants).
 RESET ROLE;
 SELECT private.impersonate_scope(current_setting('test.elif')::UUID, current_setting('test.moesa')::UUID,
    ARRAY[current_setting('test.moesa')::UUID, current_setting('test.europe')::UUID]);
 SET LOCAL ROLE api_owner;
-SELECT throws_ok($$ UPDATE public.product SET tenant_id = current_setting('test.europe')::UUID, customer_id = current_setting('test.euc')::UUID
+SELECT throws_ok($$ UPDATE public.product SET tenant_id = current_setting('test.europe')::UUID
    WHERE id = current_setting('test.secret')::UUID $$,
    '42501', 'tenant_move_forbidden', 'S8: a row cannot move tenant through the API');
-SELECT throws_ok($$ UPDATE public.customer_brand SET tenant_id = current_setting('test.europe')::UUID WHERE id = current_setting('test.brand')::UUID $$,
+SELECT throws_ok($$ UPDATE public.brand SET tenant_id = current_setting('test.europe')::UUID WHERE id = current_setting('test.brand')::UUID $$,
    '42501', 'tenant_move_forbidden', 'S8: also on tables without sensitive fields');
 
 -- S2, one test per path.

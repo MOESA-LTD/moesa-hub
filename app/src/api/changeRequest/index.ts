@@ -24,7 +24,6 @@ export type ChangeRequestRow = Tables['change_request']['Row'];
 
 /** A request as its card loads it (CHANGE_REQUEST_SELECT). */
 export type ChangeRequestCard = ChangeRequestRow & {
-   customer: Pick<Tables['customer']['Row'], 'code' | 'display_name'> | null;
    project:
       | (Pick<Tables['project']['Row'], 'code' | 'display_name'> & {
            project_gate: Pick<ProjectGateRow, 'code' | 'status' | 'needs_customer_approval'>[];
@@ -150,11 +149,11 @@ export function changeRequestStatusHints(
 // --- request ---
 
 /**
- * The card's request: its customer, its project with the gates (for the approval rule), its
+ * The card's request: its project with the gates (for the approval rule), its
  * products, the affected document and the new version.
  */
 export const CHANGE_REQUEST_SELECT =
-   '*, customer!change_request_customer_fkey(code, display_name), project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)';
+   '*, project!change_request_project_fkey(code, display_name, project_gate!project_gate_project_fkey(code, status, needs_customer_approval)), change_request_product!change_request_product_cr_fkey(product_id, product!change_request_product_product_fkey(sku, display_name)), affected_document:document!change_request_affected_document_fkey(id, entity_type, entity_id, type, version, status), result_document:document!change_request_result_document_fkey(id, type, version, status)';
 
 export const changeRequestResource = defineResource<'change_request', ChangeRequestCard>(
    'change_request',
@@ -165,7 +164,6 @@ const text = () => optional(z.string().trim());
 
 export const changeRequestSchema = z.object({
    id: z.string().optional(),
-   customer_id: required(z.uuid()),
    project_id: optional(z.uuid()),
    title: requiredText(),
    source: required(z.enum(CHANGE_REQUEST_SOURCES)),
@@ -179,6 +177,10 @@ export const changeRequestSchema = z.object({
    reason: requiredText(),
    affected_gate_code: optional(z.enum(GATE_CODES)),
    affected_document_id: optional(z.uuid()),
+   // The order the request is about; order_tenant_id is its tenant for a shared provider order, and
+   // empty for an own order (the database fills it).
+   purchase_order_id: optional(z.uuid()),
+   order_tenant_id: optional(z.uuid()),
    other_documents: text(),
    cost_impact: text(),
    cost_payer: optional(z.enum(COST_PAYERS)),
@@ -200,7 +202,6 @@ export const toChangeRequestFormValues = (
    cr?: Partial<ChangeRequestCard> | null
 ): ChangeRequestFormValues => ({
    id: cr?.id ?? undefined,
-   customer_id: cr?.customer_id ?? null,
    project_id: cr?.project_id ?? null,
    title: cr?.title ?? '',
    source: cr?.source ?? null,
@@ -211,6 +212,8 @@ export const toChangeRequestFormValues = (
    reason: cr?.reason ?? '',
    affected_gate_code: cr?.affected_gate_code ?? null,
    affected_document_id: cr?.affected_document_id ?? null,
+   purchase_order_id: cr?.purchase_order_id ?? null,
+   order_tenant_id: cr?.order_tenant_id ?? null,
    other_documents: cr?.other_documents ?? '',
    cost_impact: cr?.cost_impact ?? '',
    cost_payer: cr?.cost_payer ?? null,
@@ -226,13 +229,13 @@ export const toChangeRequestFormValues = (
 
 /**
  * The row to save, empty fields as NULL. The code, the status (useSetChangeRequestStatus), the
- * decision date, the company's approval and the closing date are the database's; the customer never
- * changes, so it goes with a new request only; the products are saved by
- * useSetChangeRequestProducts.
+ * decision date, the company's approval and the closing date are the database's; the products are
+ * saved by useSetChangeRequestProducts.
  */
 export function toChangeRequestPayload(
-   { id: valuesId, customer_id, ...values }: ChangeRequestValues,
-   id?: string | null
+   { id: valuesId, ...values }: ChangeRequestValues,
+   id?: string | null,
+   { costLocked = false }: { costLocked?: boolean } = {}
 ): ResourceInput<'change_request'> {
    const rowId = id ?? valuesId;
    const editable = {
@@ -246,9 +249,13 @@ export function toChangeRequestPayload(
       reason: values.reason,
       affected_gate_code: values.affected_gate_code ?? null,
       affected_document_id: values.affected_document_id ?? null,
+      purchase_order_id: values.purchase_order_id ?? null,
+      order_tenant_id: values.purchase_order_id ? (values.order_tenant_id ?? null) : null,
       other_documents: values.other_documents ?? null,
-      cost_impact: values.cost_impact ?? null,
-      cost_payer: values.cost_payer ?? null,
+      // The cost of a request on a provider's order is the provider's (cost_link_forbidden).
+      ...(costLocked
+         ? {}
+         : { cost_impact: values.cost_impact ?? null, cost_payer: values.cost_payer ?? null }),
       delay_days: values.delay_days ?? null,
       quality_impact: values.quality_impact ?? null,
       listing_impact: values.listing_impact ?? null,
@@ -258,7 +265,7 @@ export function toChangeRequestPayload(
       result_document_id: values.result_document_id ?? null
    };
    if (rowId) return { id: rowId, ...editable } as ResourceInput<'change_request'>;
-   return { ...editable, customer_id };
+   return editable;
 }
 
 /** Moves a request to another status; the database checks the flow and its data (037). */
@@ -274,9 +281,8 @@ export function useSetChangeRequestStatus() {
 
 /**
  * Sets the request's products: adds those in `after` but not `before`, removes those in `before`
- * but not `after`. The row's customer is the request's (set by the database), so it is not sent;
- * a product of another customer fails change_request_product_product_fkey. The rows name the
- * request's tenant, which may be another of the branches shown than the active one.
+ * but not `after`. A product of another tenant fails change_request_product_product_fkey. The rows
+ * name the request's tenant, which may be another of the branches shown than the active one.
  */
 export function useSetChangeRequestProducts() {
    const queryClient = useQueryClient();
@@ -298,7 +304,6 @@ export function useSetChangeRequestProducts() {
          if (added.length)
             await supabase
                .from('change_request_product')
-               // customer_id is set by the database (change_request_product_customer).
                .insert(
                   added.map((product_id) => ({
                      change_request_id: id,
@@ -322,8 +327,8 @@ export function useSetChangeRequestProducts() {
 /**
  * The newer versions of the affected document (the same record and type, a higher version),
  * newest first, as `v03 — Signed` options: the new version an applied request names. They share
- * the affected document's record, which the guard keeps to the request's customer, so the picker
- * offers only the customer's documents (the guard checks the result document's customer too).
+ * the affected document's record, which the guard keeps to the request's tenant, so the picker
+ * offers only that tenant's documents (the guard checks the result document's tenant too).
  */
 export function useNewerDocumentOptions(
    document: MaybeRefOrGetter<Pick<

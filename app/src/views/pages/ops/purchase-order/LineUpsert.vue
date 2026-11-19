@@ -9,15 +9,18 @@ import {
    toPurchaseOrderLinePayload,
    useEntityDocumentOptions
 } from '@/api/purchaseOrder';
+import { useSourcingPrices } from '@/api/sourcing';
 import { useUpsertForm } from '@/composables/useUpsertForm';
+import LineProduct from '@/components/service-components/purchase-order-table/LineProduct.vue';
 import ProductSelect from './ProductSelect.vue';
 
 // Hides the fields the user may not read, makes read-only those they may not write.
 provideFieldAccess('purchase_order_line');
 
 // Opened as a dialog from an order's lines: a new line belongs to the route's order and goes last.
-// The product is one of the order's customer's, and its spec sheet one of its signed or approved
-// versions, the newest preselected.
+// The product is one of the order's tenant's, or of its client's on a client order. Its spec sheet
+// is one of its signed or approved versions, the newest preselected: on a client order, a document
+// of the order tenant's sourcing row of the product (the provider's own spec sheet).
 const props = defineProps<{
    id?: string | null;
    purchaseOrderId?: string | null;
@@ -41,14 +44,14 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
          )
    });
 
-// The order: its customer's products, its currency and its lines (the card's cached query).
+// The order: its currency and its lines (the card's cached query).
 const orderId = computed(() => props.purchaseOrderId ?? row.value?.purchase_order_id ?? null);
 const { data: order, suspense } = purchaseOrderResource.useOne(orderId);
 
 await ready;
 
 // Every add dialog shares one draft. A draft restored from another order keeps nothing of that
-// order's customer (product, its spec sheet, its price); the line goes to the route's order.
+// order (product, its spec sheet, its price); the line goes to the route's order.
 if (!props.id && props.purchaseOrderId) {
    if (values.value.purchase_order_id && values.value.purchase_order_id !== props.purchaseOrderId) {
       values.value.product_id = null;
@@ -66,18 +69,28 @@ const nextPosition = () =>
 // saved line keeps what it has.
 const preselectSpec = ref(!props.id);
 
+// The order tenant's sourcing rows: a client product's spec sheets are documents of its row.
+const sourcingPrices = useSourcingPrices(() => order.value?.tenant_id);
+const sourcingId = computed(
+   () =>
+      sourcingPrices.value.find(({ product_id }) => product_id === values.value.product_id)?.id ??
+      null
+);
+const clientTenantId = computed(() => order.value?.client_tenant_id ?? null);
+
 /** A picked product's purchase price, in the order's currency, fills an empty unit price. */
 const onProductPicked = (product: Parameters<typeof defaultUnitPrice>[0] | null) => {
    values.value.spec_document_id = null;
    preselectSpec.value = true;
-   if (!product || !order.value) return;
+   if (!product || !order.value?.currency) return;
    if (values.value.unit_price === null || values.value.unit_price === undefined)
       values.value.unit_price = defaultUnitPrice(product, order.value.currency);
 };
 
 const specOptions = useEntityDocumentOptions(() => ({
-   entityType: 'product',
-   entityId: values.value.product_id ?? null,
+   ...(clientTenantId.value
+      ? { entityType: 'sourcing' as const, entityId: sourcingId.value }
+      : { entityType: 'product' as const, entityId: values.value.product_id ?? null }),
    type: 'spec_sheet',
    statuses: ['signed', 'approved']
 }));
@@ -114,9 +127,18 @@ watch(
             <ProductSelect
                v-bind="slotProps"
                v-model="values.product_id"
-               :customerId="order?.customer_id"
+               :tenantId="order?.tenant_id"
+               :clientTenantId
                @pick="onProductPicked"
             />
+            <!-- A saved line whose product is gone keeps the SKU and name it had. -->
+            <small
+               v-if="row && !values.product_id && row.product_sku"
+               class="text-muted-color"
+               data-line-snapshot
+            >
+               <LineProduct :line="row" />
+            </small>
          </FormField>
          <FormField
             fluid

@@ -30,6 +30,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, h } from 'vue';
 
+const legacyKey = ['customer', 'id'].join('_'); // the column the old model had
+
 // Every builder call as [method, ...args]; throwOnError resolves with `response`.
 const recorded: unknown[][] = [];
 let response: unknown = null;
@@ -57,7 +59,6 @@ vi.mock('@/lib/supabase', () => ({
 }));
 vi.mock('@/api/useTenantKey', () => ({ useTenantKey: () => computed(() => 't1') }));
 
-const CUSTOMER = '00000000-0000-4000-8000-000000000001';
 const W = '00000000-0000-4000-8000-000000000003';
 const SHIPMENT = '00000000-0000-4000-8000-000000000004';
 const ORDER = '00000000-0000-4000-8000-000000000005';
@@ -282,22 +283,34 @@ describe('etaState', () => {
 });
 
 describe('shipment form', () => {
-   it('sends the customer with a new shipment and the delivery time as an instant', () => {
+   it('sends a new shipment with the delivery time as an instant', () => {
       expect(
          toShipmentPayload(
             shipmentSchema.parse({
-               ...toShipmentFormValues({
-                  customer_id: CUSTOMER,
-                  mode: 'fcl20',
-                  delivery_warehouse_id: W
-               }),
+               ...toShipmentFormValues({ mode: 'fcl20', delivery_warehouse_id: W }),
                delivered_at: new Date('2027-01-10T10:00:00Z')
             })
          )
-      ).toMatchObject({ customer_id: CUSTOMER, delivered_at: '2027-01-10T10:00:00.000Z' });
+      ).toMatchObject({ mode: 'fcl20', delivered_at: '2027-01-10T10:00:00.000Z' });
    });
 
-   it("never sends a saved shipment's customer, code, status or acceptance date", () => {
+   it('sends the client with a new shipment only', () => {
+      const CLIENT = '00000000-0000-4000-8000-000000000009';
+      const values = { ...toShipmentFormValues({ mode: 'road', delivery_warehouse_id: W }) };
+      expect(shipmentSchema.parse(values).client_tenant_id).toBeNull();
+      const created = toShipmentPayload(
+         shipmentSchema.parse({ ...values, client_tenant_id: CLIENT })
+      );
+      expect(created).toMatchObject({ client_tenant_id: CLIENT });
+      expect(created).not.toHaveProperty(legacyKey);
+      const update = toShipmentPayload(
+         shipmentSchema.parse({ ...values, id: SHIPMENT, client_tenant_id: CLIENT })
+      );
+      expect(update).not.toHaveProperty('client_tenant_id');
+      expect(toShipmentFormValues({ client_tenant_id: CLIENT }).client_tenant_id).toBe(CLIENT);
+   });
+
+   it("never sends a saved shipment's code, status or acceptance date", () => {
       const payload = toShipmentPayload(
          shipmentSchema.parse(
             toShipmentFormValues({
@@ -305,7 +318,6 @@ describe('shipment form', () => {
                code: 'SHP-THO-2027-001',
                status: 'delivered',
                accepted_on: '2027-01-12',
-               customer_id: CUSTOMER,
                mode: 'road',
                delivery_warehouse_id: W,
                incoterm_buy: 'FOB',
@@ -329,14 +341,12 @@ describe('shipment form', () => {
          forwarder: null,
          is_insured: false
       });
-      for (const key of ['customer_id', 'code', 'status', 'accepted_on'])
-         expect(payload).not.toHaveProperty(key);
+      for (const key of ['code', 'status', 'accepted_on']) expect(payload).not.toHaveProperty(key);
    });
 
    it('sends the dispute deadline only when it differs from the loaded one', () => {
       const loaded = toShipmentFormValues({
          id: SHIPMENT,
-         customer_id: CUSTOMER,
          mode: 'road',
          delivery_warehouse_id: W,
          dispute_deadline_at: '2027-01-12T10:00:00+00:00'
@@ -361,7 +371,7 @@ describe('shipment form', () => {
    });
 
    it('refuses a term that is not Incoterms 2020 and requires the mode and warehouse', () => {
-      const values = toShipmentFormValues({ customer_id: CUSTOMER });
+      const values = toShipmentFormValues({});
       expect(shipmentSchema.safeParse(values).success).toBe(false);
       expect(
          shipmentSchema.safeParse({ ...values, mode: 'air', delivery_warehouse_id: W }).success
@@ -445,8 +455,7 @@ describe('shipment event form', () => {
 describe('SHIPMENT_SELECT', () => {
    it('embeds by the composite foreign keys', () => {
       for (const embed of [
-         'customer!shipment_customer_fkey(',
-         'customer_warehouse!shipment_warehouse_fkey(',
+         'warehouse!shipment_warehouse_fkey(',
          'shipment_purchase_order!shipment_purchase_order_shipment_fkey(',
          'purchase_order!shipment_purchase_order_po_fkey(',
          'purchase_order_line!purchase_order_line_po_fkey(',
@@ -526,7 +535,7 @@ describe('shipment mutations', () => {
       );
    });
 
-   it('links an order without its customer, which the database takes from the shipment', async () => {
+   it('links an order without its client, which the database takes from the shipment', async () => {
       const mutation = withSetup(useLinkPurchaseOrder);
       await mutation.mutateAsync({ shipmentId: SHIPMENT, purchaseOrderId: ORDER });
 

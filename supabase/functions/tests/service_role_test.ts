@@ -29,6 +29,8 @@ const ADMIN_ALLOWED: Record<string, string> = {
    '_shared/company.ts':
       'not Amazon: where an account is used, for the user and create-account flows',
    'create-account/index.ts': 'not Amazon: creates the auth user',
+   '_shared/abandonedSignup.ts':
+      'not Amazon: releases an abandoned self-signup (release_abandoned_signup, a service-only SQL delete); called by user and provider-invitation only',
    'user/index.ts': 'not Amazon: the Auth admin API (invite, update a user)'
 };
 
@@ -52,7 +54,11 @@ Deno.test('supabaseAdmin is used only where the allow-list says why', () => {
 /** The only lines that may build a full (system) service client: no user is there. */
 const SYSTEM_CLIENTS: Record<string, RegExp> = {
    'amazon-poll/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-poll' \}\)/,
-   'amazon-schema/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-schema-refresh' \}\)/
+   'amazon-schema/index.ts': /admin: \(\) => supabaseService\(\{ role: 'amazon-schema-refresh' \}\)/,
+   // Not a system run: the invitation token is minted, checked and mailed where no API role
+   // reaches it (service-only RPCs and the Auth mail), audited as acting for the verified caller.
+   'provider-invitation/index.ts':
+      /^\s*const db = supabaseService\(\{ role: 'provider-invitation', actorId \}\);\r?$/
 };
 
 /** Every construction of a service client that is neither the narrow ServiceRole nor allowed above. */

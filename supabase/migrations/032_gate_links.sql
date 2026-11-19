@@ -3,8 +3,11 @@
 --
 -- Evidence   An evidence document of a gate (evidence_document_ids) is a document of the gate or of
 --            its project (021), or now also a document of
---              - a purchase order of the gate's project (purchase_order.project_id), in the tenant;
+--              - a purchase order of the gate's project (purchase_order.project_id with
+--                project_tenant_id), in the gate's tenant;
 --              - a shipment linked (shipment_purchase_order) to such a purchase order.
+--            Only documents of the gate's own tenant are evidence: a provider's documents (its PI,
+--            its orders' and shipments' documents) are provider-only.
 --            The predicate sits in private.project_gate_guard and, inline, in public.pass_gate (still
 --            SECURITY INVOKER: it reads the orders and shipment links through RLS and calls nothing
 --            in private).
@@ -19,9 +22,11 @@
 -- whose message is the rule's code:
 --   gate_evidence_invalid  (changed) an evidence document is not a document of this gate, its
 --                          project, one of the project's orders or a shipment of those orders
---   gate_pi_required       G3 (always, like G2's gate_spec_sheet_required) without an evidence
---                          document that is the pi_document_id of a non-cancelled order of the
---                          project at pi_approved or later
+--   gate_pi_required       G3 (always, like G2's gate_spec_sheet_required) without a non-cancelled
+--                          order of the project at pi_approved or later: an order of the gate's
+--                          tenant whose PI (pi_document_id) is an evidence document, or a
+--                          provider's order for the project (in the provider's tenant, named by
+--                          project_id and project_tenant_id), which needs no evidence document
 --
 -- Both functions are CREATE OR REPLACE with the 021 body otherwise unchanged; their grants stay.
 
@@ -117,27 +122,30 @@ BEGIN
                    OR (d.entity_type = 'purchase_order' AND EXISTS (
                        SELECT 1 FROM public.purchase_order po
                        WHERE po.id = d.entity_id AND po.tenant_id = NEW.tenant_id
-                         AND po.project_id = NEW.project_id
+                         AND po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
                    ))
                    OR (d.entity_type = 'shipment' AND EXISTS (
                        SELECT 1 FROM public.shipment_purchase_order spo
                        JOIN public.purchase_order po
                          ON po.id = spo.purchase_order_id AND po.tenant_id = spo.tenant_id
                        WHERE spo.shipment_id = d.entity_id AND spo.tenant_id = NEW.tenant_id
-                         AND po.project_id = NEW.project_id
+                         AND po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
                    )))
         )
     ) THEN
         RAISE EXCEPTION 'gate_evidence_invalid' USING ERRCODE = 'check_violation';
     END IF;
 
-    -- G3 needs the PI of one of the project's orders whose PI is approved (K3/M5): one of the
-    -- evidence documents is the pi_document_id of a non-cancelled order at pi_approved or later.
+    -- G3 needs one of the project's orders (in any tenant: an order names the project with
+    -- project_tenant_id) at pi_approved or later and not cancelled (K3/M5). An order of the gate's
+    -- own tenant counts when its PI (pi_document_id) is among the evidence documents; a provider's
+    -- order counts without it: its PI is the provider's, which a client gate may not cite.
+    -- A provider order counts only if it was linked while still a draft (po_project_locked, 030).
     IF NEW.code = 'G3' AND NOT EXISTS (
         SELECT 1 FROM public.purchase_order po
-        WHERE po.tenant_id = NEW.tenant_id AND po.project_id = NEW.project_id
-          AND po.pi_document_id = ANY (NEW.evidence_document_ids)
+        WHERE po.project_id = NEW.project_id AND po.project_tenant_id = NEW.tenant_id
           AND po.status >= 'pi_approved' AND po.status <> 'cancelled'
+          AND (po.tenant_id <> NEW.tenant_id OR po.pi_document_id = ANY (NEW.evidence_document_ids))
     ) THEN
         RAISE EXCEPTION 'gate_pi_required' USING ERRCODE = 'check_violation';
     END IF;
@@ -247,14 +255,14 @@ BEGIN
                    OR (d.entity_type = 'purchase_order' AND EXISTS (
                        SELECT 1 FROM public.purchase_order po
                        WHERE po.id = d.entity_id AND po.tenant_id = result.tenant_id
-                         AND po.project_id = result.project_id
+                         AND po.project_id = result.project_id AND po.project_tenant_id = result.tenant_id
                    ))
                    OR (d.entity_type = 'shipment' AND EXISTS (
                        SELECT 1 FROM public.shipment_purchase_order spo
                        JOIN public.purchase_order po
                          ON po.id = spo.purchase_order_id AND po.tenant_id = spo.tenant_id
                        WHERE spo.shipment_id = d.entity_id AND spo.tenant_id = result.tenant_id
-                         AND po.project_id = result.project_id
+                         AND po.project_id = result.project_id AND po.project_tenant_id = result.tenant_id
                    )))
         )
     ) THEN

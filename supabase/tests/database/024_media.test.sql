@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- The media library (M19) on the MOESA demo company of seed.sql: the private bucket and its types,
+-- The media library (M19) on companies built in the test: the private bucket and its types,
 -- the media_max_mb setting (a branch uses its company's), the file rules of public.media (the
 -- file must be uploaded; Storage gives its type and size; no SVG, nothing over the limit, the path
 -- in the media's own folder, the file fixed), the bucket's policies (upload into one's own tenant
@@ -8,14 +8,53 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- isolation of the rows and the files. What it writes is rolled back.
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(19);
 
-SELECT set_config('test.moesa', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'MOESA LTD')::TEXT, TRUE);
-SELECT set_config('test.atlas', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Danışmanlık')::TEXT, TRUE);
-SELECT set_config('test.atlas_moda', (SELECT t.id FROM public.tenant t WHERE t.display_name = 'Atlas Moda')::TEXT, TRUE);
-SELECT set_config('test.koordinator', (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test')::TEXT, TRUE);
-SELECT set_config('test.akif', (SELECT u.id FROM public.user u WHERE u.email = 'akif@moesa-panel.test')::TEXT, TRUE);
-SELECT set_config('test.ayse', (SELECT u.id FROM public.user u WHERE u.email = 'ayse@moesa-panel.test')::TEXT, TRUE);
+-- Fixture, built here as postgres (the seed is not on the new model yet): a company with an owner
+-- and a coordinator (media, no file deletion), and another company with a branch of a branch.
+INSERT INTO public.plan (display_name, is_active) VALUES ('Media test plan', TRUE);
+
+INSERT INTO public.tenant (id, display_name, parent_id) VALUES
+    ('00000000-0000-4000-8000-000000000321', 'Media Co', NULL),
+    ('00000000-0000-4000-8000-000000000322', 'Other Co', NULL);
+
+INSERT INTO public.tenant (id, display_name, parent_id) VALUES
+    ('00000000-0000-4000-8000-000000000323', 'Other Branch', '00000000-0000-4000-8000-000000000322');
+
+INSERT INTO public.tenant (id, display_name, parent_id) VALUES
+    ('00000000-0000-4000-8000-000000000324', 'Other Sub Branch', '00000000-0000-4000-8000-000000000323');
+
+INSERT INTO public.user (id, email) VALUES
+    ('00000000-0000-4000-8000-000000000325', 'owner@media.test'),
+    ('00000000-0000-4000-8000-000000000326', 'coordinator@media.test'),
+    ('00000000-0000-4000-8000-000000000327', 'other@media.test');
+
+INSERT INTO public.tenant_owner (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000000325', '00000000-0000-4000-8000-000000000321'),
+    ('00000000-0000-4000-8000-000000000327', '00000000-0000-4000-8000-000000000322');
+
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+    ('00000000-0000-4000-8000-000000000325', '00000000-0000-4000-8000-000000000321'),
+    ('00000000-0000-4000-8000-000000000326', '00000000-0000-4000-8000-000000000321'),
+    ('00000000-0000-4000-8000-000000000327', '00000000-0000-4000-8000-000000000322');
+
+INSERT INTO public.role (id, display_name, tenant_id)
+VALUES ('00000000-0000-4000-8000-000000000328', 'Coordinator', '00000000-0000-4000-8000-000000000321');
+
+INSERT INTO public.role_permission (role_id, permission_id)
+SELECT '00000000-0000-4000-8000-000000000328', p.id
+FROM public.permission p
+WHERE p.group_name = 'media' AND NOT (p.resource_name = 'public.media' AND p.command = 'delete');
+
+INSERT INTO public.user_role (user_id, role_id)
+VALUES ('00000000-0000-4000-8000-000000000326', '00000000-0000-4000-8000-000000000328');
+
+SELECT set_config('test.moesa', '00000000-0000-4000-8000-000000000321', TRUE);
+SELECT set_config('test.atlas', '00000000-0000-4000-8000-000000000322', TRUE);
+SELECT set_config('test.atlas_moda', '00000000-0000-4000-8000-000000000324', TRUE);
+SELECT set_config('test.koordinator', '00000000-0000-4000-8000-000000000326', TRUE);
+SELECT set_config('test.akif', '00000000-0000-4000-8000-000000000325', TRUE);
+SELECT set_config('test.ayse', '00000000-0000-4000-8000-000000000327', TRUE);
 SELECT set_config('test.m241', '00000000-0000-4000-8000-000000000241', TRUE);
 SELECT set_config('test.m242', '00000000-0000-4000-8000-000000000242', TRUE);
 SELECT set_config('test.m243', '00000000-0000-4000-8000-000000000243', TRUE);
@@ -23,6 +62,8 @@ SELECT set_config('test.m244', '00000000-0000-4000-8000-000000000244', TRUE);
 SELECT set_config('test.m245', '00000000-0000-4000-8000-000000000245', TRUE);
 
 SELECT has_table('public', 'media', 'media table');
+
+SELECT hasnt_column('public', 'media', 'customer_id', 'media has no customer');
 
 SELECT is(
     (SELECT allowed_mime_types FROM storage.buckets WHERE id = 'media'),
@@ -38,7 +79,7 @@ SELECT is(
     'every company has media_max_mb 25'
 );
 
--- Atlas Moda is a branch of Atlas Kadıköy, itself a branch of Atlas Danışmanlık.
+-- The sub branch is a branch of a branch of the other company.
 UPDATE public.setting SET value = '30' WHERE key = 'media_max_mb' AND tenant_id = current_setting('test.atlas')::UUID;
 
 SELECT is(

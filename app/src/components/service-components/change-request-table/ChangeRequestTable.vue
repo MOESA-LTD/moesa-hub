@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { CHANGE_REQUEST_STATUSES, type ChangeRequestStatus } from '@/api/changeRequest';
-import { withCustomerFilter } from '@/api/customerFilter';
 import type { ResourceTableProps } from '@/components/service-components/resource-table/ResourceTable.vue';
 import {
    createFilters,
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { DIALOG_POSITIONS } from '@/constants/router';
-import { useCustomerFilter } from '@/store/customerFilter';
 import { isDecisionOverdue } from '@/views/pages/ops/change-request/useChangeRequestForm';
 
-// Change requests (S08) of the customer the lists are filtered by (every customer's when none
-// is), the newest first. An open request whose decision date has passed is marked.
+// Change requests (S08) of the tenants in scope, the newest first. An open request whose decision
+// date has passed is marked.
 type Props = ResourceTableProps<'change_request'>;
 
 const router = useRouter();
@@ -30,7 +28,6 @@ const columns = computed<Props['columns']>(() => [
       sortOrder: { value: -1 },
       header: t('ops.change_request.fields.code')
    },
-   { field: 'customer.code', header: t('ops.change_request.fields.customer') },
    { field: 'project.code', header: t('ops.change_request.fields.project') },
    { field: 'title', sortable: true, header: t('ops.change_request.fields.title') },
    { field: 'source', sortable: true, header: t('ops.change_request.fields.source') },
@@ -54,20 +51,9 @@ const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
       title: 'text',
-      status: equalsFilter(),
-      customer_id: equalsFilter()
+      status: equalsFilter()
    })
 );
-
-// The table reads its filters once and then restores its stored state over them, so the selected
-// customer is written into the existing customer filter after mounting and whenever it changes.
-const customerFilter = useCustomerFilter();
-const applyCustomerFilter = () => {
-   const { customer_id } = withCustomerFilter({}, customerFilter.customerId);
-   filters.value.customer_id.constraints = (customer_id ?? equalsFilter()).constraints;
-};
-onMounted(applyCustomerFilter);
-watch(() => customerFilter.customerId, applyCustomerFilter);
 
 const STATUS_SEVERITY: Record<ChangeRequestStatus, string> = {
    open: 'info',
@@ -96,7 +82,7 @@ const rowActions: Props['rowActions'] = [
    <ResourceTable
       stateKey="change_request"
       from="change_request"
-      select="*, customer!change_request_customer_fkey(code), project!change_request_project_fkey(code)"
+      select="*, project!change_request_project_fkey(code)"
       :columns
       :rowActions
       :enableExpansion="false"

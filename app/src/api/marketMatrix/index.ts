@@ -18,7 +18,7 @@ export type StockSource = Enums['stock_source'];
 export type ContentStatus = Enums['content_status'];
 export type MarketCellRow = Tables['market_cell']['Row'];
 /**
- * A cell with its customer and project codes, its product's SKU, name and GTIN, the platform's
+ * A cell with its project code, its product's SKU, name and GTIN, the platform's
  * name and the S05 cell key (`<platform>_<country>`, cellKey).
  */
 export type MarketCellOverviewRow = Views['market_cell_overview']['Row'];
@@ -55,7 +55,7 @@ export const MARKET_COMPLIANCES = allValues<MarketCompliance>()([
 ]);
 
 export const STOCK_SOURCES = allValues<StockSource>()([
-   'customer_warehouse',
+   'own_warehouse',
    '3pl',
    'platform',
    'pan_eu'
@@ -68,7 +68,7 @@ export const CONTENT_STATUSES = allValues<ContentStatus>()([
    'approved'
 ]);
 
-/** The statuses a customer's market plan counts as targets (the spec's "hedef"). */
+/** The statuses a tenant's market plan counts as targets (the spec's "hedef"). */
 export const TARGET_STATUSES: readonly MarketCellStatus[] = [
    'planned',
    'preparing',
@@ -201,13 +201,13 @@ export function buildMatrix(cells: readonly MarketCellOverviewRow[]): MarketMatr
    };
 }
 
-/** Per customer, its live cells and its target cells (TARGET_STATUSES, live included). */
+/** Per tenant, its live cells and its target cells (TARGET_STATUSES, live included). */
 export function matrixCounts(
-   cells: readonly Pick<MarketCellRow, 'customer_id' | 'status'>[]
+   cells: readonly Pick<MarketCellRow, 'tenant_id' | 'status'>[]
 ): Record<string, { live: number; target: number }> {
    const counts: Record<string, { live: number; target: number }> = {};
-   for (const { customer_id, status } of cells) {
-      const count = (counts[customer_id] ??= { live: 0, target: 0 });
+   for (const { tenant_id, status } of cells) {
+      const count = (counts[tenant_id] ??= { live: 0, target: 0 });
       if (status === 'live') count.live += 1;
       if (TARGET_STATUSES.includes(status)) count.target += 1;
    }
@@ -316,9 +316,8 @@ export const toMarketCellFormValues = (
 
 /**
  * The row to save, every empty field as NULL (the guard's reason and note rules test IS NULL). The
- * product, platform and country never change, so they go with a new cell only; the customer is
- * the product's and the status moves by useSetMarketCellStatus (a new cell is a candidate), so
- * neither is sent. The launch date goes only when set: entering live dates it in the database, and
+ * product, platform and country never change, so they go with a new cell only; the status moves
+ * by useSetMarketCellStatus (a new cell is a candidate), so it is not sent. The launch date goes only when set: entering live dates it in the database, and
  * a form loaded before that must not clear it.
  */
 export function toMarketCellPayload(
@@ -343,7 +342,6 @@ export function toMarketCellPayload(
       open_issue: values.open_issue ?? null,
       notes: values.notes ?? null
    };
-   // customer_id is set by the database (market_cell_customer).
    if (rowId) return { id: rowId, ...editable } as ResourceInput<'market_cell'>;
    return { ...editable, product_id, platform_id, country } as ResourceInput<'market_cell'>;
 }
@@ -359,9 +357,9 @@ export function useSetMarketCellStatus() {
    });
 }
 
-export type MarketCellsFilter = { customerId: string | null; platformId?: string | null };
+export type MarketCellsFilter = { tenantId?: string | null; platformId?: string | null };
 
-/** The matrix's cells (market_cell_overview), of one customer and platform when given. */
+/** The matrix's cells (market_cell_overview), of one tenant and platform when given. */
 export function useMarketCells(filter: MaybeRefOrGetter<MarketCellsFilter>) {
    const tenantKey = useTenantKey();
 
@@ -373,9 +371,9 @@ export function useMarketCells(filter: MaybeRefOrGetter<MarketCellsFilter>) {
          })
       ),
       queryFn: async ({ signal }) => {
-         const { customerId, platformId } = toValue(filter);
+         const { tenantId, platformId } = toValue(filter);
          let query = supabase.from('market_cell_overview').select('*');
-         if (customerId) query = query.eq('customer_id', customerId);
+         if (tenantId) query = query.eq('tenant_id', tenantId);
          if (platformId) query = query.eq('platform_id', platformId);
          const { data } = await query.abortSignal(signal).throwOnError();
          return data;
@@ -390,8 +388,7 @@ export type AddMarketCell = NewMarketCell & {
 };
 
 /**
- * Opens cells in one insert (each a candidate; the customer is each product's) and yields how
- * many were added.
+ * Opens cells in one insert (each a candidate) and yields how many were added.
  */
 export function useAddMarketCells() {
    const queryClient = useQueryClient();
@@ -400,7 +397,6 @@ export function useAddMarketCells() {
       mutationFn: async (rows: AddMarketCell[]) => {
          const { data } = await supabase
             .from('market_cell')
-            // customer_id is set by the database (market_cell_customer).
             .insert(rows as Tables['market_cell']['Insert'][])
             .select('id')
             .throwOnError();
