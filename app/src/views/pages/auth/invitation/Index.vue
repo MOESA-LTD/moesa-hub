@@ -31,14 +31,22 @@ const authStore = useAuthStore();
 const token = String(route.params.token ?? '');
 
 // The link carries a secret: no other site may learn it from a Referer header (F21).
+let referrerMeta: HTMLMetaElement | null = null;
+let previousReferrer: string | null = null;
 onMounted(() => {
-   const meta = document.createElement('meta');
-   meta.name = 'referrer';
-   meta.content = 'no-referrer';
-   meta.dataset.invitation = '';
-   document.head.appendChild(meta);
+   const existing = document.head.querySelector<HTMLMetaElement>('meta[name="referrer"]');
+   previousReferrer = existing?.content ?? null;
+   referrerMeta = existing ?? document.createElement('meta');
+   referrerMeta.name = 'referrer';
+   referrerMeta.content = 'no-referrer';
+   if (!existing) document.head.appendChild(referrerMeta);
 });
-onBeforeUnmount(() => document.head.querySelector('meta[data-invitation]')?.remove());
+// Back to what the page had before: its own value, or no tag at all.
+onBeforeUnmount(() => {
+   if (!referrerMeta) return;
+   if (previousReferrer === null) referrerMeta.remove();
+   else referrerMeta.content = previousReferrer;
+});
 
 const { data: modules } = useModules();
 const coreModules = computed(() =>
@@ -49,12 +57,16 @@ const preview = ref<InvitationPreview | null>(null);
 const loading = ref(authStore.isSignedIn);
 /** The code that stops the page: the link is dead, or belongs to another address. */
 const fatal = ref<string | null>(null);
+/** The preview failed for a reason that is not a refusal (network, server): try again. */
+const loadFailed = ref(false);
 /** The code of a refusal the invitee can act on (shown above the step). */
 const notice = ref<string | null>(null);
 
 const step = ref(1);
 const passwordSaving = ref(false);
 const accepting = ref(false);
+/** The company exists, but its tenant is not in the user's list yet. */
+const accepted = ref(false);
 const planId = ref<string | null>(null);
 
 const { values, errors, validateFields, setErrors } = useForm({
@@ -86,6 +98,8 @@ const defaultPlan = () => {
 };
 
 const load = async () => {
+   loading.value = true;
+   loadFailed.value = false;
    try {
       preview.value = await previewInvitation(token);
       values.value.display_name = preview.value.company_name ?? '';
@@ -94,7 +108,10 @@ const load = async () => {
       step.value = preview.value.needs_password ? 1 : 2;
    } catch (error) {
       if (error instanceof InvitationError) fatal.value = error.code;
-      else await appErrorHandler(error);
+      else {
+         loadFailed.value = true;
+         await appErrorHandler(error);
+      }
    } finally {
       loading.value = false;
    }
@@ -146,10 +163,19 @@ const accept = async () => {
       const { tenant_id } = await acceptInvitation(token, toCompany(parsed.data), planId.value);
       toast.add({ life: 3000, severity: ToastSeverity.SUCCESS, summary: t('toast.success') });
 
-      // The tenant was just created: read the user's tenants again before switching to it.
-      await authStore.refreshAccess();
-      const tenant = authStore.branches.find(({ id }) => id === tenant_id);
-      if (tenant) await authStore.changeCurrentTenant(tenant);
+      // The tenant was just created: read the user's tenants again until it is among them.
+      let tenant;
+      for (let attempt = 0; attempt < 4 && !tenant; attempt++) {
+         if (attempt) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+         await authStore.refreshAccess();
+         tenant = authStore.branches.find(({ id }) => id === tenant_id);
+      }
+      if (!tenant) {
+         // Created, but not listed yet: say so, never carry on as if it were switched to.
+         accepted.value = true;
+         return;
+      }
+      await authStore.changeCurrentTenant(tenant);
       await router.replace({ name: 'dashboard' });
    } catch (error) {
       if (!(error instanceof InvitationError)) return await appErrorHandler(error);
@@ -183,6 +209,11 @@ const reloadPlans = async () => {
    }
 };
 
+const signInTo = computed(() => ({
+   name: 'auth-login',
+   query: { redirect: route.fullPath }
+}));
+
 const signOut = async () => {
    await authStore.logout();
    preview.value = null;
@@ -202,6 +233,30 @@ const expires = computed(() =>
       <div v-if="!authStore.isSignedIn" class="card !mb-0 flex flex-col gap-2" data-no-session>
          <h1 class="m-0 text-2xl">{{ $t('invitation.no_session_title') }}</h1>
          <p class="m-0 text-muted-color">{{ $t('invitation.no_session_text') }}</p>
+         <p class="m-0 text-muted-color">{{ $t('invitation.resend_hint') }}</p>
+         <Button
+            data-sign-in
+            class="self-start"
+            :label="$t('invitation.sign_in')"
+            :icon="PrimeIcons.SIGN_IN"
+            @click="router.push(signInTo)"
+         />
+      </div>
+
+      <div v-else-if="accepted" class="card !mb-0 flex flex-col gap-4" data-accepted>
+         <Message severity="warn" :closable="false">{{ $t('invitation.reload_needed') }}</Message>
+         <Button class="self-start" :label="$t('invitation.reload')" @click="router.go(0)" />
+      </div>
+
+      <div v-else-if="loadFailed" class="card !mb-0 flex flex-col gap-4" data-load-failed>
+         <Message severity="error" :closable="false">{{ $t('invitation.load_failed') }}</Message>
+         <Button
+            class="self-start"
+            data-retry
+            :icon="PrimeIcons.REFRESH"
+            :label="$t('invitation.retry')"
+            @click="load"
+         />
       </div>
 
       <div v-else-if="fatal" class="card !mb-0 flex flex-col gap-4" data-fatal>

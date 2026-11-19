@@ -37,4 +37,13 @@ describe('planDiff', () => {
       const a = plan({ modules: ['x'], limits: { max_users: 1 } });
       expect(planDiff(a, { ...a })).toEqual({ modulesGained: [], modulesLost: [], limits: [] });
    });
+
+   it('leaves core modules out of gained and lost', () => {
+      const from = plan({ modules: ['branch', 'audit_log'] });
+      const to = plan({ modules: [] });
+      expect(planDiff(from, to, ['branch'])).toMatchObject({
+         modulesGained: [],
+         modulesLost: ['audit_log']
+      });
+   });
 });

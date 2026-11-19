@@ -22,15 +22,17 @@ export type PlanDiff = {
    limits: { key: string; from: number | null; to: number | null }[];
 };
 
-/** What changes when moving from one plan to another. */
-export function planDiff(from: PlanSummary, to: PlanSummary): PlanDiff {
-   const had = new Set(from.modules);
-   const has = new Set(to.modules);
+/** What changes when moving from one plan to another (`core` modules left out). */
+export function planDiff(from: PlanSummary, to: PlanSummary, core: string[] = []): PlanDiff {
+   // Core modules come with every plan: they are never gained or lost.
+   const own = (plan: PlanSummary) => plan.modules.filter((module) => !core.includes(module));
+   const had = new Set(own(from));
+   const has = new Set(own(to));
    const keys = [...new Set([...Object.keys(from.limits), ...Object.keys(to.limits)])].sort();
 
    return {
-      modulesGained: to.modules.filter((module) => !had.has(module)),
-      modulesLost: from.modules.filter((module) => !has.has(module)),
+      modulesGained: own(to).filter((module) => !had.has(module)),
+      modulesLost: own(from).filter((module) => !has.has(module)),
       limits: keys
          .map((key) => ({ key, from: from.limits[key] ?? null, to: to.limits[key] ?? null }))
          .filter((limit) => limit.from !== limit.to)

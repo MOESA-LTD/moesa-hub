@@ -88,4 +88,32 @@ describe('PlanCompare', () => {
       await wrapper.get('[data-plan="pro"] button').trigger('click');
       expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['pro']);
    });
+
+   it('shows "Price on request" for no price and "Free" only for an explicit 0', () => {
+      const wrapper = mountCompare({
+         plans: [plan('none', { price: null }), plan('zero', { price: 0 })],
+         modelValue: null
+      });
+      expect(wrapper.get('[data-plan="none"]').text()).toContain('Price on request');
+      expect(wrapper.get('[data-plan="none"]').text()).not.toContain('Free');
+      expect(wrapper.get('[data-plan="zero"]').text()).toContain('Free');
+   });
+
+   it('lists the core modules once, as in every plan, and not per plan', () => {
+      const wrapper = mountCompare({ coreModules: ['product'] });
+      for (const id of ['basic', 'pro']) {
+         expect(wrapper.get(`[data-plan="${id}"]`).text()).toContain('In every plan:');
+      }
+      // Only the optional module gets a row of its own.
+      expect(wrapper.get('[data-plan="pro"]').findAll('li.flex.items-center')).toHaveLength(1);
+   });
+
+   it('leaves a core module out of the changes', () => {
+      const wrapper = mountCompare({
+         plans: [plan('a', { modules: ['product'] }), plan('b', { modules: [] })],
+         modelValue: 'a',
+         coreModules: ['product']
+      });
+      expect(wrapper.get('[data-plan-changes]').text()).not.toContain('removes');
+   });
 });

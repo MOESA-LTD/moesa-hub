@@ -3456,7 +3456,8 @@
          "limit_raise": "{limit} sınırını {value} yapar",
          "limit_removed": "{limit} sınırını kaldırır",
          "same": "hiçbir şeyi değiştirmez: modüller ve sınırlar aynıdır",
-         "none": "Şu anda sunulan plan yok. Tedarikçinize danışın."
+         "none": "Şu anda sunulan plan yok. Tedarikçinize danışın.",
+         "on_request": "Fiyat için sorun"
       },
       "accept": {
          "action": "Daveti kabul et",
@@ -3473,6 +3474,12 @@
          "plan_limit_users": "Bu plan, davetin getirdiği kullanıcı sayısından azına izin veriyor. Daha fazla kullanıcılı bir plan seçin.",
          "generic": "Davet kabul edilemedi. Yeniden deneyin."
       },
-      "sign_out": "Oturumu kapat"
+      "sign_out": "Oturumu kapat",
+      "sign_in": "Giriş yap",
+      "resend_hint": "Bağlantınızın süresi dolduysa tedarikçinizden yeniden göndermesini isteyin.",
+      "retry": "Yeniden dene",
+      "load_failed": "Davet yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
+      "reload_needed": "Şirketiniz oluşturuldu, ancak henüz listenizde görünmüyor. Devam etmek için sayfayı yenileyin.",
+      "reload": "Yenile"
    }
 }

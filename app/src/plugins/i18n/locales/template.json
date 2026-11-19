@@ -636,7 +636,8 @@
          "limit_raise": "",
          "limit_removed": "",
          "same": "",
-         "none": ""
+         "none": "",
+         "on_request": ""
       },
       "accept": {
          "action": "",
@@ -653,6 +654,12 @@
          "plan_limit_users": "",
          "generic": ""
       },
-      "sign_out": ""
+      "sign_out": "",
+      "sign_in": "",
+      "resend_hint": "",
+      "retry": "",
+      "load_failed": "",
+      "reload_needed": "",
+      "reload": ""
    }
 }

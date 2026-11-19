@@ -3456,7 +3456,8 @@
          "limit_raise": "raises {limit} to {value}",
          "limit_removed": "removes the {limit} limit",
          "same": "changes nothing: the modules and limits are the same",
-         "none": "No plan is offered right now. Ask your provider."
+         "none": "No plan is offered right now. Ask your provider.",
+         "on_request": "Price on request"
       },
       "accept": {
          "action": "Accept the invitation",
@@ -3473,6 +3474,12 @@
          "plan_limit_users": "This plan allows fewer users than this invitation brings. Choose a plan with more users.",
          "generic": "The invitation could not be accepted. Try again."
       },
-      "sign_out": "Sign out"
+      "sign_out": "Sign out",
+      "sign_in": "Sign in",
+      "resend_hint": "If your link has expired, ask your provider to send it again.",
+      "retry": "Try again",
+      "load_failed": "The invitation could not be loaded. Check your connection and try again.",
+      "reload_needed": "Your company was created, but it is not in your list yet. Reload the page to continue.",
+      "reload": "Reload"
    }
 }

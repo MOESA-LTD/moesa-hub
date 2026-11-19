@@ -9,7 +9,17 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
    const access_token = params.get('access_token');
    const refresh_token = params.get('refresh_token');
 
-   if (access_token && refresh_token) {
+   // A link of the invitation page signs in only with the types the invitation mails use: any
+   // other tokens in the address are not the invitee's and are ignored (no login fixation).
+   const linkType = params.get('type');
+   const invitationLink = to.name === 'auth-invitation';
+   const accepted = !invitationLink || ['invite', 'magiclink', 'signup'].includes(linkType ?? '');
+
+   if (invitationLink && !accepted && access_token) {
+      window.history.replaceState({}, document.title, to.path);
+   }
+
+   if (access_token && refresh_token && accepted) {
       const { error } = await supabase.auth.setSession({ access_token, refresh_token });
       if (error) throw error;
 

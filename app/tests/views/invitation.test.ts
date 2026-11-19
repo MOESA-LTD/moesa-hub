@@ -2,9 +2,10 @@ import '../setup/mockMain';
 import en from '@/plugins/i18n/locales/en/index.json';
 import Index from '@/views/pages/auth/invitation/Index.vue';
 import i18n, { i18NPlugin } from '@plugins/i18n';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
 
 const api = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const api = vi.hoisted(() => ({
    invoke: vi.fn(),
    updateUser: vi.fn(),
    replace: vi.fn(),
+   push: vi.fn(),
    toast: vi.fn(),
    errorHandler: vi.fn(),
    logout: vi.fn(),
@@ -46,11 +48,17 @@ vi.mock('primevue', async (importOriginal) => ({
 }));
 vi.mock('vue-router', async (importOriginal) => ({
    ...(await importOriginal<typeof import('vue-router')>()),
-   useRoute: () => ({ params: { token: 'secret-token' } }),
-   useRouter: () => ({ replace: api.replace })
+   useRoute: () => ({ params: { token: 'secret-token' }, fullPath: '/invitation/secret-token' }),
+   useRouter: () => ({ replace: api.replace, push: api.push, go: vi.fn() })
 }));
 
 const TOKEN = 'secret-token';
+
+/** How `functions.invoke` really reports a refusal: it resolves with the error, whose context is the response. */
+const refusal = (status: number, body: Record<string, unknown>) => ({
+   data: null,
+   error: new FunctionsHttpError(new Response(JSON.stringify(body), { status }))
+});
 
 const preview = (over: Record<string, unknown> = {}) => ({
    company_name: 'Client Ltd',
@@ -94,10 +102,13 @@ const preview = (over: Record<string, unknown> = {}) => ({
 
 const stubs = { PhoneInput: true, SelectCountry: true, FormBox: false };
 
+const mounted: { unmount: () => void }[] = [];
+
 const mountPage = async () => {
    const wrapper = mount(Index, {
       global: { plugins: [i18NPlugin, PrimeVue], stubs, directives: { focustrap: {}, tooltip: {} } }
    });
+   mounted.push(wrapper);
    await flushPromises();
    return wrapper;
 };
@@ -117,6 +128,7 @@ const accept = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
 
 describe('invitation page', () => {
    beforeAll(() => i18n.setLocaleMessage('en', en));
+   afterEach(() => mounted.splice(0).forEach((wrapper) => wrapper.unmount()));
    beforeEach(() => {
       Object.values(api).forEach((fn) => fn.mockReset());
       auth.isSignedIn = true;
@@ -196,23 +208,105 @@ describe('invitation page', () => {
       expect(api.logout).toHaveBeenCalled();
    });
 
-   it('shows a refusal of the accept call and stays on the plan step', async () => {
-      const { InvitationError } = await import('@/api/invitation/accept');
-      api.invoke.mockRejectedValue(new InvitationError('plan_limit_users'));
+   it('shows plan_limit_users from a 403 body and stays on the plan step', async () => {
+      api.invoke.mockResolvedValue(refusal(403, { message: 'plan_limit_users', code: 'P0001' }));
       const wrapper = await mountPage();
       await accept(wrapper);
 
       expect(wrapper.get('[data-notice]').text()).toContain('fewer users');
       expect(api.replace).not.toHaveBeenCalled();
+      expect(api.errorHandler).not.toHaveBeenCalled();
    });
 
-   it('puts a taken company e-mail on the e-mail field', async () => {
-      const { InvitationError } = await import('@/api/invitation/accept');
-      api.invoke.mockRejectedValue(new InvitationError('company_email_exists'));
+   it('ends on the dead-link card for invitation_invalid (404)', async () => {
+      api.invoke.mockResolvedValue(refusal(404, { message: 'invitation_invalid' }));
+      const wrapper = await mountPage();
+      await accept(wrapper);
+
+      expect(wrapper.get('[data-fatal]').text()).toContain('no longer valid');
+   });
+
+   it('names the signed-in address for invitation_email_mismatch (403)', async () => {
+      api.invoke.mockResolvedValue(refusal(403, { message: 'invitation_email_mismatch' }));
+      const wrapper = await mountPage();
+      await accept(wrapper);
+
+      expect(wrapper.get('[data-fatal]').text()).toContain('invitee@client.test');
+      expect(wrapper.find('[data-sign-out]').exists()).toBe(true);
+   });
+
+   it('puts a taken company e-mail (409) on the e-mail field', async () => {
+      api.invoke.mockResolvedValue(refusal(409, { message: 'company_email_exists' }));
       const wrapper = await mountPage();
       await accept(wrapper);
 
       expect(wrapper.find('[data-step="company"]').exists()).toBe(true);
       expect(wrapper.text()).toContain('already registered');
+   });
+
+   it('offers a retry when the preview fails for another reason', async () => {
+      api.rpc.mockResolvedValueOnce({ data: null, error: new Error('network') });
+      const wrapper = await mountPage();
+      expect(wrapper.find('[data-load-failed]').exists()).toBe(true);
+      expect(api.errorHandler).toHaveBeenCalled();
+
+      await wrapper.get('[data-retry]').trigger('click');
+      await flushPromises();
+      expect(api.rpc).toHaveBeenCalledTimes(2);
+      expect(wrapper.find('[data-step="company"]').exists()).toBe(true);
+   });
+
+   it('offers to sign in, back to this link, when there is no session', async () => {
+      auth.isSignedIn = false;
+      const wrapper = await mountPage();
+      await wrapper.get('[data-sign-in]').trigger('click');
+      expect(api.push).toHaveBeenCalledWith({
+         name: 'auth-login',
+         query: { redirect: '/invitation/secret-token' }
+      });
+      expect(wrapper.text()).toContain('ask your provider to send it again');
+   });
+
+   it('restores the referrer policy it found when it goes', async () => {
+      const existing = document.createElement('meta');
+      existing.name = 'referrer';
+      existing.content = 'origin';
+      document.head.appendChild(existing);
+      const wrapper = await mountPage();
+      expect(existing.content).toBe('no-referrer');
+      wrapper.unmount();
+      expect(existing.content).toBe('origin');
+      existing.remove();
+   });
+
+   it('removes the referrer tag it added', async () => {
+      const wrapper = await mountPage();
+      expect(document.head.querySelector('meta[name="referrer"]')?.getAttribute('content')).toBe(
+         'no-referrer'
+      );
+      wrapper.unmount();
+      expect(document.head.querySelector('meta[name="referrer"]')).toBeNull();
+   });
+
+   it('says to reload when the new tenant never shows in the list', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+         auth.branches = [];
+         const wrapper = await mountPage();
+         const done = accept(wrapper);
+         for (let i = 0; i < 6; i++) {
+            await flushPromises();
+            await vi.advanceTimersByTimeAsync(2000);
+         }
+         await done;
+         await flushPromises();
+
+         expect(wrapper.find('[data-accepted]').exists()).toBe(true);
+         expect(api.replace).not.toHaveBeenCalled();
+         expect(api.refreshAccess.mock.calls.length).toBeGreaterThan(1);
+      } finally {
+         vi.useRealTimers();
+         auth.branches = [{ id: 'tenant-1', display_name: 'Client Ltd' }];
+      }
    });
 });

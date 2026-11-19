@@ -1,7 +1,7 @@
 import { email, optional, phone, website } from '@/lib/form/fields';
 import type { PlanSummary } from '@/lib/planDiff';
 import { publicSchema, supabase } from '@/lib/supabase';
-import { FunctionsHttpError } from '@supabase/supabase-js';
+import { readRefusal } from './refusal';
 import * as z from 'zod';
 
 // The page a client opens from its invitation e-mail. The token is the link's path segment: it goes
@@ -82,15 +82,10 @@ export const toCompany = (values: z.output<typeof companySchema>) =>
       )
    ) as Record<(typeof COMPANY_KEYS)[number], string>;
 
-/** The refusal of the function as an InvitationError (its body carries the code as `message`). */
+/** The refusal of the function as an InvitationError (its body carries the code). */
 const named = async (error: unknown) => {
-   if (!(error instanceof FunctionsHttpError)) return error;
-   const body = await error.context
-      .clone()
-      .json()
-      .catch(() => null);
-   const code = typeof body?.message === 'string' ? body.message : body?.error;
-   return typeof code === 'string' ? new InvitationError(code) : error;
+   const refusal = await readRefusal(error);
+   return refusal ? new InvitationError(refusal.code) : error;
 };
 
 /**

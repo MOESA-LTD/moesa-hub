@@ -28,7 +28,9 @@ const optionalModules = computed(() => [
 const coreList = computed(() => (props.coreModules ?? []).map(moduleName).join(', '));
 
 const price = (plan: PlanSummary) => {
-   if (!plan.price) return t('invitation.plan.free');
+   // No price set is not free: only an explicit 0 is.
+   if (plan.price == null) return t('invitation.plan.on_request');
+   if (plan.price === 0) return t('invitation.plan.free');
    const amount = plan.currency
       ? new Intl.NumberFormat(locale.value, { style: 'currency', currency: plan.currency }).format(
            plan.price
@@ -59,7 +61,7 @@ const changes = computed(() => {
    return props.plans
       .filter((plan) => plan.id !== from.id)
       .map((plan) => {
-         const diff = planDiff(from, plan);
+         const diff = planDiff(from, plan, props.coreModules);
          const parts: string[] = [];
          if (diff.modulesGained.length) {
             parts.push(
@@ -99,7 +101,8 @@ const changes = computed(() => {
    <div class="flex flex-col gap-6" data-plan-compare>
       <div
          class="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]"
-         role="radiogroup"
+         role="group"
+         :aria-label="$t('invitation.plan.title')"
       >
          <div
             v-for="plan in plans"

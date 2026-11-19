@@ -30,7 +30,7 @@ describe('authBeforeEach with the tokens of an e-mail link', () => {
    beforeEach(() => {
       api.setSession.mockReset().mockResolvedValue({ error: null });
       api.toast.mockReset();
-      window.location.hash = '#access_token=a&refresh_token=r';
+      window.location.hash = '#access_token=a&refresh_token=r&type=invite';
    });
 
    it('sends an invited user to the security page to set a password', async () => {
@@ -48,4 +48,20 @@ describe('authBeforeEach with the tokens of an e-mail link', () => {
       // The tokens leave the address bar; the invitation token stays in the path.
       expect(window.location.hash).toBe('');
    });
+
+   it.each(['magiclink', 'signup'])('accepts a %s link on the invitation page', async (type) => {
+      window.location.hash = `#access_token=a&refresh_token=r&type=${type}`;
+      await run({ name: 'auth-invitation', path: '/invitation/tok' });
+      expect(api.setSession).toHaveBeenCalled();
+   });
+
+   it.each(['recovery', 'email_change', null])(
+      'ignores tokens of type %s on the invitation page',
+      async (type) => {
+         window.location.hash = `#access_token=a&refresh_token=r${type ? `&type=${type}` : ''}`;
+         expect(await run({ name: 'auth-invitation', path: '/invitation/tok' })).toBeUndefined();
+         expect(api.setSession).not.toHaveBeenCalled();
+         expect(window.location.hash).toBe('');
+      }
+   );
 });

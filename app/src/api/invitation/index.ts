@@ -6,6 +6,7 @@ import { allValues } from '@/lib/enumValues';
 import { dateOnly, optional } from '@/lib/form/fields';
 import { publicSchema, supabase } from '@/lib/supabase';
 import i18n from '@plugins/i18n';
+import { readRefusal } from './refusal';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { useAuthStore } from '@/store/auth';
 import { useMutation, useQueryClient } from '@tanstack/vue-query';
@@ -132,15 +133,11 @@ export const toInvitationBody = ({ staff, ...invitation }: InvitationValues) => 
  * the body, the HTTP status stands in.
  */
 const named = async (error: unknown) => {
-   if (!(error instanceof FunctionsHttpError)) return error;
-   const body = await error.context
-      .clone()
-      .json()
-      .catch(() => null);
-   if (typeof body?.message !== 'string') return error;
-   return Object.assign(new Error(body.message), {
+   const refusal = await readRefusal(error);
+   if (!refusal) return error;
+   return Object.assign(new Error(refusal.code), {
       name: 'PostgrestError',
-      code: typeof body.code === 'string' ? body.code : String(error.context.status),
+      code: refusal.bodyCode ?? String((error as FunctionsHttpError).context.status),
       details: null
    });
 };
