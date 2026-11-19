@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(99);
+SELECT plan(104);
 
 SELECT private.create_test_helpers();
 
@@ -28,6 +28,7 @@ SELECT private.create_test_helpers();
 --   user of no tenant (an author in E). gate ...07313: full roles in E and P. noterms ...07314: a full
 --   role in C without the supplier_terms field group. noupd ...07315: full roles in E and P, but no
 --   product update in P. nomdel ...07316: full roles in C and P, but no media delete in C.
+--   nocell ...07317: full roles in E and P, but no market_cell update in E (delete kept).
 --   E: product ze ...07301 'ZZ-E-1' (GTIN, notes) with its variant ...07309, supplier ZS7 ...07302 and
 --   its contact ...07303, E's sourcing ...07304, a market cell ...07305 (listing checked), a file
 --   ...07306 with a thumbnail (uploaded by nonmem) linked as the primary image ...07307, a signed spec
@@ -67,6 +68,7 @@ FROM (VALUES
     ('noterms', '00000000-0000-4000-8000-000000073014'),
     ('noupd', '00000000-0000-4000-8000-000000073015'),
     ('nomdel', '00000000-0000-4000-8000-000000073016'),
+    ('nocell', '00000000-0000-4000-8000-000000073017'),
     ('pi_file', '00000000-0000-4000-8000-000000073048'),
     ('shared_file', '00000000-0000-4000-8000-000000073049'),
     ('zp_pi', '00000000-0000-4000-8000-000000073053'),
@@ -89,7 +91,7 @@ $$;
 
 INSERT INTO public.user (id, email)
 SELECT ('00000000-0000-4000-8000-0000000730' || n)::UUID, 'u' || n || '@transfer073.test'
-FROM unnest(ARRAY['11', '12', '13', '14', '15', '16']) AS n;
+FROM unnest(ARRAY['11', '12', '13', '14', '15', '16', '17']) AS n;
 
 SELECT pg_temp.member(current_setting('test.tonly')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073111');
 SELECT pg_temp.member(current_setting('test.gate')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073131');
@@ -108,6 +110,11 @@ SELECT pg_temp.member(current_setting('test.noupd')::UUID, current_setting('test
 DELETE FROM public.role_permission
 WHERE role_id = '00000000-0000-4000-8000-000000073152'
   AND permission_id = (SELECT id FROM public.permission WHERE resource_name = 'public.product' AND command = 'update');
+SELECT pg_temp.member(current_setting('test.nocell')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073171');
+SELECT pg_temp.member(current_setting('test.nocell')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073172');
+DELETE FROM public.role_permission
+WHERE role_id = '00000000-0000-4000-8000-000000073171'
+  AND permission_id = (SELECT id FROM public.permission WHERE resource_name = 'public.market_cell' AND command = 'update');
 
 -- The rows, written as postgres under the fixture bypass.
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
@@ -303,6 +310,40 @@ SELECT lives_ok(
 );
 RESET ROLE;
 SELECT private.unimpersonate();
+
+-- Rule 5 for links asks what media_link_check asks (cleanup item 4): tenants_permitting, so the
+-- plan's module counts, and in a move the update right on the entity in the source too. A file
+-- on E's market cell of ze, for these tests only. Every module but audit_log is core today, so the
+-- plan test makes market_matrix a plan module for its duration.
+INSERT INTO public.media_link (id, tenant_id, media_id, entity_type, entity_id)
+VALUES ('00000000-0000-4000-8000-000000073060', current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073006',
+        'market_cell', '00000000-0000-4000-8000-000000073005');
+CREATE TEMP TABLE plan_module_073 ON COMMIT DROP AS
+SELECT pm.* FROM public.plan_module pm
+WHERE pm.plan_id = (SELECT e.plan_id FROM private.entitlements(ARRAY[current_setting('test.p')::UUID]) e) AND pm.module_id = 'market_matrix';
+DELETE FROM public.plan_module pm USING plan_module_073 x WHERE pm.plan_id = x.plan_id AND pm.module_id = x.module_id;
+UPDATE public.module SET is_core = FALSE WHERE id = 'market_matrix';
+SELECT private.impersonate_scope(current_setting('test.gate')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB) $$, '%transfer_permissions_required%',
+                   'a link on an entity whose module the target''s plan lacks is refused at the gate, not by media_link_check');
+RESET ROLE;
+SELECT private.unimpersonate();
+UPDATE public.module SET is_core = TRUE WHERE id = 'market_matrix';
+INSERT INTO public.plan_module SELECT * FROM plan_module_073;
+SELECT private.impersonate_scope(current_setting('test.nocell')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT throws_like($$ SELECT pg_temp.ep('move', current_setting('test.d')::JSONB) $$, '%transfer_permissions_required%',
+                   'a move deletes the source''s links, so it needs update on their entity in the source (delete is not enough)');
+SELECT lives_ok($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB) $$, 'a copy of the same package leaves the source''s links');
+RESET ROLE;
+SELECT private.unimpersonate();
+SELECT private.impersonate_scope(current_setting('test.gate')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT lives_ok($$ SELECT pg_temp.ep('move', current_setting('test.d')::JSONB) $$, 'with every right, the move passes the gate');
+RESET ROLE;
+SELECT private.unimpersonate();
+DELETE FROM public.media_link WHERE id = '00000000-0000-4000-8000-000000073060';
 
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
@@ -541,6 +582,26 @@ SELECT ok(
     AND (SELECT count(*) FROM public.document d WHERE d.entity_id = current_setting('test.zp')::UUID) = 2,
     'the open gallery link arrives; MOESA LTD keeps its notes and documents'
 );
+
+-- A provider-only column with a volatile default is reset per row, as an INSERT would (cleanup
+-- item 2): a UNIQUE token column gives every row of the package its own value. The column lives
+-- only inside this test's transaction, which ends in ROLLBACK.
+ALTER TABLE public.product ADD COLUMN zz_token_073 UUID NOT NULL UNIQUE DEFAULT gen_random_uuid();
+INSERT INTO public.field_class (resource_name, field, class, group_name) VALUES ('public.product', 'zz_token_073', 'sensitive', 'cost');
+SELECT private.transfer_collect(current_setting('test.p')::UUID, ARRAY[current_setting('test.zp')::UUID, current_setting('test.zn')::UUID],
+                                private.transfer_excluded(current_setting('test.p')::UUID, current_setting('test.c')::UUID),
+                                current_setting('test.c')::UUID);
+SELECT ok(
+    (SELECT count(*) >= 2 AND count(DISTINCT r.row ->> 'zz_token_073') = count(*)
+            AND bool_and((r.row ->> 'zz_token_073')::UUID <> p.zz_token_073)
+     FROM pg_temp.transfer_rows r JOIN public.product p ON p.id = r.source_id
+     WHERE r.table_name = 'product')
+    AND (SELECT b.rows FROM pg_temp.transfer_blanked b WHERE b.table_name = 'product' AND b.column_name = 'zz_token_073')
+        = (SELECT count(*) FROM pg_temp.transfer_rows r WHERE r.table_name = 'product'),
+    'a volatile default is evaluated per row: every row gets its own new value, and each is reported'
+);
+DELETE FROM public.field_class WHERE resource_name = 'public.product' AND field = 'zz_token_073';
+ALTER TABLE public.product DROP COLUMN zz_token_073;
 
 -- A move into THO would leave the withheld rows naming a removed product: they block it.
 UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('test.rb')::JSONB ->> 'id')::UUID;

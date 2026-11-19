@@ -839,7 +839,6 @@ DECLARE
     restricted_media UUID[];
     withheld BIGINT[];
     col RECORD;
-    blank JSONB;
     n BIGINT;
 BEGIN
     -- The files the source restricts (by any of its links, documents or holds).
@@ -879,18 +878,24 @@ BEGIN
         ORDER BY g.position, f.field
     LOOP
         IF col.default_expr IS NOT NULL THEN
-            EXECUTE format('SELECT to_jsonb(%s)', col.default_expr) INTO blank;
+            -- The default is evaluated once per row, as an INSERT would: a volatile one (for
+            -- example gen_random_uuid()) gives each row its own value. The subquery is not
+            -- flattened (volatile target list), so the value compared is the value written.
+            EXECUTE format(
+                'UPDATE pg_temp.transfer_rows r SET row = r.row || jsonb_build_object(%1$L, b.v)
+                 FROM (SELECT r2.seq, coalesce(to_jsonb(%2$s), %3$L::JSONB) AS v
+                       FROM pg_temp.transfer_rows r2 WHERE r2.table_name = %4$L) b
+                 WHERE r.seq = b.seq AND coalesce(r.row -> %1$L, %3$L::JSONB) IS DISTINCT FROM b.v',
+                col.field, col.default_expr, 'null', col.table_name);
         ELSIF col.not_null THEN
             -- A provider-only column with neither a default nor NULL (073_transfer_copy.test.sql
             -- asserts there is none).
             RAISE EXCEPTION 'transfer_package_invalid';
         ELSE
-            blank := 'null'::JSONB;
+            UPDATE pg_temp.transfer_rows r
+            SET row = r.row || jsonb_build_object(col.field, 'null'::JSONB)
+            WHERE r.table_name = col.table_name AND coalesce(r.row -> col.field, 'null'::JSONB) <> 'null'::JSONB;
         END IF;
-
-        UPDATE pg_temp.transfer_rows r
-        SET row = r.row || jsonb_build_object(col.field, coalesce(blank, 'null'::JSONB))
-        WHERE r.table_name = col.table_name AND coalesce(r.row -> col.field, 'null'::JSONB) IS DISTINCT FROM coalesce(blank, 'null'::JSONB);
         GET DIAGNOSTICS n = ROW_COUNT;
 
         IF n > 0 THEN

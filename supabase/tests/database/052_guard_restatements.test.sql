@@ -116,7 +116,9 @@ VALUES
           'transfer_decision_invalid', 'private.transfer_excluded(source_tenant, target_tenant)', 'transfer_files_pending',
           'private.transfer_check_decisions(report', 'transfer_product_in_use', 'private.transfer_lock_rows()',
           'set_config(''moesa.transfer_id'', new_id::TEXT, TRUE)', 'set_config(''moesa.transfer_id'', '''', TRUE)',
-          'private.transfer_apply(new_id)', 'transfer_report_stale', 'transfer_permissions_required']),
+          'private.transfer_apply(new_id)', 'transfer_report_stale', 'transfer_permissions_required',
+          'private.tenants_permitting(auth.uid(), ARRAY[target_tenant]',
+          'private.tenants_permitting(auth.uid(), ARRAY[transfer_products.source_tenant]']),
    -- 074: no object is planted at, or removed from, a path a transfer still needs (R1, R2).
    ('private.can_write_media_file(text)', '024', '074',
     ARRAY['private.storage_folder_id(object_name) IS NOT NULL', '''public.media'', ''insert''',

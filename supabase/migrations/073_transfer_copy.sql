@@ -810,9 +810,17 @@ BEGIN
 
     -- 073 (C1), rule 5 for the package: a copied media link needs the update right on its entity in
     -- the target (media_link_check asks it), so it is refused here, not halfway through the run.
+    -- The same function media_link_check uses (tenants_permitting: roles, plan module and a
+    -- writable subscription). A move also deletes the source's links, which media_link_check asks
+    -- the same right for in the source.
     IF EXISTS (
-        SELECT 1 FROM (SELECT DISTINCT r.row ->> 'entity_type' AS entity FROM pg_temp.transfer_rows r WHERE r.table_name = 'media_link') l
-        WHERE NOT (target_tenant = ANY (private.tenants_granting(auth.uid(), ARRAY[target_tenant], 'public.' || l.entity, 'update')))
+        SELECT 1
+        FROM (SELECT r.row ->> 'entity_type' AS entity, bool_or(NOT r.copy_only) AS removed
+              FROM pg_temp.transfer_rows r WHERE r.table_name = 'media_link' GROUP BY 1) l
+        WHERE NOT (target_tenant = ANY (private.tenants_permitting(auth.uid(), ARRAY[target_tenant], 'public.' || l.entity, 'update')))
+           OR (transfer_products.mode = 'move' AND l.removed
+               AND NOT (transfer_products.source_tenant = ANY (
+                   private.tenants_permitting(auth.uid(), ARRAY[transfer_products.source_tenant], 'public.' || l.entity, 'update'))))
     ) THEN
         PERFORM private.transfer_raise('transfer_permissions_required', 403);
     END IF;

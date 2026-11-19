@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(178);
+SELECT plan(185);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -659,13 +659,16 @@ SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID,
                                             '{"display_name": "Small Co", "email": "info@nova.test"}', NULL) ->> 'error',
           'company_email_exists', 'a company e-mail already registered is refused');
 SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co", "email": "INFO@Nova.Test"}', NULL) ->> 'error',
+          'company_email_exists', 'and so is a case variant of it');
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
                                             '{"display_name": "Small Co", "phone": "+49 30 071071"}', NULL) ->> 'error',
           'company_phone_exists', 'a company phone already registered is refused');
 RESET ROLE;
 SELECT results_eq($$ SELECT (SELECT count FROM private.invitation_attempt WHERE key = 'accept:' || current_setting('test.small')),
                             (SELECT count(*)::INT FROM public.tenant WHERE display_name = 'Small Co'),
                             (SELECT status::TEXT FROM public.provider_invitation WHERE id = (SELECT id FROM inv_071 WHERE label = 'seats')) $$,
-   $$ VALUES (2, 0, 'pending') $$, 'both refusals are counted by the throttle and create nothing');
+   $$ VALUES (3, 0, 'pending') $$, 'every refusal is counted by the throttle and creates nothing');
 
 -- I2: the accepter keeps only some of the staff, by the preview's indexes. The 'seats' invitation
 -- brings koordinator and akif; with akif dropped it fits the two-user plan it did not fit before.
@@ -687,6 +690,9 @@ SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID,
 SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
                                             '{"display_name": "Small Co"}', NULL, '[0.5]') ->> 'error',
           'invitation_payload_invalid', 'and nothing else');
+SELECT is(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
+                                            '{"display_name": "Small Co"}', NULL, '[1.0]') ->> 'error',
+          'invitation_payload_invalid', 'an integral float is not an integer index: refused, never a cast error');
 SELECT ok(public.accept_provider_invitation(current_setting('test.small')::UUID, (SELECT token FROM inv_071 WHERE label = 'seats'),
                                             '{"display_name": "Small Co"}', '00000000-0000-4000-8000-000000071210',
                                             jsonb_build_array(current_setting('test.koordinator_index')::INT)) ? 'tenant_id',
@@ -882,6 +888,37 @@ SELECT ok(public.is_provider_staff(current_setting('test.atlas')::UUID, '0000000
 UPDATE public.provider_relationship SET status = 'ended' WHERE id = '00000000-0000-4000-8000-000000071306';
 SELECT ok(NOT public.is_provider_staff(current_setting('test.atlas')::UUID, '00000000-0000-4000-8000-000000071303'),
           'once the relationship has ended, its provider''s member is no longer staff');
+-- M3: staff of the provider's branches count, under the same active relationship.
+INSERT INTO public.tenant (id, display_name, parent_id) VALUES
+   ('00000000-0000-4000-8000-000000071308', 'Provider branch 071', current_setting('test.p')::UUID),
+   ('00000000-0000-4000-8000-000000071309', 'Old provider branch 071', '00000000-0000-4000-8000-000000071305');
+INSERT INTO public.user (id, email) VALUES
+   ('00000000-0000-4000-8000-000000071310', 'branchstaff@staff.test'),
+   ('00000000-0000-4000-8000-000000071311', 'oldbranchstaff@staff.test');
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000071310', '00000000-0000-4000-8000-000000071308'),
+   ('00000000-0000-4000-8000-000000071311', '00000000-0000-4000-8000-000000071309');
+SELECT ok(public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071310'),
+          'a member of a branch of the provider is provider staff of its client');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071301')
+          AND NOT public.is_provider_staff('00000000-0000-4000-8000-000000071305', '00000000-0000-4000-8000-000000071310'),
+          'a stranger is not, nor is the branch member for a company the provider does not serve');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.atlas')::UUID, '00000000-0000-4000-8000-000000071311'),
+          'a branch member of a provider whose relationship has ended is not provider staff');
+-- M2 is not widened: a provider of the provider's own company, whose staff sit in the provider's
+-- branch as guests, does not make them staff of the provider's clients through that branch.
+INSERT INTO public.tenant (id, display_name) VALUES ('00000000-0000-4000-8000-000000071312', 'Upstream provider 071');
+INSERT INTO public.user (id, email) VALUES ('00000000-0000-4000-8000-000000071313', 'upstream@staff.test');
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000071313', '00000000-0000-4000-8000-000000071312'),
+   ('00000000-0000-4000-8000-000000071313', '00000000-0000-4000-8000-000000071308');
+INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model)
+VALUES ('00000000-0000-4000-8000-000000071314', '00000000-0000-4000-8000-000000071312', current_setting('test.p')::UUID,
+        'UPS', 'Provider 071', 'Upstream provider 071', 'client');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071313'),
+          'a guest of the provider''s branch who is staff of the provider''s own provider is not provider staff');
+SELECT ok(public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071310'),
+          'while the branch''s own staff still are');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE')
           AND NOT has_function_privilege('public', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE'),

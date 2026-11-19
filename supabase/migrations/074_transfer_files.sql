@@ -56,6 +56,9 @@
 -- private.can_delete_media_file  Restated: 024's body plus one delta (pinned in 052): not an object
 --                              transfer_file_locked holds.
 
+-- The transfers that name an object, by containment (transfer_file_locked, transfer_upload_allowed).
+CREATE INDEX IF NOT EXISTS idx_transfer_files_paths ON public.transfer USING GIN (files jsonb_path_ops);
+
 -- Who may check a transfer (see the header).
 CREATE OR REPLACE FUNCTION private.transfer_may_check (p_user UUID, p_target UUID, p_started_by UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
 SET
@@ -165,18 +168,20 @@ GRANT EXECUTE ON FUNCTION public.transfer_check_files (UUID) TO authenticated;
 CREATE OR REPLACE FUNCTION private.transfer_file_locked (object_name TEXT) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
+    -- Each arm finds its transfers by containment on files (idx_transfer_files_paths), so a Storage
+    -- delete stays cheap however many transfers a tenant has run (cleanup item 5).
     SELECT EXISTS (
         SELECT 1
         FROM public.transfer t
-        CROSS JOIN LATERAL jsonb_array_elements(t.files) f
-        WHERE (t.tenant_id = private.storage_tenant(object_name) OR t.source_tenant_id = private.storage_tenant(object_name))
-          AND (
-              (t.files_status <> 'done'
-               AND (f ->> 'to' = object_name OR (f ->> 'from' = object_name AND f -> 'keep_source' = 'false'::JSONB)))
-              OR (t.files_status = 'done'
-                  AND f ->> 'from' = object_name AND f -> 'keep_source' = 'false'::JSONB
-                  AND NOT private.transfer_may_check(auth.uid(), t.tenant_id, t.started_by))
-          )
+        WHERE t.files @> jsonb_build_array(jsonb_build_object('to', object_name))
+          AND t.files_status <> 'done'
+          AND (t.tenant_id = private.storage_tenant(object_name) OR t.source_tenant_id = private.storage_tenant(object_name))
+    ) OR EXISTS (
+        SELECT 1
+        FROM public.transfer t
+        WHERE t.files @> jsonb_build_array(jsonb_build_object('from', object_name, 'keep_source', FALSE))
+          AND (t.tenant_id = private.storage_tenant(object_name) OR t.source_tenant_id = private.storage_tenant(object_name))
+          AND (t.files_status <> 'done' OR NOT private.transfer_may_check(auth.uid(), t.tenant_id, t.started_by))
     );
 $$;
 
@@ -189,10 +194,9 @@ SET
     SELECT auth.uid() IS NOT NULL AND EXISTS (
         SELECT 1
         FROM public.transfer t
-        CROSS JOIN LATERAL jsonb_array_elements(t.files) f
-        WHERE t.tenant_id = private.storage_tenant(object_name)
+        WHERE t.files @> jsonb_build_array(jsonb_build_object('to', object_name))
+          AND t.tenant_id = private.storage_tenant(object_name)
           AND t.files_status <> 'done'
-          AND f ->> 'to' = object_name
           AND ARRAY[t.tenant_id, t.source_tenant_id]
               <@ private.tenants_granting(auth.uid(), ARRAY[t.tenant_id, t.source_tenant_id], 'public.transfer', 'insert')
     );

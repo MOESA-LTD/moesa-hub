@@ -867,8 +867,9 @@ BEGIN
            OR jsonb_array_length(p_staff) > 100
            OR EXISTS (
                SELECT 1 FROM jsonb_array_elements(p_staff) AS e (v)
+               -- Digits only, so 1.0 or 1e0 is refused here and never reaches the INT cast below.
                WHERE jsonb_typeof(e.v) <> 'number'
-                  OR (e.v #>> '{}')::NUMERIC <> trunc((e.v #>> '{}')::NUMERIC)
+                  OR (e.v #>> '{}') !~ '^[0-9]{1,9}$'
                   OR NOT EXISTS (SELECT 1 FROM private.invitation_staff_slots(inv.id, p_user) x WHERE x.idx = (e.v #>> '{}')::NUMERIC)
            ) THEN
             v_result := jsonb_build_object('error', 'invitation_payload_invalid');
@@ -884,7 +885,8 @@ BEGIN
 
     -- The company's unique e-mail and phone, checked before the first write so the refusal keeps
     -- the throttle count (F2); the unique keys below still catch a concurrent registration.
-    IF EXISTS (SELECT 1 FROM public.tenant t WHERE t.email = nullif(company ->> 'email', '')) THEN
+    -- Compared lower-cased: a case variant of a registered company e-mail is the same address.
+    IF EXISTS (SELECT 1 FROM public.tenant t WHERE lower(t.email) = lower(nullif(btrim(company ->> 'email'), ''))) THEN
         v_result := jsonb_build_object('error', 'company_email_exists');
         EXIT body;
     END IF;
@@ -996,6 +998,10 @@ EXECUTE FUNCTION private.tenant_has_provider_relationship ();
 -- the company root of p_client. The user Edge Function asks it (service role) before linking an
 -- existing account of another company; the relationship reads nothing, and the membership it
 -- allows has no role until the client owner assigns one.
+-- Staff of the provider's branches count too (task-6-review M3): a member of any tenant of the
+-- provider's company. A branch member who is there only as staff of a provider of the provider's
+-- own company does not count through the branch, so the transitive reach (M2) is no wider than
+-- the provider tenant's own membership.
 CREATE OR REPLACE FUNCTION public.is_provider_staff (p_client UUID, p_user UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -1003,7 +1009,16 @@ SET
         SELECT 1
         FROM private.entitlements(ARRAY[p_client]) e
         JOIN public.provider_relationship r ON r.client_tenant_id = e.company_id AND r.status = 'active'
-        JOIN public.tenant_user m ON m.tenant_id = r.tenant_id AND m.user_id = p_user
+        CROSS JOIN LATERAL private.entitlements(ARRAY[r.tenant_id]) pe
+        JOIN public.tenant_user m ON m.user_id = p_user AND m.tenant_id = ANY (private.company_tenants(pe.company_id))
+        WHERE m.tenant_id = r.tenant_id
+           OR NOT EXISTS (
+               SELECT 1
+               FROM public.provider_relationship up
+               CROSS JOIN LATERAL private.entitlements(ARRAY[up.tenant_id]) ue
+               JOIN public.tenant_user um ON um.user_id = p_user AND um.tenant_id = ANY (private.company_tenants(ue.company_id))
+               WHERE up.client_tenant_id = pe.company_id AND up.status = 'active'
+           )
     );
 $$;
 

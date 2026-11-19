@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(25);
 
 SELECT private.create_test_helpers();
 
@@ -285,15 +285,36 @@ SELECT throws_like(
 );
 
 -- 19. PostgREST runs with pg-safeupdate, which refuses a DELETE or UPDATE with no WHERE; pgTAP does not
--- load it, so the check is on the source: no exposed transfer function holds a DELETE with no WHERE
--- (private helpers are covered by the HTTP suite) (found over HTTP: the temp table's DELETE was refused as 21000).
+-- load it, so the check is on the source: no transfer function, public or private, holds a DELETE or
+-- an UPDATE with no WHERE (found over HTTP: the temp table's DELETE was refused as 21000). Comments
+-- are stripped first; each statement (split on ';') is checked whole, so ONLY, an alias and
+-- RETURNING do not hide one; an INSERT's ON CONFLICT DO UPDATE and a SELECT's FOR UPDATE are not
+-- UPDATE statements.
+CREATE FUNCTION pg_temp.bare_writes (src TEXT) RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS $$
+    SELECT coalesce(array_agg(btrim(st)), '{}')
+    FROM regexp_split_to_table(
+             regexp_replace(regexp_replace(src, '/\*.*?\*/', ' ', 'g'), '--[^\n]*', ' ', 'g'),
+             ';') AS st
+    WHERE st !~* '\mWHERE\M'
+      AND (st ~* '\mDELETE\s+FROM\M'
+           OR (st ~* '\mUPDATE\s+(ONLY\s+)?[a-z_."%$]+(\s+(AS\s+)?[a-z_]+)?\s+SET\M' AND st !~* '\mDO\s+UPDATE\M'));
+$$;
 SELECT is(
-    ARRAY(SELECT p.proname::TEXT FROM pg_proc p
-          WHERE p.pronamespace = 'public'::REGNAMESPACE AND p.proname LIKE 'transfer\_%'
-            AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
-            AND p.prosrc ~* 'DELETE\s+FROM\s+[a-z_."]+\s*;'),
+    (SELECT array_agg(cardinality(pg_temp.bare_writes(x)) ORDER BY o) FROM unnest(ARRAY[
+        'DELETE FROM ONLY public.x;', 'DELETE FROM public.x AS a;', 'DELETE FROM x RETURNING id;', 'UPDATE x SET a = 1;',
+        'UPDATE ONLY public.x AS y SET a = 1 RETURNING a;', 'DELETE FROM x WHERE id = 1;', 'UPDATE x SET a = 1 WHERE b;',
+        '-- DELETE FROM x;' || chr(10) || 'SELECT 1;', '/* UPDATE x SET a = 1; */ SELECT 1;',
+        'INSERT INTO x VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 1;', 'SELECT 1 FROM x WHERE a FOR UPDATE;'
+    ]) WITH ORDINALITY AS t (x, o)),
+    ARRAY[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+    'the scan catches ONLY, an alias, RETURNING and a bare UPDATE, and skips comments, ON CONFLICT and FOR UPDATE'
+);
+SELECT is(
+    ARRAY(SELECT p.oid::REGPROCEDURE::TEXT FROM pg_proc p
+          WHERE p.pronamespace IN ('public'::REGNAMESPACE, 'private'::REGNAMESPACE) AND p.proname LIKE 'transfer\_%'
+            AND cardinality(pg_temp.bare_writes(p.prosrc)) > 0),
     ARRAY[]::TEXT[],
-    'no exposed transfer function runs a DELETE with no WHERE (pg-safeupdate)'
+    'no transfer function, public or private, runs a DELETE or UPDATE with no WHERE (pg-safeupdate)'
 );
 
 SELECT * FROM finish();
