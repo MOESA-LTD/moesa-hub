@@ -19,7 +19,13 @@ import {
    signIn,
 } from './helpers.ts';
 
-const SERVICE_KEY = Deno.env.get('SERVICE_ROLE_KEY') ?? '';
+// The suite's state is shared (copied, moved): without the key the first admin call would fail and
+// every later test with it, so stop here instead.
+const SERVICE_KEY: string = (() => {
+   const key = Deno.env.get('SERVICE_ROLE_KEY');
+   if (!key) throw new Error('SERVICE_ROLE_KEY is not set: export the env of `supabase status -o env`');
+   return key;
+})();
 const PREFIX = 'http-tr-';
 const email = (tag: string) => `${PREFIX}${tag}@moesa-panel.test`;
 const ROLE_PREFIX = 'http_tr_';
@@ -299,7 +305,8 @@ t('a transfer into a tenant the caller is not in is refused without detail', asy
    assertRefusal(ghost, 'transfer_forbidden', [403], 'unknown tenant');
    const options = await rest(f.restricted, 'rpc/transfer_options', { method: 'POST', profile: 'public', body: { source_tenant: f.europe } });
    assertEquals(options.status, 200);
-   assert(JSON.stringify(options.body).includes('[]') || JSON.stringify(options.body).includes('"targets":null'), JSON.stringify(options.body));
+   // Not a member of the source: the same answer as for any tenant it is not in, nothing more.
+   assertEquals(options.body, { source_writable: false, targets: [] });
    for (const name of ['MOESA Europe', 'Nova', 'THOMETZKI']) assert(!JSON.stringify(options.body).includes(name), `options leak ${name}`);
 });
 
@@ -415,8 +422,27 @@ t('a stale report_hash is refused', async () => {
       const r = await transfer('copier', f.moesa, f.europe, [p.id], 'copy', decisions, false);
       assertRefusal(r, 'transfer_report_stale', [409], `stale ${JSON.stringify(decisions)?.slice(0, 40)}`);
    }
+   // A real stale hash: the rehearsal's own hash, after the data changed. The source product gains a
+   // variant, which the package carries, so the approved report no longer describes the run.
+   const fresh = await transfer('copier', f.moesa, f.europe, [p.id], 'copy');
+   assertEquals(fresh.status, 200);
+   const approved = fresh.body.report_hash as string;
+   const variant = one<{ id: string }>(
+      await admin('product', {
+         method: 'POST',
+         headers: { 'x-tenant-id': f.moesa, Prefer: 'return=representation' },
+         body: { tenant_id: f.moesa, parent_id: p.id, sku: `${SKU_COPY}-V`, display_name: 'HTTP TR copy variant' },
+      }),
+      'variant',
+   ).id;
+   const stale = await transfer('copier', f.moesa, f.europe, [p.id], 'copy', { report_hash: approved }, false);
+   assertRefusal(stale, 'transfer_report_stale', [409], 'hash of a rehearsal the data has moved past');
+   await admin(`product?id=eq.${variant}`, { method: 'DELETE' });
    assertEquals(await productsIn(f.europe, SKU_COPY), 0, 'nothing is written');
    assertEquals(await count(`transfer?started_by=eq.${people.copier.id}`), 0);
+   // Back as it was, the same hash applies again (the test below does).
+   const again = await transfer('copier', f.moesa, f.europe, [p.id], 'copy');
+   assertEquals(again.body.report_hash, approved, 'the report is the approved one again');
 });
 
 t('a copy over HTTP: rehearse, apply, read the target rows, the masked record', async () => {
@@ -496,10 +522,15 @@ t('files in flight: nobody plants an object into a copied folder (R2)', async ()
       assert(r.status >= 400, `planted ${path}: ${r.status} ${r.text}`);
       assert(!(await exists(path)), `${path} exists`);
    }
-   // The source user (LTD only) is not in the target at all.
+   // The source user (LTD only) is not in the target at all: refused for want of media insert in the
+   // target, not by R2. The control shows it: a fresh target folder, with no media row, is refused
+   // to it with the same row-level-security answer.
    const r = await upload(people.source.token, to);
    assert(r.status >= 400, `${r.status} ${r.text}`);
+   assert(/row-level security/i.test(r.text), `not the policy's refusal: ${r.text}`);
    assert(!(await exists(to)));
+   const outside = await upload(people.source.token, `${f.europe}/${crypto.randomUUID()}/httptr-outside.png`);
+   assert(outside.status >= 400 && /row-level security/i.test(outside.text), `${outside.status} ${outside.text}`);
    // A folder without a media row is an ordinary upload for the same user: the refusal is the row's.
    const fresh = `${f.europe}/${crypto.randomUUID()}/httptr-fresh.png`;
    assertEquals((await upload(people.target.token, fresh)).status, 200);
@@ -540,6 +571,16 @@ t('files in flight: a caller with transfer insert in both tenants uploads the co
    // Done is final: the folder takes nothing else, from anyone.
    const late = await upload(people.copier.token, `${to.split('/').slice(0, 2).join('/')}/late.png`);
    assert(late.status >= 400, `${late.status} ${late.text}`);
+   // Not even the copied path itself, by the copier the pending transfer let in: with the object
+   // gone (the service removes it), only the transfer's 'not done' clause stood for that upload.
+   const gone = await storage(SERVICE_KEY, 'DELETE', `object/media/${to}`);
+   await gone.body?.cancel();
+   assert(!(await exists(to)));
+   const replant = await upload(people.copier.token, to);
+   assert(replant.status >= 400 && /row-level security/i.test(replant.text), `${replant.status} ${replant.text}`);
+   assert(!(await exists(to)), 'a done transfer let its target path be uploaded again');
+   // The service puts the copy back for the rest of the suite.
+   assertEquals((await upload(SERVICE_KEY, to)).status, 200);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -586,7 +627,7 @@ t('files in flight: nobody removes a source object a move left behind (R1)', asy
    // Done, a keep_source:false object still holds against a caller who cannot check the transfer.
    const after = await storage(people.source.token, 'DELETE', `object/media/${p.path}`);
    await after.body?.cancel();
-   assert(await exists(p.path), 'a done transfer releases the source object to a user who cannot check it');
+   assert(await exists(p.path), 'a done transfer still holds the source object against a user who cannot check it');
    // The service role removes it, as the app's service does once the check says done.
    const service = await storage(SERVICE_KEY, 'DELETE', `object/media/${p.path}`);
    await service.body?.cancel();
