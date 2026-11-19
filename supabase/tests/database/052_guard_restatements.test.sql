@@ -8,7 +8,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
 -- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company, 072 the
 -- rules bypass's transfer flag, the revert's transfer lock and the coordinator's standard role without
--- the transfer right), or extends it (a chain such as 021 → 032 → 036). A
+-- the transfer right, 073 the media file check's transfer copy and the transfer entry point's run), or
+-- extends it (a chain such as 021 → 032 → 036). A
 -- restated body is the owner's current body plus only the restating migration's own delta, so an
 -- edit of the owner that is not carried into the restatement would be undone silently, and so
 -- would a chain step a later restatement forgot. Each row below names, for the live function,
@@ -22,7 +23,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(48);
+SELECT plan(50);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -102,6 +103,18 @@ VALUES
     ARRAY['po.project_tenant_id = NEW.tenant_id', 'public.shipment_purchase_order spo',
           'gate_rollback_incident_required', 'gate_incident_invalid', 'gate_rollback_immutable',
           'NEW.rolled_back_incident_id := NULL']),
+   -- 073: a row a transfer copies keeps the source's type and size; the allowlist and the cap hold.
+   ('private.media_check_file()', '024', '073',
+    ARRAY['media_file_immutable', 'media_file_missing', 'media_type_not_allowed', 'media_too_large', 'FROM storage.objects o',
+          'NEW.mime_type := meta ->> ''mimetype''', 'private.media_max_bytes(NEW.tenant_id)',
+          'copying CONSTANT BOOLEAN := TG_OP = ''INSERT'' AND private.transferring()', 'IF NOT copying']),
+   -- 073: the run (F19), after every check of 072's.
+   ('public.transfer_products(uuid, uuid, uuid[], text, jsonb, boolean)', '072', '073',
+    ARRAY['private.transfer_refusal(source_tenant, target_tenant, transfer_products.mode)', 'transfer_products_invalid',
+          'transfer_decision_invalid', 'private.transfer_excluded(source_tenant, target_tenant)', 'transfer_files_pending',
+          'private.transfer_check_decisions(report', 'transfer_product_in_use', 'private.transfer_lock_rows()',
+          'set_config(''moesa.transfer_id'', new_id::TEXT, TRUE)', 'set_config(''moesa.transfer_id'', '''', TRUE)',
+          'private.transfer_apply(new_id)']),
    ('private.media_guard_delete()', '025', '026',
     ARRAY['public.media_link l WHERE l.tenant_id = OLD.tenant_id AND l.media_id = OLD.id',
           'public.document d WHERE d.tenant_id = OLD.tenant_id AND d.media_id = OLD.id']),

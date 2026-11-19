@@ -3865,42 +3865,6 @@ export type Database = {
           updated_at: string | null
           xact_id: unknown | null
         }
-        Insert: {
-          audit_transaction_ids?: string[] | null
-          created_at?: string | null
-          decisions?: Json | null
-          files?: Json | null
-          files_status?: string | null
-          id?: string | null
-          id_map?: Json | null
-          missing_files?: string[] | null
-          mode?: Database["public"]["Enums"]["transfer_mode"] | null
-          product_ids?: string[] | null
-          report?: Json | null
-          source_tenant_id?: string | null
-          started_by?: string | null
-          tenant_id?: string | null
-          updated_at?: string | null
-          xact_id?: unknown | null
-        }
-        Update: {
-          audit_transaction_ids?: string[] | null
-          created_at?: string | null
-          decisions?: Json | null
-          files?: Json | null
-          files_status?: string | null
-          id?: string | null
-          id_map?: Json | null
-          missing_files?: string[] | null
-          mode?: Database["public"]["Enums"]["transfer_mode"] | null
-          product_ids?: string[] | null
-          report?: Json | null
-          source_tenant_id?: string | null
-          started_by?: string | null
-          tenant_id?: string | null
-          updated_at?: string | null
-          xact_id?: unknown | null
-        }
         Relationships: [
           {
             foreignKeyName: "transfer_source_tenant_id_fkey"
@@ -8493,8 +8457,8 @@ export type Database = {
           id_map?: Json
           missing_files?: string[]
           mode: Database["public"]["Enums"]["transfer_mode"]
-          product_ids: string[]
-          report: Json
+          product_ids?: string[]
+          report?: Json
           source_tenant_id: string
           started_by: string
           tenant_id: string
@@ -10128,6 +10092,29 @@ export type Database = {
           message: string
         }
         Returns: boolean
+      }
+      transfer_check_files: {
+        Args: {
+          transfer_id: string
+        }
+        Returns: {
+          audit_transaction_ids: string[] | null
+          created_at: string | null
+          decisions: Json | null
+          files: Json | null
+          files_status: string | null
+          id: string | null
+          id_map: Json | null
+          missing_files: string[] | null
+          mode: Database["public"]["Enums"]["transfer_mode"] | null
+          product_ids: string[] | null
+          report: Json | null
+          source_tenant_id: string | null
+          started_by: string | null
+          tenant_id: string | null
+          updated_at: string | null
+          xact_id: unknown | null
+        }
       }
       transfer_options: {
         Args: {

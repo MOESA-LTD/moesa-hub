@@ -31,8 +31,11 @@ SELECT is_empty($$ SELECT resource_name, field FROM public.field_class WHERE res
 SELECT results_eq($$ SELECT resource_name, field, rights_column FROM public.field_class WHERE rights_column IS NOT NULL ORDER BY 1, 2 $$,
    $$ VALUES ('public.change_request', 'cost_impact', 'guard_tenant_id'), ('public.change_request', 'cost_payer', 'guard_tenant_id'),
              ('public.incident_log', 'cost_amount', 'guard_tenant_id'), ('public.incident_log', 'cost_currency', 'guard_tenant_id'),
-             ('public.incident_log', 'cost_payer', 'guard_tenant_id') $$,
-   'the rights columns: the change request and incident log cost (068, Task 6)');
+             ('public.incident_log', 'cost_payer', 'guard_tenant_id'),
+             ('public.transfer', 'decisions', 'source_tenant_id'), ('public.transfer', 'files', 'source_tenant_id'),
+             ('public.transfer', 'id_map', 'source_tenant_id'), ('public.transfer', 'product_ids', 'source_tenant_id'),
+             ('public.transfer', 'report', 'source_tenant_id') $$,
+   'the rights columns: the change request and incident log cost (068, Task 6), a transfer''s source description (073, L4)');
 SELECT is_empty($$ SELECT unnest(ARRAY['client_visible','rights_column']) EXCEPT
    SELECT column_name::TEXT FROM information_schema.columns WHERE table_schema = 'api' AND table_name = 'field_class' $$,
    'api.field_class exposes client_visible and rights_column');

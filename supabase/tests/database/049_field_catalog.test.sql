@@ -21,9 +21,9 @@ SELECT is_empty($$ SELECT resource_name, field FROM public.field_class f WHERE N
    WHERE a.attrelid = to_regclass(f.resource_name) AND a.attname = f.field AND NOT a.attisdropped)
    AND NOT EXISTS (SELECT 1 FROM private.api_view_derived_columns(split_part(f.resource_name, '.', 2)) d WHERE d.name = f.field) $$,
    'no classification row is stale (a derived api column, 067, has a row but no table column)');
-SELECT is((SELECT count(*)::INT FROM public.field_class WHERE class = 'sensitive'), 92, '92 sensitive fields (071: the invitation''s e-mail and contract terms)');
+SELECT is((SELECT count(*)::INT FROM public.field_class WHERE class = 'sensitive'), 97, '97 sensitive fields (071: the invitation''s e-mail and contract terms; 073: a transfer''s description of its source)');
 SELECT results_eq($$ SELECT group_name, count(*)::INT FROM public.field_class WHERE class = 'sensitive' GROUP BY 1 ORDER BY 1 $$,
-   $$ VALUES ('contract',8),('cost',20),('finance',5),('internal_note',22),('personal_data',9),('sell_price',3),('supplier_contact',4),('supplier_identity',8),('supplier_terms',13) $$, 'group sizes after customer = tenant');
+   $$ VALUES ('contract',8),('cost',20),('finance',5),('internal_note',27),('personal_data',9),('sell_price',3),('supplier_contact',4),('supplier_identity',8),('supplier_terms',13) $$, 'group sizes after customer = tenant');
 SELECT is((SELECT group_name FROM public.field_class WHERE resource_name = 'public.sourcing' AND field = 'target_price_eur'), 'cost', 'OD2: target price is cost');
 SELECT is((SELECT group_name FROM public.field_class WHERE resource_name = 'public.provider_relationship' AND field = 'restricted_drive_url'), 'internal_note', 'OD2: drive URL is an internal note');
 SELECT is((SELECT group_name FROM public.field_class WHERE resource_name = 'public.incident' AND field = 'affected_parties'), 'supplier_identity', 'OD2: affected parties');

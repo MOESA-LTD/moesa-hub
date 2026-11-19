@@ -124,7 +124,15 @@ SELECT private.unimpersonate();
 --   private.transfer_refusal, which allows only a member or owner of both tenants (no super-admin
 --   bypass) holding the table and field rights in both (F6, F5). transfer_options lists only the
 --   caller's own tenants with a refusal code each; transfer_products returns a report of counts and ids
---   only (no row value), reads only the source's own rows, and writes nothing until 073 adds the run.
+--   only (no row value) and reads only the source's own rows. 073: a real run asks the gate again
+--   right before writing, writes only the source's own rows (tenant_id the target, no client link,
+--   every trigger running) into a target where the caller holds insert, raises the transfer flag for
+--   its own row only and clears it before returning, and returns the transfer row masked as api.transfer
+--   (the source's description under the source's field rights, L4).
+--   transfer_check_files (074): the caller is auth.uid() holding public.transfer insert in the target
+--   (no super-admin pass) or the starter still in the target, else 404 transfer_not_found; it reads
+--   Storage for the listed target paths, writes only missing_files and files_status (its own audit
+--   transaction, locked from revert), and returns the row masked as api.transfer.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
 --   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
@@ -161,6 +169,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.set_platform_setting'),
    ('public.set_primary_media'),
    ('public.set_user_roles'),
+   ('public.transfer_check_files'),
    ('public.transfer_options'),
    ('public.transfer_products') $$, 'the executable SECURITY DEFINER functions are exactly the reviewed allowlist');
 

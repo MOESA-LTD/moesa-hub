@@ -93,6 +93,7 @@ export const MASKED_FIELDS = {
       'storage_fee_rule'
    ],
    supplier_contact: ['email', 'name', 'phone', 'role'],
+   transfer: ['decisions', 'files', 'id_map', 'product_ids', 'report'],
    user: ['email', 'phone', 'user_metadata'],
    warehouse: ['receiving_person']
 } as const;

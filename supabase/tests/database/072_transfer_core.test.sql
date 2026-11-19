@@ -330,14 +330,28 @@ SELECT results_eq(
        WHERE n.nspname IN ('public', 'api')
          AND (has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE'))
        ORDER BY 1, 2 $$,
-    $$ VALUES ('public.revert_audit_transaction', '''audit.reverts''') $$,
-    'no RPC sets a setting a client names, nor a moesa setting'
+    -- 073/074: the run sets the flag for its own row (a row of this transaction, written by the run
+    -- itself, so no client can name one) and clears it; it and the file check open and restore their
+    -- own audit transactions. Nothing else.
+    $$ VALUES ('public.revert_audit_transaction', '''audit.reverts'''),
+              ('public.transfer_check_files', '''audit.depth'''),
+              ('public.transfer_check_files', '''audit.tenant_id'''),
+              ('public.transfer_check_files', '''audit.transaction_id'''),
+              ('public.transfer_check_files', '''audit.transaction_id'''),
+              ('public.transfer_products', '''audit.depth'''),
+              ('public.transfer_products', '''audit.tenant_id'''),
+              ('public.transfer_products', '''audit.transaction_id'''),
+              ('public.transfer_products', '''audit.transaction_id'''),
+              ('public.transfer_products', '''moesa.transfer_id'''),
+              ('public.transfer_products', '''moesa.transfer_id''') $$,
+    'no RPC sets a setting a client names; only the run sets the transfer flag'
 );
-SELECT is_empty(
-    $$ SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+SELECT results_eq(
+    $$ SELECT p.proname::TEXT COLLATE "default" FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname IN ('public', 'api') AND p.prosrc ~ 'moesa\.(transfer_id|rules_bypass)'
          AND (has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE')) $$,
-    'no RPC names the transfer flag or the fixture bypass'
+    $$ VALUES ('transfer_products'::TEXT) $$,
+    'no RPC but the run names the transfer flag, and none the fixture bypass'
 );
 SELECT ok(
     has_function_privilege('authenticated', 'private.transferring()', 'EXECUTE')
@@ -731,8 +745,9 @@ SELECT throws_like(
                                                     jsonb_build_object('action', 'map', 'target_id', current_setting('test.zs1'))), FALSE) $$,
     '%transfer_decision_invalid%', 'a supplier is mapped onto a supplier of the target'
 );
-SELECT throws_like($$ SELECT pg_temp.pe('copy', current_setting('test.d')::JSONB, FALSE) $$, '%transfer_apply_unavailable%',
-                   'a settled run reaches the apply, which is 073''s');
+-- 073 replaced the 501 transfer_apply_unavailable with the run (its own tests are 073's).
+SELECT is(pg_temp.pe('copy', current_setting('test.d')::JSONB, FALSE) ->> 'tenant_id', current_setting('test.e'),
+          'a settled run is applied');
 RESET ROLE;
 SELECT private.unimpersonate();
 
