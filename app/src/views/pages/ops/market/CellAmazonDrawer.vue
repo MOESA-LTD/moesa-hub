@@ -32,6 +32,7 @@ import { defaultCurrencyFor } from '@/constants/currency';
 import { glossaryKey } from '@/api/glossary';
 import { marketCellResource, STOCK_SOURCES } from '@/api/marketMatrix';
 import { productResource } from '@/api/product';
+import { useListingSourcing } from '@/api/sourcing';
 import type { ResourceInput } from '@/api/defineResource';
 import { invalidateTables } from '@/api/queryKeys';
 import AmazonAttributeField from '@/components/service-components/amazon-form/AmazonAttributeField.vue';
@@ -50,6 +51,7 @@ import {
    missingAttributes,
    providedAttributes,
    requiredAttributes,
+   sourcingArtNo,
    type AmazonSchema,
    type PropertyGroups,
    type ProvidedAttributes
@@ -91,6 +93,21 @@ const { data: cellData } = marketCellResource.useOne(() => props.cellId);
 const cell = computed(() => cellData.value ?? null);
 const { data: product } = productResource.useOne(() => cell.value?.product_id ?? null);
 const { data: isParent } = useProductIsParent(() => cell.value?.product_id ?? null);
+// The product card the attributes derive from, with the article number of the sourcing row read
+// for it (F24): the product row never carries it.
+const { data: sourcing } = useListingSourcing(() => cell.value?.product_id ?? null);
+const listingCard = computed(() =>
+   product.value
+      ? {
+           ...product.value,
+           manufacturer_art_no: sourcingArtNo(
+              sourcing.value ?? [],
+              product.value.tenant_id,
+              product.value.id
+           )
+        }
+      : null
+);
 // Without the right to read the accounts the connection is not known here: the stored state is
 // shown and the function decides. While they load there is no verdict either.
 const canReadAccounts = computed(() => ability.can('select', 'platform_account'));
@@ -168,8 +185,8 @@ const providedIn = (
    languageTag: string | null,
    productSchema: AmazonSchema | null
 ): ProvidedAttributes =>
-   product.value && cell.value && isParent.value !== undefined && languageTag
-      ? providedAttributes(product.value, cell.value, productSchema, {
+   listingCard.value && cell.value && isParent.value !== undefined && languageTag
+      ? providedAttributes(listingCard.value, cell.value, productSchema, {
            marketplaceId: marketplaceId.value ?? '',
            languageTag,
            isParent: isParent.value

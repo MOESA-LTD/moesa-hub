@@ -15,6 +15,12 @@ const isAuthRoute = (name: RouteRecordNameGeneric | null | undefined) =>
    !!name?.toString().startsWith('auth-');
 
 /**
+ * The auth pages that serve a signed-in user: an e-mail link signs the user in on them (the
+ * invitation, the sign-up completion), so signing in keeps the user there.
+ */
+const SIGNED_IN_AUTH_PAGES = new Set(['auth-invitation', 'auth-register-complete']);
+
+/**
  * Reacts to signing in and out: greets the user and moves between auth pages and the app.
  * Call once from App.vue (it needs the component context for the toast and router).
  */
@@ -44,7 +50,7 @@ export function useAuthUi() {
          }
 
          // Back to where the user was sent to the login page from, unless that was an auth page too.
-         if (isAuthRoute(route.name)) {
+         if (isAuthRoute(route.name) && !SIGNED_IN_AUTH_PAGES.has(String(route.name))) {
             const back = router.options.history.state.back as RouteLocationRaw | null;
             await router.replace(back && !isAuthRoute(router.resolve(back).name) ? back : '/');
          }

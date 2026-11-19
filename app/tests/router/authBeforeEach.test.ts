@@ -84,4 +84,27 @@ describe('authBeforeEach with the tokens of an e-mail link', () => {
          expect(window.location.hash).toBe('');
       }
    );
+
+   // The router writes the location it finalizes back to the address bar: a location still carrying
+   // the hash would bring the tokens back, and the next navigation would sign in with them again
+   // (and, on a page outside LINK_PAGES, send the user to the security page). Walk, Task 17.
+   it.each([
+      ['auth-invitation', '/en/invitation/tok', 'invite'],
+      ['auth-register-complete', '/en/register/complete', 'invite'],
+      ['auth-invitation', '/en/invitation/tok', 'recovery']
+   ])(
+      '%s drops the tokens from the location it lands on (%s, %s link)',
+      async (name, path, type) => {
+         const hash = `#access_token=a&refresh_token=r&type=${type}`;
+         window.location.hash = hash;
+         const query = { lang: 'x' };
+         expect(await run({ name, path, query, hash, fullPath: `${path}?lang=x${hash}` })).toEqual({
+            path,
+            query,
+            hash: '',
+            replace: true
+         });
+         expect(window.location.hash).toBe('');
+      }
+   );
 });

@@ -66,6 +66,24 @@ const checkRef = ref<unknown>(undefined);
 const checkUpdatedRef = ref(0);
 const checkingRef = ref(false);
 
+// The sourcing rows the previews read for the article number (F24), and the cards they derive from.
+const sourcingRef = ref<unknown[]>([]);
+const derivedFrom = vi.hoisted(() => [] as Record<string, unknown>[]);
+vi.mock('@/api/sourcing', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/api/sourcing')>()),
+   useListingSourcing: () => ({ data: sourcingRef })
+}));
+vi.mock('@edge-shared/listingCompleteness', async (importOriginal) => {
+   const actual = await importOriginal<typeof import('@edge-shared/listingCompleteness')>();
+   return {
+      ...actual,
+      providedAttributes: (...args: Parameters<typeof actual.providedAttributes>) => {
+         derivedFrom.push(args[0] as Record<string, unknown>);
+         return actual.providedAttributes(...args);
+      }
+   };
+});
+
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/api/media', async (importOriginal) => ({
    ...(await importOriginal<typeof import('@/api/media')>()),
@@ -302,6 +320,19 @@ describe('CellAmazonDrawer', () => {
       expect(carded.find('[data-missing]').exists()).toBe(false);
       expect(carded.text()).toContain(en.ops.amazon.cell.missing_none);
       expect(isDisabled(carded, 'publish')).toBe(false);
+   });
+
+   it('derives from the article number of the sourcing row it reads (F24)', async () => {
+      sourcingRef.value = [
+         { product_id: 'p1', tenant_id: 'provider', manufacturer_art_no: 'ART-PROVIDER' }
+      ];
+      derivedFrom.length = 0;
+      await mountDrawer();
+      expect(derivedFrom.at(-1)).toMatchObject({
+         id: 'p1',
+         manufacturer_art_no: 'ART-PROVIDER'
+      });
+      sourcingRef.value = [];
    });
 
    it('counts the identifier and the offer of a variation parent as provided (R7)', async () => {

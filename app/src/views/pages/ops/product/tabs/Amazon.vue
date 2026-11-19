@@ -10,6 +10,7 @@ import {
    useProductAmazonCells
 } from '@/api/amazon';
 import { productResource } from '@/api/product';
+import { useListingSourcing } from '@/api/sourcing';
 import AmazonContentForm from '@/components/service-components/amazon-form/AmazonContentForm.vue';
 import { NOTHING_PROVIDED } from '@/components/service-components/amazon-form/amazonForm';
 import { useAmazonContent } from '@/components/service-components/amazon-form/useAmazonContent';
@@ -17,7 +18,8 @@ import { appErrorHandler } from '@/lib/appErrorHandler';
 import { useAuthStore } from '@/store/auth';
 import {
    languageTag as defaultLanguageTag,
-   providedAttributes
+   providedAttributes,
+   sourcingArtNo
 } from '@edge-shared/listingCompleteness';
 import i18n from '@plugins/i18n';
 import { ToastSeverity } from '@primevue/core/api';
@@ -36,6 +38,21 @@ const toast = useToast();
 const authStore = useAuthStore();
 
 const { data: product } = productResource.useOne(() => props.id);
+// The product card the attributes derive from, with the article number of the sourcing row read
+// for it (F24): the product row never carries it.
+const { data: sourcing } = useListingSourcing(() => props.id);
+const listingCard = computed(() =>
+   product.value
+      ? {
+           ...product.value,
+           manufacturer_art_no: sourcingArtNo(
+              sourcing.value ?? [],
+              product.value.tenant_id,
+              product.value.id
+           )
+        }
+      : null
+);
 const { data: cells } = useProductAmazonCells(() => props.id);
 const queryText = (name: string) =>
    typeof route.query[name] === 'string' ? (route.query[name] as string) : null;
@@ -79,9 +96,9 @@ watch(linkedLanguage, (tag) => tag && pickLanguage(tag));
 
 // What the server fills and the product card gives, in the form's language and marketplace.
 const provided = computed(() =>
-   product.value
+   listingCard.value
       ? providedAttributes(
-           product.value,
+           listingCard.value,
            cell.value ?? {},
            definition.value ? amazonSchemaOf(definition.value) : null,
            {

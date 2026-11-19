@@ -76,6 +76,24 @@ vi.mock('@/api/media/signedUrls', async () => {
 const productRef = ref<unknown>(null);
 const cellsRef = ref<unknown[]>([]);
 
+// The sourcing rows the previews read for the article number (F24), and the cards they derive from.
+const sourcingRef = ref<unknown[]>([]);
+const derivedFrom = vi.hoisted(() => [] as Record<string, unknown>[]);
+vi.mock('@/api/sourcing', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('@/api/sourcing')>()),
+   useListingSourcing: () => ({ data: sourcingRef })
+}));
+vi.mock('@edge-shared/listingCompleteness', async (importOriginal) => {
+   const actual = await importOriginal<typeof import('@edge-shared/listingCompleteness')>();
+   return {
+      ...actual,
+      providedAttributes: (...args: Parameters<typeof actual.providedAttributes>) => {
+         derivedFrom.push(args[0] as Record<string, unknown>);
+         return actual.providedAttributes(...args);
+      }
+   };
+});
+
 vi.mock('@/api/product', async (importOriginal) => ({
    ...(await importOriginal<typeof import('@/api/product')>()),
    productResource: {
@@ -506,6 +524,27 @@ describe('the product Amazon tab', () => {
          amazon_schema_version: 'UHqSqmb4FNUk=',
          listing_attributes: { ...unbranded, number_of_items: [{ value: 2 }] }
       });
+   });
+
+   it('derives from the article number of the sourcing row it reads, its own first (F24)', async () => {
+      // The product row never carries the article number: it sits on the sourcing row.
+      sourcingRef.value = [
+         { product_id: 'p1', tenant_id: 'provider', manufacturer_art_no: 'ART-PROVIDER' },
+         { product_id: 'p1', tenant_id: 't1', manufacturer_art_no: 'ART-OWN' },
+         { product_id: 'other', tenant_id: 't1', manufacturer_art_no: 'ART-OTHER' }
+      ];
+      derivedFrom.length = 0;
+      mountTab();
+      await flushPromises();
+      expect(derivedFrom.at(-1)).toMatchObject({ id: 'p1', manufacturer_art_no: 'ART-OWN' });
+
+      // A provider-procured product: the provider's shared row.
+      sourcingRef.value = [
+         { product_id: 'p1', tenant_id: 'provider', manufacturer_art_no: 'ART-PROVIDER' }
+      ];
+      await flushPromises();
+      expect(derivedFrom.at(-1)).toMatchObject({ manufacturer_art_no: 'ART-PROVIDER' });
+      sourcingRef.value = [];
    });
 
    it('opens the field named in the route', async () => {

@@ -22,8 +22,15 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
    const linkTypes = LINK_PAGES[String(to.name)];
    const accepted = !linkTypes || linkTypes.includes(linkType ?? '');
 
+   // The router writes the location it lands on back to the address bar, hash included: a page that
+   // drops the link's tokens lands on itself without them, or they come back and the next
+   // navigation signs in with them again.
+   const withoutTokens = () =>
+      to.hash ? { path: to.path, query: to.query, hash: '', replace: true } : undefined;
+
    if (linkTypes && !accepted && access_token) {
       window.history.replaceState({}, document.title, to.path);
+      return withoutTokens();
    }
 
    if (access_token && refresh_token && accepted) {
@@ -46,6 +53,9 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
 
          return { name: 'account-security' };
       }
+
+      const landing = withoutTokens();
+      if (landing) return landing;
    }
 
    const authStore = useAuthStore();

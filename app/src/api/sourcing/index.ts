@@ -4,6 +4,7 @@ import { useLookup } from '@/api/useLookup';
 import { useTenantKey } from '@/api/useTenantKey';
 import { dateOnly, optional, parseDateOnly, required } from '@/lib/form/fields';
 import { supabase } from '@/lib/supabase';
+import { SOURCING_LISTING_COLUMNS, type SourcingArtNoRow } from '@edge-shared/listingCompleteness';
 import { useQuery } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 import * as z from 'zod';
@@ -50,6 +51,35 @@ export function useSourcing(productId: MaybeRefOrGetter<string | null | undefine
             .abortSignal(signal)
             .throwOnError();
          return data as unknown as SourcingCard[];
+      },
+      enabled: computed(() => !!toValue(productId))
+   });
+}
+
+/**
+ * The sourcing rows of a product the Amazon previews derive the model and part number from (F24):
+ * the article number and what picks the row (SOURCING_LISTING_COLUMNS, as amazon-listing reads
+ * them), nothing sensitive. The product row never carries the article number; sourcingArtNo picks
+ * the tenant's own row, else its provider's shared one.
+ */
+export function useListingSourcing(productId: MaybeRefOrGetter<string | null | undefined>) {
+   const tenantKey = useTenantKey();
+
+   return useQuery({
+      queryKey: computed(() =>
+         queryKeys.list(tenantKey.value, 'sourcing', {
+            view: 'listing',
+            productId: toValue(productId)
+         })
+      ),
+      queryFn: async ({ signal }) => {
+         const { data } = await supabase
+            .from('sourcing')
+            .select(SOURCING_LISTING_COLUMNS)
+            .eq('product_id', toValue(productId)!)
+            .abortSignal(signal)
+            .throwOnError();
+         return data as SourcingArtNoRow[];
       },
       enabled: computed(() => !!toValue(productId))
    });

@@ -295,6 +295,34 @@ export type ProductCard = {
    manufacturer_art_no?: string | null;
    is_hazmat?: boolean | null;
 };
+/**
+ * The sourcing columns the listing reads: the manufacturer article number (client-visible, ruling
+ * Q3) and what picks the row, nothing sensitive. Read through the caller's client on api, so the
+ * masking applies: a number the caller may not read is NULL and derives nothing.
+ */
+export const SOURCING_LISTING_COLUMNS = 'product_id, tenant_id, manufacturer_art_no';
+
+export type SourcingArtNoRow = {
+   product_id: string | null;
+   tenant_id: string;
+   manufacturer_art_no: string | null;
+};
+
+/**
+ * The manufacturer article number of a product of `tenantId`, from the sourcing rows the caller
+ * reads (the listing loader and the app's Amazon previews): the tenant's own row (the client procures), else its provider's row shared with it (the
+ * provider procures). The model and part number are derived from it (Q3); NULL derives nothing.
+ */
+export function sourcingArtNo(
+   rows: readonly SourcingArtNoRow[],
+   tenantId: string,
+   productId: string
+): string | null {
+   const mine = rows.filter((row) => row.product_id === productId);
+   const row = mine.find((r) => r.tenant_id === tenantId) ?? mine[0];
+   return row?.manufacturer_art_no ?? null;
+}
+
 export type ProductCardColumn = Exclude<keyof ProductCard, 'gtin'>;
 /** Where a provided attribute comes from: the server on publish, or a product card column. */
 export type ProvidedSource = 'server' | `product.${ProductCardColumn}`;
