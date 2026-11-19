@@ -13,18 +13,22 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
       const { error } = await supabase.auth.setSession({ access_token, refresh_token });
       if (error) throw error;
 
-      // Guards run in the app's injection context (vue-router >= 4.2), so the toast works here.
-      useToast().add({
-         life: 0,
-         closable: true,
-         severity: ToastSeverity.INFO,
-         summary: i18n.t('auth.welcome.title'),
-         detail: i18n.t('auth.please_dont_forget_to_update_your_password')
-      });
-
       window.history.replaceState({}, document.title, to.path);
 
-      return { name: 'account-security' };
+      // The invitation page sets the password itself, in its first step: it stays where it is,
+      // signed in, and goes on to the checks below.
+      if (to.name !== 'auth-invitation') {
+         // Guards run in the app's injection context (vue-router >= 4.2), so the toast works here.
+         useToast().add({
+            life: 0,
+            closable: true,
+            severity: ToastSeverity.INFO,
+            summary: i18n.t('auth.welcome.title'),
+            detail: i18n.t('auth.please_dont_forget_to_update_your_password')
+         });
+
+         return { name: 'account-security' };
+      }
    }
 
    const authStore = useAuthStore();

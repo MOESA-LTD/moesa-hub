@@ -401,6 +401,7 @@
          "login": "",
          "enter-auth-otp-code": "",
          "access-denied": "",
+         "invitation": "",
          "branch": "",
          "branch-user": "",
          "manage-user": "",
@@ -584,5 +585,74 @@
       "change_logo": "",
       "remove_logo": "",
       "logo_hint": ""
+   },
+   "invitation": {
+      "title": "",
+      "intro": "",
+      "no_session_title": "",
+      "no_session_text": "",
+      "loading": "",
+      "expires": "",
+      "steps": {
+         "account": "",
+         "company": "",
+         "plan": ""
+      },
+      "back": "",
+      "next": "",
+      "account": {
+         "title": "",
+         "text": "",
+         "has_password": "",
+         "save": ""
+      },
+      "company": {
+         "title": "",
+         "text": ""
+      },
+      "plan": {
+         "title": "",
+         "text": "",
+         "seats": "",
+         "recommended_by": "",
+         "choose": "",
+         "chosen": "",
+         "free": "",
+         "per": "",
+         "trial": "",
+         "no_trial": "",
+         "audience": "",
+         "core_modules": "",
+         "included": "",
+         "not_included": "",
+         "too_small": "",
+         "changes": "",
+         "upgrade": "",
+         "downgrade": "",
+         "switch": "",
+         "adds": "",
+         "removes": "",
+         "limit_to": "",
+         "limit_raise": "",
+         "limit_removed": "",
+         "same": "",
+         "none": ""
+      },
+      "accept": {
+         "action": "",
+         "contract": ""
+      },
+      "error": {
+         "invitation_invalid": "",
+         "invitation_email_mismatch": "",
+         "invitation_throttled": "",
+         "invitation_payload_invalid": "",
+         "company_email_exists": "",
+         "company_phone_exists": "",
+         "plan_inactive": "",
+         "plan_limit_users": "",
+         "generic": ""
+      },
+      "sign_out": ""
    }
 }

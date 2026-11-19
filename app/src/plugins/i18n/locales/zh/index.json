@@ -694,6 +694,7 @@
          "login": "登录",
          "enter-auth-otp-code": "输入认证OTP代码",
          "access-denied": "访问被拒绝",
+         "invitation": "Invitation",
          "branch": "分部",
          "branch-profile": "分支机构资料",
          "branch-user": "分部用户",
@@ -3403,5 +3404,74 @@
             "text": "Your company is one tenant: its data is never visible to another company. A company can have branches; pages show the data of the branches checked in the branch picker, and new records go to the branch with the star. What you can do on each page depends on your role."
          }
       }
+   },
+   "invitation": {
+      "title": "Join {provider}",
+      "intro": "{provider} invited {company} to the panel. Set up your account, enter your company details and choose a plan.",
+      "no_session_title": "Open the link from your e-mail",
+      "no_session_text": "This page needs the personal link we e-mailed you. Open the e-mail from your provider and follow the link in it.",
+      "loading": "Checking your invitation...",
+      "expires": "The link is valid until {date}.",
+      "steps": {
+         "account": "Account",
+         "company": "Company",
+         "plan": "Plan"
+      },
+      "back": "Back",
+      "next": "Next",
+      "account": {
+         "title": "Set your password",
+         "text": "You will use this password to sign in next time. You are signed in as {email}.",
+         "has_password": "You already have a password for {email}.",
+         "save": "Save password"
+      },
+      "company": {
+         "title": "Your company",
+         "text": "These details create your own company in the panel. Only you and the people you add can see them. The e-mail defaults to the one this invitation was sent to."
+      },
+      "plan": {
+         "title": "Choose a plan",
+         "text": "Compare the plans side by side. Your provider recommends one, but you decide.",
+         "seats": "This invitation brings {count} user | This invitation brings {count} users",
+         "recommended_by": "Recommended by {provider}",
+         "choose": "Choose this plan",
+         "chosen": "Chosen",
+         "free": "Free",
+         "per": "{price} / {period}",
+         "trial": "{days}-day free trial | {days}-day free trial",
+         "no_trial": "No free trial",
+         "audience": "Who it suits",
+         "core_modules": "In every plan: {modules}",
+         "included": "Included",
+         "not_included": "Not included",
+         "too_small": "Not available: it allows {max} users, and this invitation brings {seats}.",
+         "changes": "Compared with {plan}",
+         "upgrade": "Upgrading to {plan} {changes}.",
+         "downgrade": "Downgrading to {plan} {changes}.",
+         "switch": "Switching to {plan} {changes}.",
+         "adds": "adds {modules}",
+         "removes": "removes {modules}",
+         "limit_to": "limits {limit} to {value}",
+         "limit_raise": "raises {limit} to {value}",
+         "limit_removed": "removes the {limit} limit",
+         "same": "changes nothing: the modules and limits are the same",
+         "none": "No plan is offered right now. Ask your provider."
+      },
+      "accept": {
+         "action": "Accept the invitation",
+         "contract": "Your provider's terms are shown on the relationship page once you have joined."
+      },
+      "error": {
+         "invitation_invalid": "This link is no longer valid; ask your provider for a new one.",
+         "invitation_email_mismatch": "You are signed in as {email}; this invitation is for another address.",
+         "invitation_throttled": "Too many attempts. Wait a little while and try again.",
+         "invitation_payload_invalid": "Some of the company details are not acceptable. Check them and try again.",
+         "company_email_exists": "A company with this e-mail address is already registered.",
+         "company_phone_exists": "A company with this phone number is already registered.",
+         "plan_inactive": "This plan is no longer offered. Choose another one.",
+         "plan_limit_users": "This plan allows fewer users than this invitation brings. Choose a plan with more users.",
+         "generic": "The invitation could not be accepted. Try again."
+      },
+      "sign_out": "Sign out"
    }
 }

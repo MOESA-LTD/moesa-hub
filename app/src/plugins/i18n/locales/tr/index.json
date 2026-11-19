@@ -548,6 +548,7 @@
          "login": "Giriş Yap",
          "enter-auth-otp-code": "Doğrulama OTP Kodu Gir",
          "access-denied": "Erişim Reddedildi",
+         "invitation": "Davet",
          "branch": "Şube",
          "branch-profile": "Şube Profili",
          "branch-user": "Şube Kullanıcısı",
@@ -3404,5 +3405,74 @@
          "short": "Bir ana ürünün alt ürünlerinin birbirinden nasıl ayrıldığı, örneğin beden veya renk.",
          "long": "Varyasyon ailesinin ana ürününde belirlenir. Her alt ürün buna uyan alanları (beden, renk gibi) ve ana ürün bağlantısını taşımalıdır; yoksa Amazon listing'i reddeder. Panel bunları Amazon sekmesinde eksik olarak işaretler."
       }
+   },
+   "invitation": {
+      "title": "{provider} ile birlikte çalışın",
+      "intro": "{provider}, {company} şirketini panele davet etti. Hesabınızı oluşturun, şirket bilgilerinizi girin ve bir plan seçin.",
+      "no_session_title": "E-postanızdaki bağlantıyı açın",
+      "no_session_text": "Bu sayfa, size e-postayla gönderilen kişisel bağlantıyla açılır. Tedarikçinizden gelen e-postayı açıp içindeki bağlantıyı izleyin.",
+      "loading": "Davetiniz kontrol ediliyor...",
+      "expires": "Bağlantı {date} tarihine kadar geçerlidir.",
+      "steps": {
+         "account": "Hesap",
+         "company": "Şirket",
+         "plan": "Plan"
+      },
+      "back": "Geri",
+      "next": "İleri",
+      "account": {
+         "title": "Parolanızı belirleyin",
+         "text": "Bir sonraki girişte bu parolayı kullanacaksınız. {email} olarak oturum açtınız.",
+         "has_password": "{email} için zaten bir parolanız var.",
+         "save": "Parolayı kaydet"
+      },
+      "company": {
+         "title": "Şirketiniz",
+         "text": "Bu bilgilerle panelde kendi şirketiniz oluşturulur. Yalnızca siz ve eklediğiniz kişiler görebilir. E-posta, davetin gönderildiği adrese ayarlıdır."
+      },
+      "plan": {
+         "title": "Plan seçin",
+         "text": "Planları yan yana karşılaştırın. Tedarikçiniz birini önerir, kararı siz verirsiniz.",
+         "seats": "Bu davet {count} kullanıcı getiriyor | Bu davet {count} kullanıcı getiriyor",
+         "recommended_by": "{provider} önerir",
+         "choose": "Bu planı seç",
+         "chosen": "Seçildi",
+         "free": "Ücretsiz",
+         "per": "{price} / {period}",
+         "trial": "{days} gün ücretsiz deneme | {days} gün ücretsiz deneme",
+         "no_trial": "Ücretsiz deneme yok",
+         "audience": "Kime uygun",
+         "core_modules": "Her planda: {modules}",
+         "included": "Dahil",
+         "not_included": "Dahil değil",
+         "too_small": "Seçilemez: en fazla {max} kullanıcıya izin veriyor, bu davet {seats} kullanıcı getiriyor.",
+         "changes": "{plan} ile karşılaştırma",
+         "upgrade": "{plan} planına geçmek {changes}.",
+         "downgrade": "{plan} planına geçmek {changes}.",
+         "switch": "{plan} planına geçmek {changes}.",
+         "adds": "{modules} ekler",
+         "removes": "{modules} çıkarır",
+         "limit_to": "{limit} sınırını {value} yapar",
+         "limit_raise": "{limit} sınırını {value} yapar",
+         "limit_removed": "{limit} sınırını kaldırır",
+         "same": "hiçbir şeyi değiştirmez: modüller ve sınırlar aynıdır",
+         "none": "Şu anda sunulan plan yok. Tedarikçinize danışın."
+      },
+      "accept": {
+         "action": "Daveti kabul et",
+         "contract": "Tedarikçinizin koşulları, katıldıktan sonra ilişki sayfasında gösterilir."
+      },
+      "error": {
+         "invitation_invalid": "Bu bağlantı artık geçerli değil; tedarikçinizden yenisini isteyin.",
+         "invitation_email_mismatch": "{email} olarak oturum açtınız; bu davet başka bir adres için.",
+         "invitation_throttled": "Çok fazla deneme yapıldı. Biraz bekleyip yeniden deneyin.",
+         "invitation_payload_invalid": "Şirket bilgilerinden bazıları kabul edilemedi. Kontrol edip yeniden deneyin.",
+         "company_email_exists": "Bu e-posta adresiyle kayıtlı bir şirket zaten var.",
+         "company_phone_exists": "Bu telefon numarasıyla kayıtlı bir şirket zaten var.",
+         "plan_inactive": "Bu plan artık sunulmuyor. Başka bir plan seçin.",
+         "plan_limit_users": "Bu plan, davetin getirdiği kullanıcı sayısından azına izin veriyor. Daha fazla kullanıcılı bir plan seçin.",
+         "generic": "Davet kabul edilemedi. Yeniden deneyin."
+      },
+      "sign_out": "Oturumu kapat"
    }
 }

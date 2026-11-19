@@ -54,6 +54,22 @@ const routes: RouteRecordRaw[] = [
       ]
    },
    {
+      // The link of an invitation e-mail: it signs the invitee in (the before-each middleware sets
+      // the session from the address) and they accept here. Public, and no tenant yet.
+      path: 'invitation/:token',
+      name: 'auth-invitation',
+      meta: {
+         layout: 'dashboard',
+         requiresAuth: false,
+         label: 'route.label.invitation',
+         visible: false
+      },
+      components: {
+         default: () => import('@/views/pages/auth/invitation/Index.vue'),
+         'layout-topbar': () => import('@/layouts/dashboard/Topbar.vue')
+      }
+   },
+   {
       path: 'access-denied',
       name: 'access-denied',
       meta: {
