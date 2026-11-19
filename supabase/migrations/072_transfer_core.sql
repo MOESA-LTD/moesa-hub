@@ -495,8 +495,10 @@ $$;
 --                                    its plan lacks the product module;
 --   5 transfer_permissions_required  the table rights (private.tenants_granting: roles and the owner
 --                                    role, no super-admin bypass): public.transfer insert in both; for
---                                    every registry table select in the source and insert in the
---                                    target (a copy_only table only where it has an insert permission);
+--                                    every registry table select in the source and insert and select
+--                                    in the target (a copy_only table only where it has an insert
+--                                    permission; select so that a conflict's existing_id never names a
+--                                    target row the caller cannot read);
 --                                    a move also delete in the source of every table it removes rows
 --                                    from (not copy_only), or update where the table has no delete
 --                                    permission at all (products and documents, which users never
@@ -514,7 +516,11 @@ $$;
 --                                    copied yet (files_status pending or partial).
 -- private.transfer_excluded  F5: supplier, supplier_contact and sourcing (cost, supplier identity and
 --                            terms) never go into a tenant a provider procures for, nor into any
---                            client (active or ended) of the source; the report lists them.
+--                            client (active or ended) of the source; the report lists them. Both
+--                            sides are matched by company: a relationship held anywhere in the
+--                            source's company names a client anywhere in the target's company, so a
+--                            branch of the provider (or a copy through one first) carries nothing
+--                            the company itself could not.
 -- private.transfer_collect   Fills pg_temp.transfer_rows and transfer_edges (dropped at commit) with
 --                            the package, walked in registry order. Every row is the source's own
 --                            (tenant_id = source): a shared row of another tenant never comes in.
@@ -706,7 +712,8 @@ BEGIN
                       SELECT 1 FROM public.permission p
                       WHERE p.resource_name = 'public.' || r.table_name AND p.command = 'insert'
                   ))
-             AND NOT (p_target = ANY (private.tenants_granting(caller, ARRAY[p_target], 'public.' || r.table_name, 'insert')))
+             AND NOT (p_target = ANY (private.tenants_granting(caller, ARRAY[p_target], 'public.' || r.table_name, 'insert'))
+                      AND p_target = ANY (private.tenants_granting(caller, ARRAY[p_target], 'public.' || r.table_name, 'select')))
        )
        OR (p_mode = 'move' AND EXISTS (
            SELECT 1 FROM private.transfer_registry r
@@ -754,15 +761,20 @@ REVOKE ALL ON FUNCTION private.transfer_refusal (UUID, UUID, TEXT) FROM PUBLIC, 
 CREATE OR REPLACE FUNCTION private.transfer_excluded (p_source UUID, p_target UUID) RETURNS TEXT[] LANGUAGE sql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
+    WITH source_company AS (
+        SELECT e.company_id FROM private.entitlements(ARRAY[p_source]) e
+    ),
+    target_company AS (
+        SELECT e.company_id FROM private.entitlements(ARRAY[p_target]) e
+    )
     SELECT CASE WHEN EXISTS (
         SELECT 1
         FROM public.provider_relationship r
-        WHERE r.client_tenant_id IN (
-                  SELECT p_target
-                  UNION
-                  SELECT e.company_id FROM private.entitlements(ARRAY[p_target]) e
-              )
-          AND (r.procurement_model = 'provider' OR r.tenant_id = p_source)
+        CROSS JOIN LATERAL (SELECT e.company_id FROM private.entitlements(ARRAY[r.client_tenant_id]) e) client
+        CROSS JOIN LATERAL (SELECT e.company_id FROM private.entitlements(ARRAY[r.tenant_id]) e) provider
+        WHERE r.status IN ('active', 'ended')
+          AND client.company_id IN (SELECT t.company_id FROM target_company t)
+          AND (r.procurement_model = 'provider' OR provider.company_id IN (SELECT c.company_id FROM source_company c))
     ) THEN ARRAY['supplier', 'supplier_contact', 'sourcing'] ELSE '{}'::TEXT[] END;
 $$;
 

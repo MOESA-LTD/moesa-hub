@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- calls the gate with that user's claims, as postgres.
 BEGIN;
 
-SELECT plan(107);
+SELECT plan(114);
 
 SELECT private.create_test_helpers();
 
@@ -31,11 +31,17 @@ SELECT private.create_test_helpers();
 --     notr   ...07215  in C no public.transfer insert
 --     nosel  ...07216  in P no media_link select and no product insert
 --     inx    ...07217  full in P and X too
---   P product zp ...07231 'ZZ-P-1' with P's sourcing ...07232 (supplier TR1, price 987654.32), TR1's
---   contact ...07233 and certificate ...07234, a market cell ...07235, a file ...07236 linked ...07237.
---   C: the mop THO-MOP40-2P (seed, signed spec sheet, in the pilot project), its variant ...07244, a
---   market cell ...07241, a file ...07242 linked ...07243. P's provider order ...07251 for C with a
---   line ...07252 on the mop (F19).
+--     noupdp ...07218  in C no product update        (a move retires products by update)
+--     noupdd ...07219  in C no document update       (and documents)
+--     notsel ...07220  in P no product select        (a target the caller cannot read, L3)
+--   L ...07271: a client of P that procures for itself (active relationship held by P).
+--   P product zp ...07231 'ZZ-P-1' with P's sourcing ...07232 (fixture supplier ZS1 ...07239, price
+--   987654.32), ZS1's contact ...07233 and certificate ...07234, a market cell ...07235, a file ...07236
+--   linked ...07237.
+--   C: a fixture product zc ...07245 'ZZ-C-1' with a signed spec sheet ...07246, its variant ...07244, a
+--   market cell ...07241, a file ...07242 linked ...07243; the counts are asserted on fixture products
+--   only, so they hold on the story seed too (L6). The mop THO-MOP40-2P (seed, GTIN, in the pilot
+--   project) carries the link cases: P's provider order ...07251 for C with a line ...07252 on it (F19).
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
     ('p', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
@@ -57,7 +63,13 @@ FROM (VALUES
     ('notr', '00000000-0000-4000-8000-000000072015'),
     ('nosel', '00000000-0000-4000-8000-000000072016'),
     ('inx', '00000000-0000-4000-8000-000000072017'),
+    ('noupdp', '00000000-0000-4000-8000-000000072018'),
+    ('noupdd', '00000000-0000-4000-8000-000000072019'),
+    ('notsel', '00000000-0000-4000-8000-000000072020'),
+    ('l', '00000000-0000-4000-8000-000000072071'),
     ('zp', '00000000-0000-4000-8000-000000072031'),
+    ('zs1', '00000000-0000-4000-8000-000000072039'),
+    ('zc', '00000000-0000-4000-8000-000000072045'),
     ('variant', '00000000-0000-4000-8000-000000072044')
 ) AS x (k, v);
 
@@ -80,7 +92,7 @@ $$;
 
 INSERT INTO public.user (id, email)
 SELECT ('00000000-0000-4000-8000-0000000720' || n)::UUID, 'u' || n || '@transfer072.test'
-FROM unnest(ARRAY['11', '12', '13', '14', '15', '16', '17']) AS n;
+FROM unnest(ARRAY['11', '12', '13', '14', '15', '16', '17', '18', '19', '20']) AS n;
 
 SELECT pg_temp.member(current_setting('test.nodel')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072111');
 SELECT pg_temp.member(current_setting('test.nodel')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072112',
@@ -107,6 +119,15 @@ SELECT pg_temp.member(current_setting('test.nosel')::UUID, current_setting('test
                       $s$p.resource_name = 'public.media_link' AND p.command = 'select'
                          OR p.resource_name = 'public.product' AND p.command = 'insert'$s$);
 SELECT pg_temp.member(current_setting('test.nosel')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072162');
+SELECT pg_temp.member(current_setting('test.noupdp')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072185');
+SELECT pg_temp.member(current_setting('test.noupdp')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072186',
+                      $s$p.resource_name = 'public.product' AND p.command = 'update'$s$);
+SELECT pg_temp.member(current_setting('test.noupdd')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072187');
+SELECT pg_temp.member(current_setting('test.noupdd')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072188',
+                      $s$p.resource_name = 'public.document' AND p.command = 'update'$s$);
+SELECT pg_temp.member(current_setting('test.notsel')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072189',
+                      $s$p.resource_name = 'public.product' AND p.command = 'select'$s$);
+SELECT pg_temp.member(current_setting('test.notsel')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072190');
 SELECT pg_temp.member(current_setting('test.inx')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072171');
 -- X is read-only: its membership goes in with the super admin's claims (the plan check passes them).
 SELECT set_config('request.jwt.claims', json_build_object('sub', current_setting('test.admin'), 'role', 'authenticated')::TEXT, TRUE);
@@ -122,19 +143,30 @@ SELECT 'media', f.tenant || '/' || f.id || '/' || f.name, '{"mimetype": "image/p
 FROM (VALUES (current_setting('test.p'), '00000000-0000-4000-8000-000000072036', 'zp.png'),
              (current_setting('test.c'), '00000000-0000-4000-8000-000000072042', 'mop.png')) AS f (tenant, id, name);
 
+INSERT INTO public.tenant (id, display_name, code) VALUES (current_setting('test.l')::UUID, 'Self Client 072', 'LSC');
+INSERT INTO public.provider_relationship (tenant_id, client_tenant_id, client_code, client_name, procurement_model)
+VALUES (current_setting('test.p')::UUID, current_setting('test.l')::UUID, 'LSC', 'Self Client 072', 'client');
+
+INSERT INTO public.supplier (id, tenant_id, code, display_name, country, status)
+VALUES (current_setting('test.zs1')::UUID, current_setting('test.p')::UUID, 'ZS1', 'Supplier 072', 'Türkiye', 'approved');
 INSERT INTO public.product (id, tenant_id, sku, display_name, status)
-VALUES (current_setting('test.zp')::UUID, current_setting('test.p')::UUID, 'ZZ-P-1', 'Provider product 072', 'development');
+VALUES (current_setting('test.zp')::UUID, current_setting('test.p')::UUID, 'ZZ-P-1', 'Provider product 072', 'development'),
+       (current_setting('test.zc')::UUID, current_setting('test.c')::UUID, 'ZZ-C-1', 'Client product 072', 'on_sale');
+INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, version, status, url, file_name,
+                             is_signed, is_stamped, sent_from_official_email, issued_on)
+VALUES ('00000000-0000-4000-8000-000000072046', current_setting('test.c')::UUID, 'product', current_setting('test.zc')::UUID, 'spec_sheet', 1,
+        'signed', 'https://example.test/zc-spec.pdf', 'ZZ-C-1_SPEC', TRUE, TRUE, TRUE, '2026-10-15');
 INSERT INTO public.sourcing (id, tenant_id, product_tenant_id, product_id, product_sku, product_name, supplier_id, purchase_price, purchase_currency)
 VALUES ('00000000-0000-4000-8000-000000072032', current_setting('test.p')::UUID, current_setting('test.p')::UUID, current_setting('test.zp')::UUID,
-        'ZZ-P-1', 'Provider product 072', current_setting('test.tr1')::UUID, 987654.32, 'USD');
+        'ZZ-P-1', 'Provider product 072', current_setting('test.zs1')::UUID, 987654.32, 'USD');
 INSERT INTO public.supplier_contact (id, tenant_id, supplier_id, name)
-VALUES ('00000000-0000-4000-8000-000000072033', current_setting('test.p')::UUID, current_setting('test.tr1')::UUID, 'Kutlu satış 072');
+VALUES ('00000000-0000-4000-8000-000000072033', current_setting('test.p')::UUID, current_setting('test.zs1')::UUID, 'Kutlu satış 072');
 INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, status, url)
-VALUES ('00000000-0000-4000-8000-000000072034', current_setting('test.p')::UUID, 'supplier', current_setting('test.tr1')::UUID, 'certificate',
+VALUES ('00000000-0000-4000-8000-000000072034', current_setting('test.p')::UUID, 'supplier', current_setting('test.zs1')::UUID, 'certificate',
         'approved', 'https://example.test/tr1-072.pdf');
 INSERT INTO public.market_cell (id, tenant_id, product_id, platform_id, country)
 VALUES ('00000000-0000-4000-8000-000000072035', current_setting('test.p')::UUID, current_setting('test.zp')::UUID, 'amazon', 'PL'),
-       ('00000000-0000-4000-8000-000000072041', current_setting('test.c')::UUID, current_setting('test.mop')::UUID, 'amazon', 'PL');
+       ('00000000-0000-4000-8000-000000072041', current_setting('test.c')::UUID, current_setting('test.zc')::UUID, 'amazon', 'PL');
 INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
 VALUES ('00000000-0000-4000-8000-000000072036', current_setting('test.p')::UUID,
         current_setting('test.p') || '/00000000-0000-4000-8000-000000072036/zp.png', 'zp.png', 'image/png', 1000),
@@ -144,9 +176,9 @@ INSERT INTO public.media_link (id, tenant_id, media_id, entity_type, entity_id, 
 VALUES ('00000000-0000-4000-8000-000000072037', current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000072036', 'product',
         current_setting('test.zp')::UUID, 'gallery'),
        ('00000000-0000-4000-8000-000000072043', current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000072042', 'product',
-        current_setting('test.mop')::UUID, 'gallery');
+        current_setting('test.zc')::UUID, 'gallery');
 INSERT INTO public.product (id, tenant_id, parent_id, sku, display_name, status)
-VALUES (current_setting('test.variant')::UUID, current_setting('test.c')::UUID, current_setting('test.mop')::UUID, 'THO-MOP40-2P-V',
+VALUES (current_setting('test.variant')::UUID, current_setting('test.c')::UUID, current_setting('test.zc')::UUID, 'ZZ-C-1-V',
         'Mop variant 072', 'development');
 
 -- F19: MOESA LTD's order for THO, a line on THO's mop.
@@ -400,6 +432,14 @@ SELECT is(t.transfer_refusal_as(current_setting('test.nodel')::UUID, current_set
           NULL, 'a copy needs no delete');
 SELECT is(t.transfer_refusal_as(current_setting('test.akif')::UUID, current_setting('test.c')::UUID, current_setting('test.p')::UUID, 'move'),
           NULL, 'management moves (products and documents: update, as users never delete them)');
+SELECT is(t.transfer_refusal_as(current_setting('test.noupdp')::UUID, current_setting('test.c')::UUID, current_setting('test.p')::UUID, 'move'),
+          'transfer_permissions_required', 'a move retires the source''s products: product update in the source');
+SELECT is(t.transfer_refusal_as(current_setting('test.noupdd')::UUID, current_setting('test.c')::UUID, current_setting('test.p')::UUID, 'move'),
+          'transfer_permissions_required', 'and its documents: document update in the source');
+SELECT is(t.transfer_refusal_as(current_setting('test.noupdp')::UUID, current_setting('test.c')::UUID, current_setting('test.p')::UUID, 'copy'),
+          NULL, 'a copy needs neither');
+SELECT is(t.transfer_refusal_as(current_setting('test.notsel')::UUID, current_setting('test.c')::UUID, current_setting('test.p')::UUID, 'copy'),
+          'transfer_permissions_required', 'a target table written is also read there, so no conflict reveals a row the caller cannot read');
 -- 6.
 SELECT is(t.transfer_refusal_as(current_setting('test.noread')::UUID, current_setting('test.p')::UUID, current_setting('test.c')::UUID, 'copy'),
           'transfer_field_rights_required', 'a field the caller cannot read in the source is never copied');
@@ -450,7 +490,9 @@ SELECT ok((public.transfer_products(current_setting('test.c')::UUID, current_set
 SELECT set_config('test.r_move', public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID,
                                                           ARRAY[current_setting('test.mop')::UUID], 'move')::TEXT, TRUE);
 SELECT set_config('test.r_copy', public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID,
-                                                          ARRAY[current_setting('test.mop')::UUID], 'copy')::TEXT, TRUE);
+                                                          ARRAY[current_setting('test.zc')::UUID], 'copy')::TEXT, TRUE);
+SELECT set_config('test.r_mop', public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID,
+                                                         ARRAY[current_setting('test.mop')::UUID], 'copy')::TEXT, TRUE);
 SELECT throws_ok($$ SELECT count(*) FROM pg_temp.transfer_rows $$, '42501', NULL,
                  'the caller cannot read the collected package after a rehearsal');
 RESET ROLE;
@@ -461,32 +503,36 @@ SELECT ok((current_setting('test.r_move')::JSONB -> 'left_behind_links' ->> 'sou
 SELECT ok(
     current_setting('test.r_move')::JSONB -> 'left_behind' @> jsonb_build_array(jsonb_build_object(
         'table', 'project_product', 'column', 'product_id', 'refers_to', 'product', 'refers_to_id', current_setting('test.mop'),
-        'rows', 1, 'blocks', TRUE
+        'blocks', TRUE
     )),
     'the project link that stays in the source is left behind and blocks a move'
 );
 SELECT is(
     current_setting('test.r_copy')::JSONB -> 'counts',
     '{"product": 2, "market_cell": 1, "media": 1, "media_link": 1, "document": 1}'::JSONB,
-    'the mop, its variant, its cell, spec sheet, file and link'
+    'the product, its variant, its cell, spec sheet, file and link'
 );
 SELECT is(current_setting('test.r_copy')::JSONB -> 'excluded', '[]'::JSONB, 'a client copying into its provider leaves nothing out');
 SELECT is(
-    ARRAY(SELECT c ->> 'kind' FROM jsonb_array_elements(current_setting('test.r_copy')::JSONB -> 'conflicts') c ORDER BY 1),
+    ARRAY(SELECT c ->> 'kind' FROM jsonb_array_elements(current_setting('test.r_mop')::JSONB -> 'conflicts') c
+          WHERE c ->> 'source_id' = current_setting('test.mop') ORDER BY 1),
     ARRAY['gtin'],
     'a copy cannot keep the mop''s active GTIN'
 );
 SELECT is(
-    current_setting('test.r_copy')::JSONB -> 'conflicts' -> 0 -> 'actions', '["clear_gtin", "skip"]'::JSONB, 'clear it or skip the product'
+    (SELECT c -> 'actions' FROM jsonb_array_elements(current_setting('test.r_mop')::JSONB -> 'conflicts') c
+     WHERE c ->> 'key' = 'gtin:' || current_setting('test.mop')),
+    '["clear_gtin", "skip"]'::JSONB, 'clear it or skip the product'
 );
-SELECT is(current_setting('test.r_move')::JSONB -> 'conflicts', '[]'::JSONB, 'a move keeps its GTIN');
+SELECT ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(current_setting('test.r_move')::JSONB -> 'conflicts') c WHERE c ->> 'kind' = 'gtin'),
+          'a move keeps its GTIN');
 SELECT is(
     current_setting('test.r_copy')::JSONB -> 'settings_gaps',
     jsonb_build_array(jsonb_build_object('rule', 'spec_sheet_required', 'table', 'product', 'source_id', current_setting('test.variant'))),
-    'the variant has no signed spec sheet; the mop has'
+    'the variant has no signed spec sheet; the product has'
 );
 SELECT is((SELECT count(*)::TEXT FROM public.transfer), current_setting('test.transfers'), 'a rehearsal leaves no transfer row');
-SELECT is((SELECT count(*) FROM public.product WHERE tenant_id = current_setting('test.p')::UUID AND sku LIKE 'THO-MOP%'), 0::BIGINT,
+SELECT is((SELECT count(*) FROM public.product WHERE tenant_id = current_setting('test.p')::UUID AND (sku LIKE 'THO-MOP%' OR sku LIKE 'ZZ-C-%')), 0::BIGINT,
           'a rehearsal writes nothing to the target');
 
 -- F5: into the provider's client, the procurement tables stay home.
@@ -545,6 +591,13 @@ SELECT is(private.transfer_excluded(current_setting('test.p')::UUID, current_set
           'another provider''s client that procures for itself takes the procurement data');
 SELECT is(private.transfer_excluded(current_setting('test.e')::UUID, current_setting('test.c')::UUID),
           ARRAY['supplier', 'supplier_contact', 'sourcing'], 'a tenant a provider procures for never takes it, from whomever');
+SELECT is(private.transfer_excluded(current_setting('test.p')::UUID, current_setting('test.l')::UUID),
+          ARRAY['supplier', 'supplier_contact', 'sourcing'], 'an active client of the source that procures for itself (M2)');
+SELECT is(private.transfer_excluded(current_setting('test.e')::UUID, current_setting('test.l')::UUID),
+          ARRAY['supplier', 'supplier_contact', 'sourcing'], 'nor from a branch of the provider''s company (I1)');
+SELECT ok(private.transfer_excluded(current_setting('test.p')::UUID, current_setting('test.e')::UUID) = '{}'
+          AND private.transfer_excluded(current_setting('test.e')::UUID, current_setting('test.l')::UUID) <> '{}',
+          'two steps through the branch: P to E carries it, E to the client does not');
 
 -- The package as collected: the source's own rows, no shared one, no client link.
 SELECT private.transfer_collect(current_setting('test.p')::UUID, ARRAY[current_setting('test.mop')::UUID]);
@@ -559,7 +612,7 @@ SELECT ok(
 SELECT is(
     (SELECT jsonb_object_agg(right(r.source_id::TEXT, 2), r.copy_only) FROM pg_temp.transfer_rows r
      WHERE r.source_id::TEXT LIKE '00000000-0000-4000-8000-0000000720%'),
-    '{"31": false, "32": false, "33": true, "34": true, "35": false, "36": true, "37": false}'::JSONB,
+    '{"31": false, "32": false, "33": true, "34": true, "35": false, "36": true, "37": false, "39": true}'::JSONB,
     'the supplier''s contact and certificate and the file are copy_only'
 );
 
@@ -602,11 +655,11 @@ SELECT is(
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- Conflicts in MOESA Europe: its own ZZ-P-1 and TR1.
+-- Conflicts in MOESA Europe: its own ZZ-P-1 and ZS1.
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
 INSERT INTO public.product (id, tenant_id, sku, display_name) VALUES ('00000000-0000-4000-8000-000000072061', current_setting('test.e')::UUID, 'ZZ-P-1', 'Europe copy');
 INSERT INTO public.supplier (id, tenant_id, code, display_name, country)
-VALUES ('00000000-0000-4000-8000-000000072062', current_setting('test.e')::UUID, 'TR1', 'TR1 Europa', 'Türkiye');
+VALUES ('00000000-0000-4000-8000-000000072062', current_setting('test.e')::UUID, 'ZS1', 'ZS1 Europa', 'Türkiye');
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 
 CREATE FUNCTION pg_temp.pe (p_mode TEXT, p_decisions JSONB DEFAULT NULL, p_rehearse BOOLEAN DEFAULT TRUE) RETURNS JSONB LANGUAGE sql AS $$
@@ -619,12 +672,12 @@ SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_set
 SELECT set_config('test.r', pg_temp.pe('copy')::TEXT, TRUE);
 SELECT ok(
     current_setting('test.r')::JSONB -> 'conflicts' @> jsonb_build_array(
-        jsonb_build_object('key', 'supplier:' || current_setting('test.tr1'), 'kind', 'supplier_code',
+        jsonb_build_object('key', 'supplier:' || current_setting('test.zs1'), 'kind', 'supplier_code',
                            'existing_id', '00000000-0000-4000-8000-000000072062', 'actions', '["map", "new_code"]'::JSONB),
         jsonb_build_object('key', 'sku:' || current_setting('test.zp'), 'kind', 'sku',
                            'existing_id', '00000000-0000-4000-8000-000000072061', 'actions', '["rename", "skip"]'::JSONB)
     ),
-    'TR1 and ZZ-P-1 are taken in Europe'
+    'ZS1 and ZZ-P-1 are taken in Europe'
 );
 SELECT is((current_setting('test.r')::JSONB ->> 'unresolved')::INT, 2, 'two conflicts wait for a decision');
 SELECT is(
@@ -637,7 +690,7 @@ SELECT ok(
     'a move offers no skip'
 );
 SELECT set_config('test.d', jsonb_build_object(
-    'supplier:' || current_setting('test.tr1'), jsonb_build_object('action', 'map', 'target_id', '00000000-0000-4000-8000-000000072062'),
+    'supplier:' || current_setting('test.zs1'), jsonb_build_object('action', 'map', 'target_id', '00000000-0000-4000-8000-000000072062'),
     'sku:' || current_setting('test.zp'), '{"action": "rename", "suffix": "-EU"}'::JSONB
 )::TEXT, TRUE);
 SELECT set_config('test.rd', pg_temp.pe('copy', current_setting('test.d')::JSONB)::TEXT, TRUE);
@@ -666,7 +719,7 @@ SELECT throws_like(
     '%transfer_decision_invalid%', 'a decision names a conflict'
 );
 SELECT throws_like(
-    $$ SELECT pg_temp.pe('copy', jsonb_build_object('supplier:' || current_setting('test.tr1'), '{"action": "new_code", "code": "tr9"}'::JSONB), FALSE) $$,
+    $$ SELECT pg_temp.pe('copy', jsonb_build_object('supplier:' || current_setting('test.zs1'), '{"action": "new_code", "code": "tr9"}'::JSONB), FALSE) $$,
     '%transfer_code_invalid%', 'a new supplier code is two capitals and digits'
 );
 SELECT throws_like(
@@ -674,8 +727,8 @@ SELECT throws_like(
     '%transfer_code_invalid%', 'a rename suffix is a short code'
 );
 SELECT throws_like(
-    $$ SELECT pg_temp.pe('copy', jsonb_build_object('supplier:' || current_setting('test.tr1'),
-                                                    jsonb_build_object('action', 'map', 'target_id', current_setting('test.tr1'))), FALSE) $$,
+    $$ SELECT pg_temp.pe('copy', jsonb_build_object('supplier:' || current_setting('test.zs1'),
+                                                    jsonb_build_object('action', 'map', 'target_id', current_setting('test.zs1'))), FALSE) $$,
     '%transfer_decision_invalid%', 'a supplier is mapped onto a supplier of the target'
 );
 SELECT throws_like($$ SELECT pg_temp.pe('copy', current_setting('test.d')::JSONB, FALSE) $$, '%transfer_apply_unavailable%',
@@ -700,7 +753,7 @@ VALUES ('00000000-0000-4000-8000-000000072004', current_setting('test.c')::UUID,
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.c')::UUID,
                                  ARRAY[current_setting('test.c')::UUID, current_setting('test.p')::UUID]);
 SELECT throws_like(
-    $$ SELECT public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.mop')::UUID], 'copy') $$,
+    $$ SELECT public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.zc')::UUID], 'copy') $$,
     '%transfer_files_pending%', 'a file still being copied into the source is not transferred on'
 );
 RESET ROLE;
