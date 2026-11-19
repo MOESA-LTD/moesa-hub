@@ -4,11 +4,14 @@ import { createUser, getUser, updateUser, USER_COLUMNS } from '../user/index.ts'
 import { authorizedRequest, CALLER, jsonResponse, stubFetch, TENANT } from './helpers.ts';
 
 const OTHER = '00000000-0000-4000-8000-0000000000bb';
+const ELSEWHERE = '00000000-0000-4000-8000-0000000000cc';
 
 type Seen = { method: string; path: string; search: string; profile: string | null; body: string };
 
 /** Answers what the user function reads and writes; `canWrite` is public.can_write_user_field. */
-const backend = (opts: { canWrite?: boolean; existingUser?: boolean } = {}) => {
+const backend = (
+   opts: { canWrite?: boolean; existingUser?: boolean; elsewhere?: boolean; staff?: boolean } = {}
+) => {
    const seen: Seen[] = [];
    const restore = stubFetch(async (url, init) => {
       const method = init?.method ?? 'GET';
@@ -24,12 +27,15 @@ const backend = (opts: { canWrite?: boolean; existingUser?: boolean } = {}) => {
       switch (url.pathname) {
          case '/rest/v1/tenant_user':
             if (method === 'HEAD') return new Response(null, { headers: { 'Content-Range': '*/1' } });
-            return jsonResponse([{ tenant_id: TENANT }]);
+            // `elsewhere`: the existing account belongs to another company only.
+            return jsonResponse([{ tenant_id: opts.elsewhere ? ELSEWHERE : TENANT }]);
          case '/rest/v1/tenant_owner':
          case '/rest/v1/tenant':
             return jsonResponse([]);
          case '/rest/v1/rpc/is_super_admin':
             return jsonResponse(false);
+         case '/rest/v1/rpc/is_provider_staff':
+            return jsonResponse(opts.staff ?? false);
          case '/rest/v1/rpc/can_write_user_field':
             return jsonResponse(opts.canWrite ?? false);
          case '/rest/v1/user':
@@ -169,4 +175,70 @@ Deno.test('createUser invites once the right is granted', async () => {
       .map((s) => JSON.parse(s.body).p_field)
       .sort();
    assertEquals(fields, ['email', 'user_metadata']);
+});
+
+const staffCalls = (seen: Seen[]) => seen.filter((s) => s.path.endsWith('/is_provider_staff'));
+
+Deno.test('a provider staff account may be added to a client tenant', async () => {
+   const { seen, restore } = backend({ existingUser: true, elsewhere: true, staff: true });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      assertEquals(res.status, 201);
+   } finally {
+      restore();
+   }
+   assertEquals(staffCalls(seen).map((s) => JSON.parse(s.body)), [
+      { p_client: TENANT, p_user: OTHER }
+   ]);
+   const insert = seen.find((s) => s.method === 'POST' && s.path === '/rest/v1/tenant_user');
+   assertEquals(JSON.parse(insert!.body), { user_id: OTHER, tenant_id: TENANT });
+   // Membership alone: no role is assigned, and no invitation or account is created.
+   assertEquals(seen.filter((s) => s.path.includes('user_role')), []);
+   assertEquals(adminWrites(seen), []);
+});
+
+Deno.test('a stranger account is still refused with user_exists_elsewhere', async () => {
+   const { seen, restore } = backend({ existingUser: true, elsewhere: true, staff: false });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      assertEquals(res.status, 409);
+      assertEquals((await res.json()).message, 'user_exists_elsewhere');
+   } finally {
+      restore();
+   }
+   assertEquals(staffCalls(seen).length, 1);
+   assertEquals(
+      seen.filter((s) => s.method === 'POST' && s.path === '/rest/v1/tenant_user'),
+      []
+   );
+});
+
+Deno.test('the staff check only runs once the caller is authorized', async () => {
+   const { seen, restore } = backend({ existingUser: true, elsewhere: true, staff: true });
+   try {
+      // The caller may read users but not insert them.
+      const req = withBody(authorizedRequest(['select', 'user']), 'POST', { email: 'a@b.de' });
+      const res = await respond(createUser(req));
+      assertEquals(res.status, 403);
+   } finally {
+      restore();
+   }
+   assertEquals(staffCalls(seen), []);
+   assertEquals(
+      seen.filter((s) => s.method === 'POST' && s.path === '/rest/v1/tenant_user'),
+      []
+   );
+});
+
+Deno.test('an account of the same company needs no staff check', async () => {
+   const { seen, restore } = backend({ existingUser: true });
+   try {
+      const req = withBody(authorizedRequest(['insert', 'user']), 'POST', { email: 'a@b.de' });
+      await respond(createUser(req));
+   } finally {
+      restore();
+   }
+   assertEquals(staffCalls(seen), []);
 });

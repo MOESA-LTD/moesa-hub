@@ -3,10 +3,11 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Provider invitations (Plan 3, decision 16): the provider invites a customer by e-mail; the link
 -- carries a token whose SHA-256 hash alone is kept, in private.provider_invitation_token, which no
 -- API role reads (F3).
--- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4).
+-- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4);
+-- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(150);
+SELECT plan(161);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -763,6 +764,52 @@ SELECT is_empty($$ SELECT 1 FROM private.provider_invitation_token WHERE invitat
    'and its hash is gone');
 SELECT is((SELECT count(*)::INT FROM private.provider_invitation_issue WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'unsent')), 2,
           'every token issued still counts toward the cap, the discarded one included');
+
+-- ---------------------------------------------------------------------------------------------
+-- Section 3: provider staff may join a client tenant (Task 6). The relationship alone reads
+-- nothing; this answer only lets the client owner add the member, who has no role until assigned.
+
+INSERT INTO public.user (id, email) VALUES
+   ('00000000-0000-4000-8000-000000071301', 'stranger@staff.test'),
+   ('00000000-0000-4000-8000-000000071302', 'clientmember@staff.test'),
+   ('00000000-0000-4000-8000-000000071303', 'formerstaff@staff.test');
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES
+   ('00000000-0000-4000-8000-000000071302', current_setting('test.c')::UUID);
+INSERT INTO public.tenant (id, display_name, parent_id) VALUES
+   ('00000000-0000-4000-8000-000000071304', 'THO branch 071', current_setting('test.c')::UUID);
+-- A provider whose relationship with Atlas has ended; formerstaff is its only member.
+INSERT INTO public.tenant (id, display_name) VALUES ('00000000-0000-4000-8000-000000071305', 'Old provider 071');
+INSERT INTO public.tenant_user (user_id, tenant_id) VALUES ('00000000-0000-4000-8000-000000071303', '00000000-0000-4000-8000-000000071305');
+INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model)
+VALUES ('00000000-0000-4000-8000-000000071306', '00000000-0000-4000-8000-000000071305', current_setting('test.atlas')::UUID,
+        'OLD', 'Atlas', 'Old provider 071', 'client');
+
+SELECT ok(public.is_provider_staff(current_setting('test.c')::UUID, current_setting('test.koordinator')::UUID),
+          'a member of the provider is provider staff of its client');
+SELECT ok(public.is_provider_staff('00000000-0000-4000-8000-000000071304', current_setting('test.koordinator')::UUID),
+          'also for a branch of the client company: the relationship names the company root');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071301'),
+          'a stranger is not provider staff');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.c')::UUID, current_setting('test.thomas')::UUID),
+          'nor is the client owner: ownership is not provider membership');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000071302'),
+          'the reverse direction does not count: a client member is not provider staff');
+SELECT ok(NOT public.is_provider_staff(current_setting('test.p')::UUID, current_setting('test.thomas')::UUID)
+          AND NOT public.is_provider_staff(current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000071302'),
+          'and the client is not a provider of its own provider');
+SELECT ok(public.is_provider_staff(current_setting('test.atlas')::UUID, '00000000-0000-4000-8000-000000071303'),
+          'while the relationship is active, its provider''s member is staff');
+UPDATE public.provider_relationship SET status = 'ended' WHERE id = '00000000-0000-4000-8000-000000071306';
+SELECT ok(NOT public.is_provider_staff(current_setting('test.atlas')::UUID, '00000000-0000-4000-8000-000000071303'),
+          'once the relationship has ended, its provider''s member is no longer staff');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('public', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE'),
+          'authenticated and anon cannot execute it');
+SELECT ok(has_function_privilege('service_role', 'public.is_provider_staff(uuid,uuid)', 'EXECUTE'),
+          'the service role (the user Edge Function) can');
+SELECT is_empty($$ SELECT 1 FROM public.user_role WHERE user_id = '00000000-0000-4000-8000-000000071301' $$,
+          'the check assigns no role to anyone');
 
 SELECT * FROM finish();
 ROLLBACK;

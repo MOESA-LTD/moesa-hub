@@ -919,3 +919,24 @@ REVOKE ALL ON FUNCTION private.tenant_has_provider_relationship () FROM PUBLIC, 
 
 CREATE OR REPLACE TRIGGER tenant_has_provider_relationship BEFORE DELETE ON public.tenant FOR EACH ROW
 EXECUTE FUNCTION private.tenant_has_provider_relationship ();
+
+-- ---------------------------------------------------------------------------------------------
+-- Section 3: provider staff may join a client tenant (Task 6). Whether p_user is staff of a
+-- provider of p_client's company: a member of the tenant of an active relationship whose client is
+-- the company root of p_client. The user Edge Function asks it (service role) before linking an
+-- existing account of another company; the relationship reads nothing, and the membership it
+-- allows has no role until the client owner assigns one.
+CREATE OR REPLACE FUNCTION public.is_provider_staff (p_client UUID, p_user UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM private.entitlements(ARRAY[p_client]) e
+        JOIN public.provider_relationship r ON r.client_tenant_id = e.company_id AND r.status = 'active'
+        JOIN public.tenant_user m ON m.tenant_id = r.tenant_id AND m.user_id = p_user
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_provider_staff (UUID, UUID) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.is_provider_staff (UUID, UUID) TO service_role;

@@ -3,7 +3,8 @@ import {
    accountReach,
    belongsToCompany,
    companyTenants,
-   isManageable
+   isManageable,
+   isProviderStaff
 } from '../_shared/company.ts';
 import { z } from '../_shared/deps.ts';
 import { HttpError, json, serve } from '../_shared/http.ts';
@@ -107,13 +108,15 @@ export const createUser = (req: Request) =>
       let invited = false;
 
       if (user) {
-         // An existing account is only added to another branch of a company it is already in;
-         // anyone else's account is never linked without their consent.
+         // An existing account is only added to another branch of a company it is already in, or
+         // when it is staff of a provider of this company (the owner invites the provider's
+         // people); anyone else's account is never linked without their consent.
          const [reach, company] = await Promise.all([
             accountReach(user.id),
             companyTenants(tenantId)
          ]);
-         if (!belongsToCompany(reach, company)) throw new HttpError(409, 'user_exists_elsewhere');
+         if (!belongsToCompany(reach, company) && !(await isProviderStaff(tenantId, user.id)))
+            throw new HttpError(409, 'user_exists_elsewhere');
       } else {
          // The invitation writes the new account's e-mail and metadata (admin API).
          await assertFieldWrite(req, null, written);

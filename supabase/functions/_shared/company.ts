@@ -67,6 +67,19 @@ export const belongsToCompany = ({ owns, memberOf }: AccountReach, company: Set<
    [...owns, ...memberOf].some((id) => company.has(id));
 
 /**
+ * Whether the account is staff of a provider the company of `tenantId` is a client of: a member of
+ * a tenant with an active relationship to that company (public.is_provider_staff, service role
+ * only). The relationship alone reads nothing; the membership this allows is empty until the
+ * company owner assigns roles.
+ */
+export const isProviderStaff = async (tenantId: string, userId: string) => {
+   const { data } = await supabaseAdmin()
+      .rpc('is_provider_staff', { p_client: tenantId, p_user: userId })
+      .throwOnError();
+   return data === true;
+};
+
+/**
  * Whether a tenant admin may manage the account: never a super admin or an owner (they manage
  * themselves), nor someone who also belongs to another company, whose admins would share it.
  */

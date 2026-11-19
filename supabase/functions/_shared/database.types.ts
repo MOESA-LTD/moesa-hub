@@ -9530,6 +9530,13 @@ export type Database = {
         }
         Returns: Json
       }
+      is_provider_staff: {
+        Args: {
+          p_client: string
+          p_user: string
+        }
+        Returns: boolean
+      }
       is_super_admin: {
         Args: {
           user_id: string
