@@ -81,7 +81,7 @@ jobs:
             - run: supabase test db
 
             # The field-security attack suite over real HTTP (local PostgREST, GoTrue, Storage); the
-            Edge Functions are served by the edge runtime above. Keys stay in env.
+            # Edge Functions are served by the edge runtime above. Keys stay in env.
             - uses: denoland/setup-deno@v2
               with:
                   deno-version: v2.x
