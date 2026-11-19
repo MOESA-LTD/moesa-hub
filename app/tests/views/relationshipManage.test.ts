@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({ row: null as unknown, active: 'provider' }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {}, publicSchema: {} }));
 vi.mock('@/store/auth', () => ({
-   useAuthStore: () => ({ currentTenant: { id: api.active }, scopeTenants: [] })
+   useAuthStore: () => ({ currentTenant: { id: api.active }, scopeTenants: [{ id: api.active }] })
 }));
 vi.mock('@/composables/useUpsertForm', async () => {
    const { toRelationshipFormValues } = await import('@/api/relationship');
@@ -105,6 +105,25 @@ describe('relationship Manage page', () => {
       // Provider-internal notes are not shown to the client at all.
       expect(wrapper.text()).not.toContain(en.ops.client.fields.notes);
       expect(wrapper.text()).toContain('Moesa Ltd');
+   });
+
+   it('offers no way to save on the client side, nor for an ended relationship', async () => {
+      api.active = 'tho';
+      expect((await mountManage()).find('button[type="submit"]').exists()).toBe(false);
+      api.active = 'provider';
+      api.row = relationship({ status: 'ended' });
+      const ended = await mountManage();
+      expect(ended.find('button[type="submit"]').exists()).toBe(false);
+      expect(ended.findAll('input').every((i) => i.attributes('disabled') !== undefined)).toBe(
+         true
+      );
+   });
+
+   it('starts locked as the client when no row is loaded', async () => {
+      api.row = null;
+      const wrapper = await mountManage();
+      expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain(en.ops.client.fields.notes);
    });
 
    it('the provider side edits the terms', async () => {

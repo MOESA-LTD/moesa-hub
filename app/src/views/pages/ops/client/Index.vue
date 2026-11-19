@@ -5,7 +5,7 @@ import { useConfirmAction } from '@/composables/useConfirmAction';
 import { clientVisibleColumns } from '@/composables/useSharedRow';
 import { DIALOG_POSITIONS } from '@/constants/router';
 import { useAuthStore } from '@/store/auth';
-import { FilterMatchMode, FilterOperator, ToastSeverity } from '@primevue/core/api';
+import { ToastSeverity } from '@primevue/core/api';
 import { useToast } from 'primevue/usetoast';
 
 // The relationships of the active tenant, both sides on one page: its clients (rows it owns as the
@@ -22,17 +22,15 @@ const { mutateAsync: end } = useEndRelationship();
 
 const activeId = computed(() => authStore.currentTenant?.id ?? null);
 
-const side = (matchMode: string): NonNullable<Props['filters']> => ({
-   global: { value: null, matchMode: FilterMatchMode.CONTAINS },
-   client_tenant_id: {
-      operator: FilterOperator.AND,
-      constraints: [{ value: activeId.value, matchMode }]
-   }
-});
-
-// The clients: rows whose client is not the active tenant; the providers: rows whose client is it.
-const clientFilters = ref(side(FilterMatchMode.NOT_EQUALS));
-const providerFilters = ref(side(FilterMatchMode.EQUALS));
+// The split follows the tenants in scope (as isSharedRow does) and is no table state: it is not
+// stored or put in the URL, so a tenant switch always recomputes it. Clients are the rows of a
+// tenant in scope; providers are the rows that name one as the client, of a tenant outside it.
+const scopeIds = computed(() => authStore.scopeTenants.map(({ id }) => id));
+const clientFixed = computed(() => [{ column: 'tenant_id', in: scopeIds.value }]);
+const providerFixed = computed(() => [
+   { column: 'client_tenant_id', in: scopeIds.value },
+   { column: 'tenant_id', notIn: scopeIds.value }
+]);
 
 const header = (field: string) => t(`ops.client.fields.${field}`);
 
@@ -138,7 +136,7 @@ const SEVERITY = { active: 'success', ended: 'secondary' } as const;
             :columns="clientColumns"
             :rowActions="clientActions"
             :enableExpansion="false"
-            v-model:filters="clientFilters"
+            :fixedFilters="clientFixed"
          >
             <template #empty>{{ $t('ops.client.empty.clients') }}</template>
             <template #procurement_model_body="{ data }">
@@ -171,7 +169,7 @@ const SEVERITY = { active: 'success', ended: 'secondary' } as const;
             :columns="providerColumns"
             :rowActions="providerActions"
             :enableExpansion="false"
-            v-model:filters="providerFilters"
+            :fixedFilters="providerFixed"
          >
             <template #empty>{{ $t('ops.client.empty.providers') }}</template>
             <template #procurement_model_body="{ data }">

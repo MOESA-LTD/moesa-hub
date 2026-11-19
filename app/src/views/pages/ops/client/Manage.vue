@@ -35,11 +35,17 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
    });
 await ready;
 
+// Without a row (not loaded, or not readable) the page is the client's: locked until the row
+// confirms the provider side.
 const side = computed(() =>
-   row.value ? relationshipSide(row.value, authStore.currentTenant?.id) : 'provider'
+   row.value
+      ? relationshipSide(row.value, new Set(authStore.scopeTenants.map(({ id }) => id)))
+      : 'client'
 );
 // The client side sees only what the client may read, and cannot change any of it.
-const locked = computed(() => readonly.value || side.value === 'client');
+const locked = computed(
+   () => readonly.value || side.value === 'client' || row.value?.status === 'ended'
+);
 provideFieldAccess('provider_relationship', () => side.value === 'client');
 
 const title = computed(() =>

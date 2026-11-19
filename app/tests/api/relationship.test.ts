@@ -94,12 +94,15 @@ describe('linkedClient', () => {
 });
 
 describe('relationshipSide', () => {
-   it('is provider when the active tenant owns the row', () => {
-      expect(relationshipSide(row({}), 'provider')).toBe('provider');
+   it('is provider when the row tenant is in scope', () => {
+      expect(relationshipSide(row({}), new Set(['provider']))).toBe('provider');
+      // A branch the user reads is theirs too, though it is not the active tenant.
+      expect(relationshipSide(row({}), new Set(['other', 'provider']))).toBe('provider');
    });
 
-   it('is client when the active tenant is the row client', () => {
-      expect(relationshipSide(row({}), 'tho')).toBe('client');
+   it('is client when the row tenant is outside the scope', () => {
+      expect(relationshipSide(row({}), new Set(['tho']))).toBe('client');
+      expect(relationshipSide(row({}), new Set())).toBe('client');
    });
 });
 

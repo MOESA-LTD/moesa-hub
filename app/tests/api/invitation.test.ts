@@ -5,6 +5,7 @@ import {
    resendInvitation,
    revokeInvitation,
    toInvitationBody,
+   toStaffOptions,
    toInvitationFormValues
 } from '@/api/invitation';
 import { mapPostgrestError } from '@/lib/form/postgrestErrors';
@@ -206,5 +207,31 @@ describe('the invitation calls', () => {
       expect(error.message).toBe('invitation_mail_failed');
       expect(error.code).toBeTruthy();
       expect(mapPostgrestError(error, ['client_code', 'email'])).toBeNull();
+   });
+});
+
+describe('toStaffOptions', () => {
+   const member = (id: string, tenant_id: string | null, name?: string) => ({
+      id,
+      tenant_id,
+      email: `${id}@x.test`,
+      user_metadata: name ? { display_name: name } : null
+   });
+
+   it('lists only members of the active tenant, once each, by name or e-mail', () => {
+      const options = toStaffOptions(
+         [
+            member('b', 't1'),
+            member('a', 't1', 'Ann'),
+            member('a', 't1', 'Ann'),
+            member('o', null),
+            member('x', 't2')
+         ],
+         't1'
+      );
+      expect(options).toEqual([
+         { value: 'a', label: 'Ann' },
+         { value: 'b', label: 'b@x.test' }
+      ]);
    });
 });

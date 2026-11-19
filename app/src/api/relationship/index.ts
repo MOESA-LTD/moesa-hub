@@ -207,11 +207,14 @@ export function useProviderNames() {
    });
 }
 
-/** Which side of a relationship the active tenant is: the provider owns the row, else it is the client. */
+/**
+ * Which side of a relationship the user is on, by the tenants in scope (as isSharedRow does): the
+ * provider when the row's tenant is one of them, else the client.
+ */
 export const relationshipSide = (
    row: Pick<RelationshipRow, 'tenant_id'>,
-   activeTenantId: string | null | undefined
-): 'provider' | 'client' => (row.tenant_id === activeTenantId ? 'provider' : 'client');
+   scope: ReadonlySet<string>
+): 'provider' | 'client' => (!!row.tenant_id && scope.has(row.tenant_id) ? 'provider' : 'client');
 
 /**
  * The procurement models a relationship may be set to. Only an invitation starts a relationship as

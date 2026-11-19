@@ -190,16 +190,22 @@ export function useRevokeInvitation() {
    });
 }
 
-type Member = Pick<Views['tenant_member']['Row'], 'id' | 'email' | 'user_metadata'>;
+type Member = Pick<Views['tenant_member']['Row'], 'id' | 'email' | 'user_metadata' | 'tenant_id'>;
 
 export type StaffOption = { value: string; label: string };
 
 /** A member as the staff picker names them: their display name, else their e-mail. */
-export const toStaffOptions = (members: readonly Member[]): StaffOption[] => {
+export const toStaffOptions = (
+   members: readonly Member[],
+   tenantId?: string | null
+): StaffOption[] => {
    const seen = new Set<string>();
    return members
       .flatMap((member) => {
-         if (!member.id || seen.has(member.id)) return [];
+         // Owners above the tenant who are no member of it (tenant_id null) are refused by the
+         // database, so they are not offered.
+         if (!member.id || seen.has(member.id) || (tenantId && member.tenant_id !== tenantId))
+            return [];
          seen.add(member.id);
          const name = (member.user_metadata as { display_name?: string } | null)?.display_name;
          return [{ value: member.id, label: name || member.email || member.id }];
@@ -213,10 +219,10 @@ export function useStaffOptions() {
    const { data } = useLookup<Member>(
       'tenant_member',
       () => ({
-         select: 'id, email, user_metadata',
+         select: 'id, email, user_metadata, tenant_id',
          tenantId: authStore.currentTenant?.id
       }),
       () => !!authStore.currentTenant?.id
    );
-   return computed(() => toStaffOptions(data.value ?? []));
+   return computed(() => toStaffOptions(data.value ?? [], authStore.currentTenant?.id));
 }

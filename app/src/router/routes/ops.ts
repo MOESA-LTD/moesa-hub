@@ -2,6 +2,7 @@ import type { RouteLocationNormalized, RouteRecordRaw } from 'vue-router';
 import CustomRouteView from '@/components/layout/CustomRouteView.vue';
 import { canInsertFields } from '@/composables/useFieldAccess';
 import { DIALOG_POSITIONS } from '@/constants/router';
+import { ability } from '@plugins/casl';
 
 // A document is opened from its record's list (see EntityDocuments), which passes the record in
 // the query: what it belongs to and the code its file is named after.
@@ -350,7 +351,12 @@ const routes: RouteRecordRaw[] = [
                ]
             },
             component: CustomRouteView,
-            redirect: { name: 'ops-client-list' },
+            // The first page the user may open.
+            redirect: () => ({
+               name: ability.can('select', 'provider_relationship')
+                  ? 'ops-client-list'
+                  : 'ops-client-invitations'
+            }),
             children: [
                {
                   path: 'list',
