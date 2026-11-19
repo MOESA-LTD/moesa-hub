@@ -239,6 +239,7 @@
    },
    "errors": {
       "audit_already_reverted": "",
+      "transfer_report_stale": "",
       "audit_conflict": "",
       "access_denied": "",
       "confirmation_required": "",

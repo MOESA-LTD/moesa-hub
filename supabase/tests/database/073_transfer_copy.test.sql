@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(58);
+SELECT plan(70);
 
 SELECT private.create_test_helpers();
 
@@ -24,7 +24,9 @@ SELECT private.create_test_helpers();
 --   P = MOESA LTD, C = THO (client of P, provider-procured), E = MOESA Europe (branch of P); akif:
 --   management in all three (seed).
 --   tonly ...07311: one full role in P alone (reads P's transfers, nothing of E). nonmem ...07312: a
---   user of no tenant (an author in E). gate ...07313: full roles in E and P.
+--   user of no tenant (an author in E). gate ...07313: full roles in E and P. noterms ...07314: a full
+--   role in C without the supplier_terms field group. noupd ...07315: full roles in E and P, but no
+--   product update in P.
 --   E: product ze ...07301 'ZZ-E-1' (GTIN, notes) with its variant ...07309, supplier ZS7 ...07302 and
 --   its contact ...07303, E's sourcing ...07304, a market cell ...07305 (listing checked), a file
 --   ...07306 with a thumbnail (uploaded by nonmem) linked as the primary image ...07307, a signed spec
@@ -34,7 +36,8 @@ SELECT private.create_test_helpers();
 --   C: the seed's THO-MOP40-2P keeps its rows under another SKU, and the fixture's own THO-MOP40-2P zm
 --   ...07341 (GTIN, F19) carries a signed spec sheet ...07342 on a file ...07343 and a market cell
 --   ...07344; P's provider order ...07345 for C has a line ...07346 on it, and P's sourcing ...07347
---   for C names it.
+--   for C names it. zm also has a pi document ...07350 on its own file ...07348 (supplier_terms), and a
+--   gallery file ...07349 the seed's mop uses too.
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
     ('p', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
@@ -55,7 +58,11 @@ FROM (VALUES
     ('zm_doc', '00000000-0000-4000-8000-000000073042'),
     ('zm_file', '00000000-0000-4000-8000-000000073043'),
     ('provider_line', '00000000-0000-4000-8000-000000073046'),
-    ('provider_sourcing', '00000000-0000-4000-8000-000000073047')
+    ('provider_sourcing', '00000000-0000-4000-8000-000000073047'),
+    ('noterms', '00000000-0000-4000-8000-000000073014'),
+    ('noupd', '00000000-0000-4000-8000-000000073015'),
+    ('pi_file', '00000000-0000-4000-8000-000000073048'),
+    ('shared_file', '00000000-0000-4000-8000-000000073049')
 ) AS x (k, v);
 
 -- A member of a tenant with one role: every permission of every module, every field.
@@ -72,11 +79,20 @@ $$;
 
 INSERT INTO public.user (id, email)
 SELECT ('00000000-0000-4000-8000-0000000730' || n)::UUID, 'u' || n || '@transfer073.test'
-FROM unnest(ARRAY['11', '12', '13']) AS n;
+FROM unnest(ARRAY['11', '12', '13', '14', '15']) AS n;
 
 SELECT pg_temp.member(current_setting('test.tonly')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073111');
 SELECT pg_temp.member(current_setting('test.gate')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073131');
 SELECT pg_temp.member(current_setting('test.gate')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073132');
+SELECT pg_temp.member(current_setting('test.noterms')::UUID, current_setting('test.c')::UUID, '00000000-0000-4000-8000-000000073141');
+UPDATE public.role_field_permission SET can_read = FALSE, can_write = FALSE
+WHERE role_id = '00000000-0000-4000-8000-000000073141'
+  AND (resource_name, field) IN (SELECT resource_name, field FROM public.field_class WHERE group_name = 'supplier_terms');
+SELECT pg_temp.member(current_setting('test.noupd')::UUID, current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073151');
+SELECT pg_temp.member(current_setting('test.noupd')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000073152');
+DELETE FROM public.role_permission
+WHERE role_id = '00000000-0000-4000-8000-000000073152'
+  AND permission_id = (SELECT id FROM public.permission WHERE resource_name = 'public.product' AND command = 'update');
 
 -- The rows, written as postgres under the fixture bypass.
 SELECT set_config('moesa.rules_bypass', '1', TRUE);
@@ -84,7 +100,9 @@ SELECT set_config('moesa.rules_bypass', '1', TRUE);
 INSERT INTO storage.objects (bucket_id, name, metadata)
 VALUES ('media', current_setting('test.e') || '/00000000-0000-4000-8000-000000073006/ze.png', '{"mimetype": "image/png", "size": 1000}'),
        ('media', current_setting('test.e') || '/00000000-0000-4000-8000-000000073006/thumb/thumb.webp', '{"mimetype": "image/webp", "size": 100}'),
-       ('media', current_setting('test.c') || '/00000000-0000-4000-8000-000000073043/zm.pdf', '{"mimetype": "application/pdf", "size": 2000}');
+       ('media', current_setting('test.c') || '/00000000-0000-4000-8000-000000073043/zm.pdf', '{"mimetype": "application/pdf", "size": 2000}'),
+       ('media', current_setting('test.c') || '/00000000-0000-4000-8000-000000073048/pi.pdf', '{"mimetype": "application/pdf", "size": 3000}'),
+       ('media', current_setting('test.c') || '/00000000-0000-4000-8000-000000073049/zm.png', '{"mimetype": "image/png", "size": 4000}');
 
 INSERT INTO public.supplier (id, tenant_id, code, display_name, country, status)
 VALUES (current_setting('test.zs')::UUID, current_setting('test.e')::UUID, 'ZS7', 'Supplier E 073', 'Türkiye', 'approved'),
@@ -134,6 +152,18 @@ INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, versio
                              is_signed, is_stamped, sent_from_official_email, issued_on)
 VALUES (current_setting('test.zm_doc')::UUID, current_setting('test.c')::UUID, 'product', current_setting('test.zm')::UUID, 'spec_sheet', 1,
         'signed', current_setting('test.zm_file')::UUID, 'THO-MOP40-2P_SPEC', TRUE, TRUE, TRUE, '2026-10-01');
+INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
+VALUES (current_setting('test.pi_file')::UUID, current_setting('test.c')::UUID,
+        current_setting('test.c') || '/00000000-0000-4000-8000-000000073048/pi.pdf', 'pi.pdf', 'application/pdf', 3000),
+       (current_setting('test.shared_file')::UUID, current_setting('test.c')::UUID,
+        current_setting('test.c') || '/00000000-0000-4000-8000-000000073049/zm.png', 'zm.png', 'image/png', 4000);
+INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, status, media_id, file_name)
+VALUES ('00000000-0000-4000-8000-000000073050', current_setting('test.c')::UUID, 'product', current_setting('test.zm')::UUID, 'pi',
+        'approved', current_setting('test.pi_file')::UUID, 'ZM_PI');
+INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role)
+VALUES (current_setting('test.c')::UUID, current_setting('test.shared_file')::UUID, 'product', current_setting('test.zm')::UUID, 'gallery'),
+       (current_setting('test.c')::UUID, current_setting('test.shared_file')::UUID, 'product',
+        (SELECT id FROM public.product WHERE tenant_id = current_setting('test.c')::UUID AND sku = 'THO-MOP40-2P-S073'), 'gallery');
 INSERT INTO public.market_cell (id, tenant_id, product_id, platform_id, country)
 VALUES ('00000000-0000-4000-8000-000000073044', current_setting('test.c')::UUID, current_setting('test.zm')::UUID, 'amazon', 'PL');
 INSERT INTO public.purchase_order (id, tenant_id, client_tenant_id, project_tenant_id, supplier_id, currency, incoterm, deposit_rate)
@@ -191,6 +221,32 @@ SELECT private.unimpersonate();
 
 SELECT is((SELECT count(*) FROM pg_temp.locked('public.product')), 0::BIGINT, 'a rehearsal locks no package row');
 
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+-- L1: the run is bound to the rehearsal: its hash rides in the decisions.
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB, FALSE) $$, '%transfer_report_stale%',
+                   'a run without the rehearsal''s hash is refused');
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB || '{"report_hash": "0000"}', FALSE) $$,
+                   '%transfer_report_stale%', 'and so is a run whose package or decisions changed since');
+SELECT set_config('test.d', (current_setting('test.d')::JSONB
+                             || jsonb_build_object('report_hash', pg_temp.ep('copy', current_setting('test.d')::JSONB) ->> 'report_hash'))::TEXT, TRUE);
+SELECT is(pg_temp.ep('copy', current_setting('test.d')::JSONB) ->> 'report_hash', current_setting('test.d')::JSONB ->> 'report_hash',
+          'the hash in the decisions is not a decision: the rehearsal gives the same hash with it');
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- C1: copying a media link needs the update right on its entity in the target.
+SELECT private.impersonate_scope(current_setting('test.noupd')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB) $$, '%transfer_permissions_required%',
+                   'without product update in the target, a package with media links is refused at the gate');
+SELECT lives_ok(
+    $$ SELECT public.transfer_products(current_setting('test.e')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.zf')::UUID], 'copy') $$,
+    'a package without media links is not'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
+
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
                                  ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
@@ -211,7 +267,7 @@ SELECT is(
 );
 SELECT ok(
     current_setting('test.ra')::JSONB -> 'report' ->> 'report_hash' IS NOT NULL
-    AND current_setting('test.ra')::JSONB -> 'decisions' = current_setting('test.d')::JSONB,
+    AND current_setting('test.ra')::JSONB -> 'decisions' = current_setting('test.d')::JSONB - 'report_hash',
     'the row keeps the fresh report and the decisions'
 );
 SELECT set_eq(
@@ -360,7 +416,11 @@ SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
                                  ARRAY[current_setting('test.p')::UUID, current_setting('test.c')::UUID]);
 SELECT set_config('test.rb', public.transfer_products(current_setting('test.p')::UUID, current_setting('test.c')::UUID,
-                                                      ARRAY[current_setting('test.zp')::UUID], 'copy', NULL, FALSE)::TEXT, TRUE);
+                                                      ARRAY[current_setting('test.zp')::UUID], 'copy',
+                                                      jsonb_build_object('report_hash', public.transfer_products(
+                                                          current_setting('test.p')::UUID, current_setting('test.c')::UUID,
+                                                          ARRAY[current_setting('test.zp')::UUID], 'copy') ->> 'report_hash'),
+                                                      FALSE)::TEXT, TRUE);
 RESET ROLE;
 SELECT private.unimpersonate();
 
@@ -399,6 +459,18 @@ UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('te
 SELECT set_config('test.zm_snapshot', (SELECT to_jsonb(d) - ARRAY['id', 'tenant_id', 'entity_id', 'media_id', 'created_by', 'created_at', 'updated_at']
                                        FROM public.document d WHERE d.id = current_setting('test.zm_doc')::UUID)::TEXT, TRUE);
 
+-- I2: a reader of THO without supplier_terms cannot read the pi file.
+SELECT set_config('test.pi_path', current_setting('test.c') || '/00000000-0000-4000-8000-000000073048/pi.pdf', TRUE);
+SELECT private.impersonate_scope(current_setting('test.noterms')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
+SELECT is(
+    (SELECT count(*) FROM storage.objects WHERE bucket_id = 'media' AND name IN (current_setting('test.pi_path'),
+                                                                                  current_setting('test.c') || '/00000000-0000-4000-8000-000000073049/zm.png')),
+    1::BIGINT,
+    'before the move, a THO reader without supplier_terms sees the gallery file but not the pi file'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
+
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.c')::UUID,
                                  ARRAY[current_setting('test.c')::UUID, current_setting('test.p')::UUID]);
 SELECT set_config('test.rmc', public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID,
@@ -411,7 +483,9 @@ SELECT ok(
 );
 SELECT set_config('audit.transaction_id', '', TRUE);
 SELECT set_config('test.rm', public.transfer_products(current_setting('test.c')::UUID, current_setting('test.p')::UUID,
-                                                      ARRAY[current_setting('test.zm')::UUID], 'move', NULL, FALSE)::TEXT, TRUE);
+                                                      ARRAY[current_setting('test.zm')::UUID], 'move',
+                                                      jsonb_build_object('report_hash', current_setting('test.rmc')::JSONB ->> 'report_hash'),
+                                                      FALSE)::TEXT, TRUE);
 RESET ROLE;
 SELECT private.unimpersonate();
 
@@ -431,7 +505,8 @@ SELECT is(
 );
 SELECT is(
     (SELECT to_jsonb(d) - ARRAY['id', 'tenant_id', 'entity_id', 'media_id', 'created_by', 'created_at', 'updated_at']
-     FROM public.document d WHERE d.tenant_id = current_setting('test.p')::UUID AND d.entity_id = current_setting('test.moved_product')::UUID),
+     FROM public.document d WHERE d.tenant_id = current_setting('test.p')::UUID AND d.entity_id = current_setting('test.moved_product')::UUID
+       AND d.type = 'spec_sheet'),
     current_setting('test.zm_snapshot')::JSONB,
     'the signed spec sheet is moved as it was'
 );
@@ -439,15 +514,43 @@ SELECT ok(
     NOT EXISTS (SELECT 1 FROM public.document WHERE id = current_setting('test.zm_doc')::UUID)
     AND (SELECT m.tenant_id = current_setting('test.p')::UUID AND m.storage_path LIKE current_setting('test.p') || '/%/zm.pdf'
          FROM public.document d JOIN public.media m ON m.id = d.media_id
-         WHERE d.entity_id = current_setting('test.moved_product')::UUID),
+         WHERE d.entity_id = current_setting('test.moved_product')::UUID AND d.type = 'spec_sheet'),
     'it is gone from THO and cites its file in MOESA LTD'
 );
 SELECT ok(
-    EXISTS (SELECT 1 FROM public.media WHERE id = current_setting('test.zm_file')::UUID AND tenant_id = current_setting('test.c')::UUID)
-    AND NOT EXISTS (SELECT 1 FROM public.market_cell WHERE id = '00000000-0000-4000-8000-000000073044')
+    NOT EXISTS (SELECT 1 FROM public.market_cell WHERE id = '00000000-0000-4000-8000-000000073044')
     AND EXISTS (SELECT 1 FROM public.market_cell WHERE product_id = current_setting('test.moved_product')::UUID),
-    'the file stays in THO (it is only ever copied), the cell moves'
+    'the cell moves'
 );
+-- I2: the files only the moved rows used leave THO; one still used there stays.
+SELECT is(
+    ARRAY(SELECT id::TEXT FROM public.media
+          WHERE id IN (current_setting('test.zm_file')::UUID, current_setting('test.pi_file')::UUID, current_setting('test.shared_file')::UUID)
+            AND tenant_id = current_setting('test.c')::UUID),
+    ARRAY[current_setting('test.shared_file')],
+    'the move removes THO''s file rows only the moved rows used; the one the seed''s mop uses stays'
+);
+SELECT is(
+    (SELECT jsonb_object_agg(regexp_replace(f ->> 'from', '^.*/', ''), f -> 'keep_source')
+     FROM public.transfer t CROSS JOIN LATERAL jsonb_array_elements(t.files) f
+     WHERE t.id = (current_setting('test.rm')::JSONB ->> 'id')::UUID),
+    '{"zm.pdf": false, "pi.pdf": false, "zm.png": true}'::JSONB,
+    'the service removes the objects of the removed rows after the copy, and keeps the shared one'
+);
+SELECT private.impersonate_scope(current_setting('test.noterms')::UUID, current_setting('test.c')::UUID, ARRAY[current_setting('test.c')::UUID]);
+SELECT is(
+    (SELECT count(*) FROM storage.objects WHERE bucket_id = 'media' AND name = current_setting('test.pi_path')),
+    0::BIGINT,
+    'after the move, the pi file left in Storage is still not readable without supplier_terms'
+);
+SELECT is(
+    (SELECT count(*) FROM storage.objects WHERE bucket_id = 'media'
+       AND name = current_setting('test.c') || '/00000000-0000-4000-8000-000000073043/zm.pdf'),
+    1::BIGINT,
+    'an unrestricted removed file stays as readable as it was until the service removes it'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
 SELECT is(
     (SELECT array_agg(a.tenant_id::TEXT ORDER BY i)
      FROM public.transfer t
@@ -480,10 +583,28 @@ SELECT private.unimpersonate();
 SELECT is(pg_temp.misplaced(current_setting('test.rm')::JSONB), 0::BIGINT, 'what the move writes is MOESA LTD''s');
 SELECT is(
     (SELECT jsonb_array_length(t.files) FROM public.transfer t WHERE t.id = (current_setting('test.rm')::JSONB ->> 'id')::UUID),
-    1,
-    'the spec sheet''s file waits to be copied'
+    3,
+    'the spec sheet''s, the pi''s and the gallery file wait to be copied'
 );
 UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('test.rm')::JSONB ->> 'id')::UUID;
+
+-- L3: a row the write would drop (its entity not written) stops a move, and is only dropped in a copy.
+INSERT INTO public.transfer (id, tenant_id, source_tenant_id, product_ids, mode, started_by, report)
+VALUES ('00000000-0000-4000-8000-000000073061', current_setting('test.p')::UUID, current_setting('test.c')::UUID, '{}', 'move',
+        current_setting('test.akif')::UUID, '{}'),
+       ('00000000-0000-4000-8000-000000073062', current_setting('test.p')::UUID, current_setting('test.c')::UUID, '{}', 'copy',
+        current_setting('test.akif')::UUID, '{}');
+DELETE FROM pg_temp.transfer_rows;
+DELETE FROM pg_temp.transfer_map;
+INSERT INTO pg_temp.transfer_rows (table_name, source_id, row, copy_only)
+VALUES ('document', '00000000-0000-4000-8000-000000073063',
+        jsonb_build_object('id', '00000000-0000-4000-8000-000000073063', 'tenant_id', current_setting('test.c'), 'entity_type', 'product',
+                           'entity_id', gen_random_uuid(), 'type', 'other', 'status', 'draft', 'url', 'https://example.test/x.pdf'),
+        FALSE);
+INSERT INTO pg_temp.transfer_map (table_name, source_id, target_id) VALUES ('document', '00000000-0000-4000-8000-000000073063', gen_random_uuid());
+SELECT throws_like($$ SELECT private.transfer_write('00000000-0000-4000-8000-000000073061', 'document') $$, '%transfer_package_invalid%',
+                   'a move never drops a row it removed from the source');
+SELECT is(private.transfer_write('00000000-0000-4000-8000-000000073062', 'document'), '[]'::JSONB, 'a copy drops it with its entity');
 
 -- ---------------------------------------------------------------------------------------------
 -- D. The run trusts no rehearsal.
@@ -557,9 +678,11 @@ SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM api.audit_log l
         WHERE l.table_name = 'transfer' AND l.record_id = (current_setting('test.ra')::JSONB ->> 'id')::UUID
-          AND (coalesce(l.new_data, '{}') -> 'report' IS DISTINCT FROM '{"masked": true}'::JSONB
-               OR coalesce(l.new_data, '{}') -> 'files' IS DISTINCT FROM '{"masked": true}'::JSONB
-               OR coalesce(l.old_data, '{}') -> 'report' NOT IN ('null'::JSONB, '{"masked": true}'::JSONB))
+          AND EXISTS (
+              SELECT 1 FROM unnest(ARRAY['product_ids', 'report', 'decisions', 'id_map', 'files']) AS f (name)
+              WHERE coalesce(l.new_data, '{}') -> f.name IS DISTINCT FROM '{"masked": true}'::JSONB
+                 OR (coalesce(l.old_data, '{}') ? f.name AND l.old_data -> f.name IS DISTINCT FROM '{"masked": true}'::JSONB)
+          )
     )
     AND EXISTS (SELECT 1 FROM api.audit_log l WHERE l.table_name = 'transfer'
                   AND l.record_id = (current_setting('test.ra')::JSONB ->> 'id')::UUID),

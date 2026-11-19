@@ -8,7 +8,8 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- tenant, 068 the incident guard's provider link and the audit snapshots' rights columns, and the
 -- revert's and the forwarder's rights tenant, 070 register_tenant's delegation to create_company, 072 the
 -- rules bypass's transfer flag, the revert's transfer lock and the coordinator's standard role without
--- the transfer right, 073 the media file check's transfer copy and the transfer entry point's run), or
+-- the transfer right, 073 the media file check's transfer copy, the file restriction's hold and the
+-- transfer entry point's run), or
 -- extends it (a chain such as 021 → 032 → 036). A
 -- restated body is the owner's current body plus only the restating migration's own delta, so an
 -- edit of the owner that is not carried into the restatement would be undone silently, and so
@@ -23,7 +24,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 --   save_role in 058: ALTER FUNCTION only (SECURITY DEFINER, owner api_owner); the 058 test pins it.
 BEGIN;
 
-SELECT plan(50);
+SELECT plan(51);
 
 CREATE TEMP TABLE restated (fn REGPROCEDURE, owner TEXT, restater TEXT, needle TEXT[]) ON COMMIT DROP;
 
@@ -114,7 +115,12 @@ VALUES
           'transfer_decision_invalid', 'private.transfer_excluded(source_tenant, target_tenant)', 'transfer_files_pending',
           'private.transfer_check_decisions(report', 'transfer_product_in_use', 'private.transfer_lock_rows()',
           'set_config(''moesa.transfer_id'', new_id::TEXT, TRUE)', 'set_config(''moesa.transfer_id'', '''', TRUE)',
-          'private.transfer_apply(new_id)']),
+          'private.transfer_apply(new_id)', 'transfer_report_stale', 'transfer_permissions_required']),
+   -- 073: a file a move removed keeps its read restriction (I2).
+   ('private.media_restriction(uuid)', '060', '073',
+    ARRAY['''supplier_identity''', '''supplier_terms''', 'l.entity_type IN (''supplier'', ''purchase_order'')',
+          'd.type IN (''pi'', ''commercial_invoice'', ''po'')', 'd.type = ''contract'' AND d.entity_type = ''supplier''',
+          'private.media_restriction_hold']),
    ('private.media_guard_delete()', '025', '026',
     ARRAY['public.media_link l WHERE l.tenant_id = OLD.tenant_id AND l.media_id = OLD.id',
           'public.document d WHERE d.tenant_id = OLD.tenant_id AND d.media_id = OLD.id']),

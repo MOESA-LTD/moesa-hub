@@ -726,7 +726,8 @@
       "signup_payload_invalid": "Some details were not accepted. Check the form and try again.",
       "signup_not_pending": "There is no sign-up waiting for this account.",
       "audit_transfer_not_revertable": "This change came with a transfer between companies. Undo it by transferring back.",
-      "transfer_package_invalid": "The transfer could not be prepared. Please contact support."
+      "transfer_package_invalid": "The transfer could not be prepared. Please contact support.",
+      "transfer_report_stale": "The products changed since the preview. Review the transfer again."
    },
    "route": {
       "label": {

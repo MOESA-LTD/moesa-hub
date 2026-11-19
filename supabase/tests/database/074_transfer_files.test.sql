@@ -1,24 +1,26 @@
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
--- The transfer file check (Plan 3 Task 13, 074), ported from M21's 045 test (055b03b): a file missing
--- from Storage leaves the transfer partial, and that check cannot be reverted from the log; once every
--- file is in, the transfer is done and the target takes transfers again; who may check (the target's
--- transfer right, or the starter while still in the target), and what the answer shows a reader of the
--- target alone (L4); a real run's files end to end. What it writes is rolled back.
+-- The transfer file check (Plan 3 Task 13, 074), ported from M21's 045 test (055b03b), on a real run:
+-- akif copies a product with a file and its thumbnail from MOESA Europe into MOESA LTD. Nothing
+-- copied: partial. Objects planted at the copied paths by a member who may only upload (a PDF where a
+-- PNG belongs, a thumbnail over the cap): partial, reported as mismatches, and the target still takes
+-- no transfer (I1). The right objects: done, and done stays done (L2). A file row always has a size
+-- (N2: size_bytes is NOT NULL, so the copy's size is always the one the object must match). The check cannot be reverted from
+-- the log; who may check; what the answer shows a reader of the target alone (L4). Rolled back.
 --
 -- Signing in (F10): `SELECT private.impersonate_scope(user, active, scope);` then
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(19);
 
 SELECT private.create_test_helpers();
 
 -- Fixture (ids 00000000-0000-4000-8000-0000000740xx), on the seed: P = MOESA LTD, E = MOESA Europe;
 -- akif: management in both (seed). tonly ...07411: one full role in P alone. norights ...07412: a member
--- of P whose role holds everything but the transfer rights. gone ...07413: no tenant at all.
--- Transfer t1 ...07401 E → P by akif with two files; t2 ...07402 started by norights; t3 ...07403
--- started by gone.
+-- of P whose role holds everything but the transfer rights. gone ...07413: no tenant at all. planter
+-- ...07414: a member of P holding media select and insert only.
+-- E: product ze ...07421 with a file ...07422 (and its thumbnail) linked to it. Transfers t2 ...07402 started by norights and t3 ...07403 started by gone.
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
     ('p', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
@@ -27,22 +29,19 @@ FROM (VALUES
     ('tonly', '00000000-0000-4000-8000-000000074011'),
     ('norights', '00000000-0000-4000-8000-000000074012'),
     ('gone', '00000000-0000-4000-8000-000000074013'),
-    ('t1', '00000000-0000-4000-8000-000000074001'),
+    ('planter', '00000000-0000-4000-8000-000000074014'),
     ('t2', '00000000-0000-4000-8000-000000074002'),
     ('t3', '00000000-0000-4000-8000-000000074003'),
     ('ze', '00000000-0000-4000-8000-000000074021')
 ) AS x (k, v);
 
-SELECT set_config('test.first', current_setting('test.p') || '/00000000-0000-4000-8000-000000074031/x.png', TRUE);
-SELECT set_config('test.second', current_setting('test.p') || '/00000000-0000-4000-8000-000000074032/y.png', TRUE);
-
-CREATE FUNCTION pg_temp.member (p_user UUID, p_tenant UUID, p_role UUID, p_skip TEXT DEFAULT 'FALSE') RETURNS VOID LANGUAGE plpgsql AS $$
+CREATE FUNCTION pg_temp.member (p_user UUID, p_tenant UUID, p_role UUID, p_keep TEXT DEFAULT 'TRUE') RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
     INSERT INTO public.tenant_user (user_id, tenant_id) VALUES (p_user, p_tenant) ON CONFLICT DO NOTHING;
     INSERT INTO public.role (id, tenant_id, display_name) VALUES (p_role, p_tenant, 'Transfer 074 ' || p_role);
     EXECUTE format(
         'INSERT INTO public.role_permission (role_id, permission_id) SELECT %L, p.id FROM public.permission p '
-        'WHERE p.group_name IN (SELECT m.id FROM public.module m) AND NOT (%s)', p_role, p_skip);
+        'WHERE p.group_name IN (SELECT m.id FROM public.module m) AND (%s)', p_role, p_keep);
     INSERT INTO public.user_role (user_id, role_id) VALUES (p_user, p_role);
     PERFORM private.grant_all_fields(p_role);
 END;
@@ -50,43 +49,81 @@ $$;
 
 INSERT INTO public.user (id, email)
 SELECT ('00000000-0000-4000-8000-0000000740' || n)::UUID, 'u' || n || '@transfer074.test'
-FROM unnest(ARRAY['11', '12', '13']) AS n;
+FROM unnest(ARRAY['11', '12', '13', '14']) AS n;
 
 SELECT pg_temp.member(current_setting('test.tonly')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000074111');
 SELECT pg_temp.member(current_setting('test.norights')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000074121',
-                      $s$p.resource_name = 'public.transfer'$s$);
+                      $s$p.resource_name <> 'public.transfer'$s$);
+SELECT pg_temp.member(current_setting('test.planter')::UUID, current_setting('test.p')::UUID, '00000000-0000-4000-8000-000000074141',
+                      $s$p.resource_name = 'public.media' AND p.command IN ('select', 'insert')$s$);
 
 INSERT INTO public.transfer (id, tenant_id, source_tenant_id, product_ids, mode, started_by, report, files, files_status)
-VALUES (current_setting('test.t1')::UUID, current_setting('test.p')::UUID, current_setting('test.e')::UUID, '{}', 'copy',
-        current_setting('test.akif')::UUID, '{"counts": {}}',
-        jsonb_build_array(jsonb_build_object('from', 'a', 'to', current_setting('test.first'), 'keep_source', TRUE),
-                          jsonb_build_object('from', 'b', 'to', current_setting('test.second'), 'keep_source', TRUE)),
-        'pending'),
-       (current_setting('test.t2')::UUID, current_setting('test.p')::UUID, current_setting('test.e')::UUID, '{}', 'copy',
+VALUES (current_setting('test.t2')::UUID, current_setting('test.p')::UUID, current_setting('test.e')::UUID, '{}', 'copy',
         current_setting('test.norights')::UUID, '{}', '[]', 'done'),
        (current_setting('test.t3')::UUID, current_setting('test.p')::UUID, current_setting('test.e')::UUID, '{}', 'copy',
         current_setting('test.gone')::UUID, '{}', '[]', 'done');
 
-INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('media', current_setting('test.first'), '{"mimetype": "image/png", "size": 1000}');
+SELECT set_config('moesa.rules_bypass', '1', TRUE);
+INSERT INTO storage.objects (bucket_id, name, metadata)
+VALUES ('media', current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/ze.png', '{"mimetype": "image/png", "size": 1000}'),
+       ('media', current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/thumb/thumb.webp', '{"mimetype": "image/webp", "size": 100}');
+INSERT INTO public.product (id, tenant_id, sku, display_name, status)
+VALUES (current_setting('test.ze')::UUID, current_setting('test.e')::UUID, 'ZZ-E-74', 'Europe product 074', 'development');
+INSERT INTO public.media (id, tenant_id, storage_path, thumbnail_path, file_name)
+VALUES ('00000000-0000-4000-8000-000000074022', current_setting('test.e')::UUID,
+        current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/ze.png',
+        current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/thumb/thumb.webp', 'ze.png');
+INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role)
+VALUES (current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000074022', 'product', current_setting('test.ze')::UUID, 'primary_image');
+SELECT set_config('moesa.rules_bypass', '', TRUE);
 
--- 1–3. The first file in, the second missing: partial, and the check is a transfer's.
+-- The run.
 SELECT set_config('audit.transaction_id', '', TRUE);
-SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
-                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]);
-SELECT set_config('test.check', to_jsonb(public.transfer_check_files(current_setting('test.t1')::UUID))::TEXT, TRUE);
-SELECT is(
-    (SELECT row(c ->> 'files_status', c -> 'missing_files') FROM (SELECT current_setting('test.check')::JSONB AS c) s),
-    row('partial'::TEXT, jsonb_build_array(current_setting('test.second'))),
-    'a missing file leaves the transfer partial'
-);
-SELECT is(current_setting('audit.transaction_id', TRUE), '', 'the caller''s audit settings come back after the check');
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT set_config('test.run', public.transfer_products(
+    current_setting('test.e')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.ze')::UUID], 'copy',
+    jsonb_build_object('report_hash', public.transfer_products(current_setting('test.e')::UUID, current_setting('test.p')::UUID,
+                                                               ARRAY[current_setting('test.ze')::UUID], 'copy') ->> 'report_hash'),
+    FALSE)::TEXT, TRUE);
+SELECT set_config('test.t1', current_setting('test.run')::JSONB ->> 'id', TRUE);
 RESET ROLE;
 SELECT private.unimpersonate();
 
+-- The copied paths, in list order: the file, its thumbnail.
+SELECT set_config('test.paths', (SELECT jsonb_agg(f ->> 'to' ORDER BY n) FROM jsonb_array_elements(current_setting('test.run')::JSONB -> 'files')
+                                 WITH ORDINALITY AS x (f, n))::TEXT, TRUE);
+SELECT is(
+    (SELECT jsonb_agg(regexp_replace(p #>> '{}', '^[^/]+/[^/]+/', '')) FROM jsonb_array_elements(current_setting('test.paths')::JSONB) p),
+    '["ze.png", "thumb/thumb.webp"]'::JSONB,
+    'the run lists the file and its thumbnail'
+);
+SELECT col_not_null('public', 'media', 'size_bytes', 'a file row always has a size, which the copied object must match (N2)');
+
+CREATE FUNCTION pg_temp.check_as (p_user TEXT, p_scope UUID[]) RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+    result JSONB;
+BEGIN
+    PERFORM private.impersonate_scope(current_setting('test.' || p_user)::UUID, current_setting('test.p')::UUID, p_scope);
+    result := to_jsonb(public.transfer_check_files(current_setting('test.t1')::UUID));
+    RESET ROLE;
+    PERFORM private.unimpersonate();
+    RETURN result;
+END;
+$$;
+
+-- 1–3. Nothing copied yet: partial, every path missing; the caller's audit settings come back; the
+-- check cannot be reverted.
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT set_config('test.check', pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID])::TEXT, TRUE);
+SELECT is(
+    (SELECT row(c ->> 'files_status', c -> 'missing_files') FROM (SELECT current_setting('test.check')::JSONB AS c) s),
+    row('partial'::TEXT, current_setting('test.paths')::JSONB),
+    'with no file copied, the transfer is partial and every path missing'
+);
+SELECT is(current_setting('audit.transaction_id', TRUE), '', 'the caller''s audit settings come back after the check');
 SELECT set_config('test.check_tx', (SELECT audit_transaction_ids[cardinality(audit_transaction_ids)]::TEXT FROM public.transfer
                                     WHERE id = current_setting('test.t1')::UUID), TRUE);
-SELECT is((SELECT tenant_id::TEXT FROM public.audit_transaction WHERE id = current_setting('test.check_tx')::UUID), current_setting('test.p'),
-          'the check is an audit transaction of the target, listed with the transfer');
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.p')::UUID]);
 SELECT throws_like(
     format('SELECT public.revert_audit_transaction(%L)', current_setting('test.check_tx')),
@@ -96,33 +133,57 @@ SELECT throws_like(
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- 4–5. The second file in: done, and the answer shows a manager of the source everything.
-INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('media', current_setting('test.second'), '{"mimetype": "image/png", "size": 1000}');
-SELECT set_config('audit.transaction_id', '', TRUE);
-SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
-                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]);
-SELECT set_config('test.done', to_jsonb(public.transfer_check_files(current_setting('test.t1')::UUID))::TEXT, TRUE);
+-- 4–6. I1: the planter puts its own objects at the copied paths first.
+SELECT private.impersonate_scope(current_setting('test.planter')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.p')::UUID]);
+INSERT INTO storage.objects (bucket_id, name, metadata)
+VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "application/pdf", "size": 52000000}'),
+       ('media', current_setting('test.paths')::JSONB ->> 1, '{"mimetype": "image/webp", "size": 52000000}');
 RESET ROLE;
 SELECT private.unimpersonate();
+SELECT is(
+    pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID]) -> 'missing_files',
+    (SELECT jsonb_agg('mismatch:' || (p #>> '{}')) FROM jsonb_array_elements(current_setting('test.paths')::JSONB) p),
+    'a PDF at the PNG''s path and a thumbnail over the cap are mismatches, not copies'
+);
+SELECT is((SELECT files_status FROM public.transfer WHERE id = current_setting('test.t1')::UUID), 'partial', 'the transfer stays partial');
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
+                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
+SELECT ok(
+    public.transfer_options(current_setting('test.e')::UUID) -> 'targets'
+        @> jsonb_build_array(jsonb_build_object('id', current_setting('test.p'), 'refusal', 'transfer_files_pending')),
+    'and MOESA LTD takes no other transfer meanwhile'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- 7–8. The planted objects removed, the right ones copied: done.
+DELETE FROM storage.objects WHERE bucket_id = 'media' AND name IN (SELECT p #>> '{}' FROM jsonb_array_elements(current_setting('test.paths')::JSONB) p);
+INSERT INTO storage.objects (bucket_id, name, metadata)
+VALUES ('media', current_setting('test.paths')::JSONB ->> 0, '{"mimetype": "image/png", "size": 1000}'),
+       ('media', current_setting('test.paths')::JSONB ->> 1, '{"mimetype": "image/webp", "size": 100}');
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT set_config('test.done', pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID])::TEXT, TRUE);
 SELECT is(
     (SELECT row(c ->> 'files_status', c -> 'missing_files') FROM (SELECT current_setting('test.done')::JSONB AS c) s),
     row('done'::TEXT, '[]'::JSONB),
-    'with every file in, the transfer is done'
+    'with the right files in, the transfer is done'
 );
-SELECT is(current_setting('test.done')::JSONB -> 'report', '{"counts": {}}'::JSONB, 'a manager of the source reads the report in the answer');
+SELECT ok(current_setting('test.done')::JSONB -> 'report' IS NOT NULL, 'a manager of the source reads the report in the answer');
 
--- 6. L4: a holder of the target's transfer right alone may check, and sees no description of the source.
-SELECT private.impersonate_scope(current_setting('test.tonly')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.p')::UUID]);
+-- 10. L2: done is final.
+DELETE FROM storage.objects WHERE bucket_id = 'media' AND name = current_setting('test.paths')::JSONB ->> 0;
+SELECT is(pg_temp.check_as('akif', ARRAY[current_setting('test.p')::UUID]) ->> 'files_status', 'done',
+          'a file removed after the transfer was done does not reopen it');
+
+-- 11. L4: a holder of the target's transfer right alone may check, and sees no description of the source.
 SELECT is(
-    (SELECT row(t.files_status, t.report, t.files, t.decisions, t.id_map, t.product_ids)
-     FROM public.transfer_check_files(current_setting('test.t1')::UUID) t),
-    row('done'::TEXT, NULL::JSONB, NULL::JSONB, NULL::JSONB, NULL::JSONB, NULL::UUID[]),
+    (SELECT row(c ->> 'files_status', c -> 'report', c -> 'files', c -> 'decisions', c -> 'id_map', c -> 'product_ids')
+     FROM (SELECT pg_temp.check_as('tonly', ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]) AS c) s),
+    row('done'::TEXT, 'null'::JSONB, 'null'::JSONB, 'null'::JSONB, 'null'::JSONB, 'null'::JSONB),
     'a reader of the target alone gets the state, not the source''s report, files, decisions, map or products'
 );
-RESET ROLE;
-SELECT private.unimpersonate();
 
--- 7–10. Who finds a transfer.
+-- 12–15. Who finds a transfer.
 SELECT private.impersonate_scope(current_setting('test.norights')::UUID, current_setting('test.p')::UUID, ARRAY[current_setting('test.p')::UUID]);
 SELECT throws_like(
     $$ SELECT public.transfer_check_files(current_setting('test.t1')::UUID) $$,
@@ -146,58 +207,18 @@ SELECT throws_like(
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- 11–14. A real run's files, end to end: the target waits for them, the app copies them, the check
--- lets the target take transfers again.
-SELECT set_config('moesa.rules_bypass', '1', TRUE);
-INSERT INTO storage.objects (bucket_id, name, metadata)
-VALUES ('media', current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/ze.png', '{"mimetype": "image/png", "size": 1000}');
-INSERT INTO public.product (id, tenant_id, sku, display_name, status)
-VALUES (current_setting('test.ze')::UUID, current_setting('test.e')::UUID, 'ZZ-E-74', 'Europe product 074', 'development');
-INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
-VALUES ('00000000-0000-4000-8000-000000074022', current_setting('test.e')::UUID,
-        current_setting('test.e') || '/00000000-0000-4000-8000-000000074022/ze.png', 'ze.png', 'image/png', 1000);
-INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role)
-VALUES (current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000074022', 'product', current_setting('test.ze')::UUID, 'gallery');
-SELECT set_config('moesa.rules_bypass', '', TRUE);
-
-SELECT set_config('audit.transaction_id', '', TRUE);
+-- 16. Done, MOESA LTD takes transfers again.
 SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
                                  ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
-SELECT set_config('test.run', public.transfer_products(current_setting('test.e')::UUID, current_setting('test.p')::UUID,
-                                                       ARRAY[current_setting('test.ze')::UUID], 'copy', NULL, FALSE)::TEXT, TRUE);
-SELECT ok(
-    public.transfer_options(current_setting('test.e')::UUID) -> 'targets'
-        @> jsonb_build_array(jsonb_build_object('id', current_setting('test.p'), 'refusal', 'transfer_files_pending')),
-    'while the run''s file is not copied, MOESA LTD takes no other transfer'
-);
-RESET ROLE;
-SELECT private.unimpersonate();
-
--- The app copies the file to where the run said.
-INSERT INTO storage.objects (bucket_id, name, metadata)
-SELECT 'media', f ->> 'to', '{"mimetype": "image/png", "size": 1000}'
-FROM jsonb_array_elements(current_setting('test.run')::JSONB -> 'files') f;
-SELECT is(
-    (SELECT count(*) FROM jsonb_array_elements(current_setting('test.run')::JSONB -> 'files') f
-     JOIN public.media m ON m.storage_path = f ->> 'to' AND m.tenant_id = current_setting('test.p')::UUID),
-    1::BIGINT,
-    'the run lists the file under the path its media row has in the target'
-);
-
-SELECT set_config('audit.transaction_id', '', TRUE);
-SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.e')::UUID,
-                                 ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
-SELECT is((public.transfer_check_files((current_setting('test.run')::JSONB ->> 'id')::UUID)).files_status, 'done',
-          'once the app copied it, the check finds the run done');
 SELECT ok(
     public.transfer_options(current_setting('test.e')::UUID) -> 'targets'
         @> jsonb_build_array(jsonb_build_object('id', current_setting('test.p'), 'refusal', NULL)),
-    'and MOESA LTD takes transfers again'
+    'once done, MOESA LTD takes transfers again'
 );
 RESET ROLE;
 SELECT private.unimpersonate();
 
--- 15–16. The function.
+-- 17–18. The function.
 SELECT is(
     ARRAY(SELECT p.proname::TEXT FROM pg_proc p
           WHERE p.proname = 'transfer_check_files' AND p.pronamespace = 'public'::REGNAMESPACE

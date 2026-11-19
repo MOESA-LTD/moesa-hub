@@ -78,6 +78,21 @@
 -- classified sensitive (group internal_note) with the rights column source_tenant_id, so api.transfer
 -- and the audit snapshots show them only to a reader of internal notes in the source; a reader of the
 -- target alone sees the record without them. Roles get them as 071's backfill does (R1).
+--
+-- Also (review of Task 13):
+--   C1  rule 5 for the package: a media link is copied only by a caller holding update on its entity
+--       in the target (media_link_check asks it): transfer_permissions_required, in a rehearsal too.
+--   L1  a real run carries the rehearsal's report_hash in its decisions (decisions.report_hash, not a
+--       decision: it is taken out before anything reads them); a fresh report with another hash, or
+--       none given, is refused with transfer_report_stale (409): the caller rehearses again.
+--   L3  in a move, transfer_write raises transfer_package_invalid rather than drop a row the move
+--       already removed from the source.
+--   I2  a move removes the source's file rows that only the moved rows used (transfer_delete_source),
+--       lists their objects with keep_source FALSE so the service removes them after the copy, and
+--       holds the read restriction they had (private.media_restriction_hold, read by the restated
+--       private.media_restriction, 060's body plus that delta, pinned in 052): a pi, po or commercial
+--       invoice file left in Storage stays as restricted as it was. A file still used in the source
+--       stays, with its rows.
 
 -- 024's media_check_file (pinned in 052); 073: a transfer's copy (see the header).
 CREATE OR REPLACE FUNCTION private.media_check_file () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
@@ -97,7 +112,8 @@ BEGIN
             RAISE EXCEPTION 'media_file_immutable' USING ERRCODE = 'check_violation';
         END IF;
     ELSIF copying THEN
-        -- 073: the source row's type and size; the allowlist and the target's cap hold.
+        -- 073: the source row's type and size (NOT NULL); the allowlist and the target's cap hold.
+        -- 074 verifies the copied object against them.
         IF NEW.mime_type IS NULL
            OR NEW.mime_type NOT IN ('image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'video/mp4') THEN
             RAISE EXCEPTION 'media_type_not_allowed' USING ERRCODE = 'check_violation';
@@ -144,6 +160,46 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- I2: the read restriction of a source file a move unlinked and removed (its Storage object goes
+-- after the run, by the service, from the files list: keep_source FALSE). Until then, and after,
+-- the object keeps the groups its links and documents gave it.
+CREATE TABLE IF NOT EXISTS private.media_restriction_hold (
+   media_id UUID PRIMARY KEY,
+   tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
+   groups TEXT[] NOT NULL,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE private.media_restriction_hold OWNER TO postgres;
+
+ALTER TABLE private.media_restriction_hold ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON private.media_restriction_hold FROM PUBLIC, anon, authenticated, service_role, api_owner;
+
+-- 060's media_restriction (pinned in 052); 073: the groups held for a file a move removed.
+CREATE OR REPLACE FUNCTION private.media_restriction (p_media UUID) RETURNS TEXT[] LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT coalesce(array_agg(DISTINCT g.grp), '{}'::TEXT[])
+    FROM (
+        SELECT 'supplier_identity' AS grp
+        WHERE EXISTS (SELECT 1 FROM public.media_link l WHERE l.media_id = p_media AND l.entity_type IN ('supplier', 'purchase_order'))
+           OR EXISTS (SELECT 1 FROM public.document d WHERE d.media_id = p_media AND d.entity_type IN ('supplier', 'purchase_order'))
+        UNION ALL
+        SELECT 'supplier_terms'
+        WHERE EXISTS (
+            SELECT 1 FROM public.document d
+            WHERE d.media_id = p_media
+              AND (d.type IN ('pi', 'commercial_invoice', 'po') OR (d.type = 'contract' AND d.entity_type = 'supplier'))
+        )
+        -- 073
+        UNION ALL
+        SELECT h.grp FROM private.media_restriction_hold x CROSS JOIN LATERAL unnest(x.groups) AS h (grp) WHERE x.media_id = p_media
+    ) g;
+$$;
+
+REVOKE ALL ON FUNCTION private.media_restriction (UUID) FROM PUBLIC, anon, authenticated;
 
 -- The target paths of a media row (see the header).
 CREATE OR REPLACE FUNCTION private.transfer_media_paths (
@@ -218,6 +274,13 @@ BEGIN
     ) d
     WHERE NOT r.seq IN (SELECT o.seq FROM private.transfer_omitted(conflicts, picks) o);
 
+    -- The source files a move removes (transfer_delete_source): their objects go after the copy.
+    IF to_regclass('pg_temp.transfer_removed_media') IS NOT NULL THEN
+        DROP TABLE pg_temp.transfer_removed_media;
+    END IF;
+
+    CREATE TEMP TABLE transfer_removed_media (source_id UUID PRIMARY KEY) ON COMMIT DROP;
+
     -- A file only rows that are not written use is not copied.
     DELETE FROM pg_temp.transfer_map f
     WHERE f.table_name = 'media'
@@ -235,6 +298,7 @@ DECLARE
     target UUID;
     source UUID;
     picks JSONB;
+    moving BOOLEAN;
     reg private.transfer_registry;
     columns TEXT;
     insert_sql TEXT;
@@ -252,7 +316,7 @@ DECLARE
     paths RECORD;
     files JSONB := '[]';
 BEGIN
-    SELECT t.tenant_id, t.source_tenant_id, coalesce(t.decisions, '{}') INTO target, source, picks
+    SELECT t.tenant_id, t.source_tenant_id, coalesce(t.decisions, '{}'), t.mode = 'move' INTO target, source, picks, moving
     FROM public.transfer t WHERE t.id = transfer_write.transfer_id;
 
     SELECT * INTO reg FROM private.transfer_registry g WHERE g.table_name = transfer_write.tbl;
@@ -336,6 +400,11 @@ BEGIN
             END IF;
         END LOOP;
 
+        -- L3: a move removed the row from the source already; it is never dropped.
+        IF omit AND moving AND NOT r.copy_only THEN
+            RAISE EXCEPTION 'transfer_package_invalid';
+        END IF;
+
         CONTINUE WHEN omit;
 
         FOREACH col IN ARRAY outside LOOP
@@ -351,7 +420,11 @@ BEGIN
             JOIN pg_temp.transfer_map m ON m.table_name = e.table_name AND m.source_id = (r.row ->> 'entity_id')::UUID
             WHERE e.entity::TEXT = r.row ->> 'entity_type' AND NOT m.mapped;
 
-            -- An omitted entity (or a mapped supplier, whose documents stay): the row goes with it.
+            -- An omitted entity (or a mapped supplier, whose documents stay): the row goes with it;
+            -- never in a move (L3).
+            IF NOT FOUND AND moving AND NOT r.copy_only THEN
+                RAISE EXCEPTION 'transfer_package_invalid';
+            END IF;
             CONTINUE WHEN NOT FOUND;
             data := data || jsonb_build_object('entity_id', found_id);
         END IF;
@@ -396,12 +469,12 @@ BEGIN
             );
             files := files || jsonb_build_array(jsonb_build_object(
                 'media_id', r.target_id, 'from', r.row ->> 'storage_path', 'to', paths.target_storage_path,
-                'keep_source', r.copy_only
+                'keep_source', NOT EXISTS (SELECT 1 FROM pg_temp.transfer_removed_media x WHERE x.source_id = r.source_id)
             ));
             IF paths.target_thumbnail_path IS NOT NULL THEN
                 files := files || jsonb_build_array(jsonb_build_object(
                     'media_id', r.target_id, 'from', r.row ->> 'thumbnail_path', 'to', paths.target_thumbnail_path,
-                    'keep_source', r.copy_only
+                    'keep_source', NOT EXISTS (SELECT 1 FROM pg_temp.transfer_removed_media x WHERE x.source_id = r.source_id)
                 ));
             END IF;
         END IF;
@@ -429,8 +502,13 @@ DECLARE
     saved_depth TEXT := current_setting('audit.depth', TRUE);
     source_transaction UUID;
     deleted BIGINT;
+    restrictions JSONB;
 BEGIN
     SELECT t.source_tenant_id INTO source FROM public.transfer t WHERE t.id = transfer_delete_source.transfer_id;
+
+    -- I2: the package files' read restrictions, before their links and documents go.
+    SELECT coalesce(jsonb_object_agg(r.source_id, to_jsonb(private.media_restriction(r.source_id))), '{}') INTO restrictions
+    FROM pg_temp.transfer_rows r WHERE r.table_name = 'media';
 
     -- The source's own audit transaction.
     PERFORM set_config('audit.transaction_id', '', TRUE);
@@ -453,6 +531,24 @@ BEGIN
         EXECUTE format('DELETE FROM public.%I x WHERE x.tenant_id = $1 AND x.id IN (%s)', reg.table_name, format(picked, reg.table_name))
         USING source;
     END LOOP;
+
+    -- I2: a package file nothing in the source uses any more goes too: its row now, its object after
+    -- the copy (keep_source FALSE in the files list); the restriction it had is held for the object.
+    INSERT INTO pg_temp.transfer_removed_media (source_id)
+    SELECT m.id FROM public.media m
+    WHERE m.tenant_id = source
+      AND m.id IN (SELECT r.source_id FROM pg_temp.transfer_rows r WHERE r.table_name = 'media')
+      AND NOT EXISTS (SELECT 1 FROM public.media_link l WHERE l.tenant_id = source AND l.media_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM public.document d WHERE d.tenant_id = source AND d.media_id = m.id);
+
+    INSERT INTO private.media_restriction_hold (media_id, tenant_id, groups)
+    SELECT x.source_id, source, ARRAY(SELECT jsonb_array_elements_text(restrictions -> x.source_id::TEXT))
+    FROM pg_temp.transfer_removed_media x
+    WHERE jsonb_array_length(coalesce(restrictions -> x.source_id::TEXT, '[]')) > 0
+    ON CONFLICT (media_id) DO UPDATE SET groups = EXCLUDED.groups;
+
+    DELETE FROM public.media m
+    WHERE m.tenant_id = source AND m.id IN (SELECT x.source_id FROM pg_temp.transfer_removed_media x);
 
     -- The target's audit transaction back, then the source's recorded with it.
     source_transaction := nullif(current_setting('audit.transaction_id', TRUE), '')::UUID;
@@ -639,6 +735,7 @@ DECLARE
     saved_tenant TEXT;
     saved_depth TEXT;
     stored_report JSONB;
+    expected_hash TEXT;
 BEGIN
     IF refusal IS NOT NULL THEN
         PERFORM private.transfer_raise(
@@ -663,6 +760,12 @@ BEGIN
         PERFORM private.transfer_raise('transfer_decision_invalid', 400);
     END IF;
 
+    -- 073 (L1): the hash of the rehearsal the caller approved rides in the decisions; it is not one.
+    IF jsonb_typeof(transfer_products.decisions) = 'object' THEN
+        expected_hash := transfer_products.decisions ->> 'report_hash';
+        transfer_products.decisions := transfer_products.decisions - 'report_hash';
+    END IF;
+
     excluded := private.transfer_excluded(source_tenant, target_tenant);
 
     PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded);
@@ -675,6 +778,15 @@ BEGIN
         PERFORM private.transfer_lock_rows();
     END IF;
 
+    -- 073 (C1), rule 5 for the package: a copied media link needs the update right on its entity in
+    -- the target (media_link_check asks it), so it is refused here, not halfway through the run.
+    IF EXISTS (
+        SELECT 1 FROM (SELECT DISTINCT r.row ->> 'entity_type' AS entity FROM pg_temp.transfer_rows r WHERE r.table_name = 'media_link') l
+        WHERE NOT (target_tenant = ANY (private.tenants_granting(auth.uid(), ARRAY[target_tenant], 'public.' || l.entity, 'update')))
+    ) THEN
+        PERFORM private.transfer_raise('transfer_permissions_required', 403);
+    END IF;
+
     -- A package file that an earlier transfer into the source has not copied yet.
     IF EXISTS (
         SELECT 1
@@ -682,7 +794,8 @@ BEGIN
         CROSS JOIN LATERAL jsonb_array_elements(t.files) f
         JOIN pg_temp.transfer_rows r ON r.table_name = 'media' AND r.source_id::TEXT = f ->> 'media_id'
         WHERE t.tenant_id = transfer_products.source_tenant AND t.files_status <> 'done'
-          AND (t.files_status = 'pending' OR f ->> 'to' = ANY (t.missing_files))
+          AND (t.files_status = 'pending' OR f ->> 'to' = ANY (t.missing_files)
+               OR 'mismatch:' || (f ->> 'to') = ANY (t.missing_files))
     ) THEN
         PERFORM private.transfer_raise('transfer_files_pending', 409);
     END IF;
@@ -700,6 +813,11 @@ BEGIN
     IF transfer_products.mode = 'move'
        AND EXISTS (SELECT 1 FROM jsonb_array_elements(report -> 'left_behind') e WHERE (e ->> 'blocks')::BOOLEAN) THEN
         PERFORM private.transfer_raise('transfer_product_in_use', 409);
+    END IF;
+
+    -- 073 (L1): what runs is what the caller rehearsed.
+    IF expected_hash IS DISTINCT FROM report ->> 'report_hash' THEN
+        PERFORM private.transfer_raise('transfer_report_stale', 409);
     END IF;
 
     -- 073: the run. The gate once more, with the package locked, right before anything is written.

@@ -155,6 +155,7 @@
       "audit_revert_field_forbidden": "Bu değişiklik geri alınamaz: değiştirme yetkiniz olmayan bir alanı içeriyor.",
       "audit_transfer_not_revertable": "Bu değişiklik firmalar arası bir aktarımla geldi. Geri almak için geri aktarın.",
       "transfer_package_invalid": "Aktarım hazırlanamadı. Lütfen destekle iletişime geçin.",
+      "transfer_report_stale": "Ürünler önizlemeden sonra değişti. Aktarımı yeniden gözden geçirin.",
       "avatar_type": "Fotoğraf PNG, JPEG ya da WebP olmalı.",
       "avatar_size": "Fotoğraf en fazla 1 MB olmalı.",
       "access_denied": "Erişim reddedildi",

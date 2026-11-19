@@ -746,8 +746,10 @@ SELECT throws_like(
     '%transfer_decision_invalid%', 'a supplier is mapped onto a supplier of the target'
 );
 -- 073 replaced the 501 transfer_apply_unavailable with the run (its own tests are 073's).
-SELECT is(pg_temp.pe('copy', current_setting('test.d')::JSONB, FALSE) ->> 'tenant_id', current_setting('test.e'),
-          'a settled run is applied');
+SELECT is(pg_temp.pe('copy', current_setting('test.d')::JSONB
+                             || jsonb_build_object('report_hash', pg_temp.pe('copy', current_setting('test.d')::JSONB) ->> 'report_hash'), FALSE)
+          ->> 'tenant_id', current_setting('test.e'),
+          'a settled run, bound to its rehearsal''s hash, is applied');
 RESET ROLE;
 SELECT private.unimpersonate();
 
