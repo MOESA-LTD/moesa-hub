@@ -129,6 +129,8 @@ const report = (overrides: Partial<TransferReport> = {}): TransferReport => ({
    product_ids: ['p1', 'p2'],
    counts: { product: 2, media: 1 },
    excluded: [],
+   excluded_rows: {},
+   blanked: [],
    conflicts: [],
    left_behind: [],
    left_behind_links: {},
@@ -387,6 +389,24 @@ describe('report step', () => {
       expect(note.text()).toContain('Supplier, Supplier contact, Sourcing');
       expect(note.text()).toContain('stay with you');
       expect((await rehearse(report())).find('[data-excluded]').exists()).toBe(false);
+   });
+
+   it('explains the rows left out and the columns emptied for a client (C1)', async () => {
+      const wrapper = await rehearse(
+         report({
+            excluded: ['supplier', 'supplier_contact', 'sourcing'],
+            excluded_rows: { document: 1, media: 2, media_link: 0 },
+            blanked: [{ table: 'product', column: 'notes', rows: 1 }]
+         })
+      );
+
+      const note = wrapper.find('[data-withheld]');
+      expect(note.text()).toContain(en.ops.transfer.report.withheld_title);
+      expect(note.text()).toContain(en.ops.transfer.report.withheld_intro);
+      expect(note.find('[data-withheld-rows]').text()).toContain('Document (1), Media (2)');
+      expect(note.find('[data-withheld-rows]').text()).not.toContain('Media link');
+      expect(note.find('[data-blanked]').text()).toContain('Product: notes (1)');
+      expect((await rehearse(report())).find('[data-withheld]').exists()).toBe(false);
    });
 
    it('blocks a move whose products are used by records left in the source', async () => {

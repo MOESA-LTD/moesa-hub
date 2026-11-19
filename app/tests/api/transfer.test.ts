@@ -247,6 +247,22 @@ describe('rehearseTransfer and runTransfer', () => {
       expect(result.excluded).toEqual(['supplier', 'supplier_contact', 'sourcing']);
       expect(result.left_behind_links).toEqual({ sourcing: 2 });
    });
+
+   it('keeps what a transfer into a client withholds, and reads an older report without it', async () => {
+      mock.rpcResults.transfer_products = {
+         ...report,
+         excluded_rows: { document: 1, media: 2 },
+         blanked: [{ table: 'product', column: 'notes', rows: 1 }]
+      };
+      const result = await rehearseTransfer(args);
+      expect(result.excluded_rows).toEqual({ document: 1, media: 2 });
+      expect(result.blanked).toEqual([{ table: 'product', column: 'notes', rows: 1 }]);
+
+      mock.rpcResults.transfer_products = report;
+      const older = await rehearseTransfer(args);
+      expect(older.excluded_rows).toEqual({});
+      expect(older.blanked).toEqual([]);
+   });
 });
 
 describe('copyTransferFiles', () => {

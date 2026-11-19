@@ -357,7 +357,7 @@ SELECT ok(
     has_function_privilege('authenticated', 'private.transferring()', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'private.transferring()', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'private.transfer_refusal(uuid,uuid,text)', 'EXECUTE')
-    AND NOT has_function_privilege('authenticated', 'private.transfer_collect(uuid,uuid[],text[])', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'private.transfer_collect(uuid,uuid[],text[],uuid)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'private.transfer_report(uuid,uuid,text,jsonb,uuid[],text[])', 'EXECUTE'),
     'the flag is read by the rules as the user; the transfer internals are out of reach'
 );

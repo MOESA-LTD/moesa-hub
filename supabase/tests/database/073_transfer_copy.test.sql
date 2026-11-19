@@ -10,13 +10,14 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- revert lock, the locks); B a copy into a provider-procured client (F5 at apply); C a move of THO's
 -- THO-MOP40-2P into MOESA LTD (a provider's order line keeps its snapshot, a signed spec sheet, an
 -- active GTIN); D the run trusts no rehearsal (a fresh report, the gate again); E who reads the stored
--- description (L4); F the internals.
+-- description (L4); F the internals; G a copy inside the company carries everything, and a copied file
+-- keeps its source restriction (final review C1, I1).
 --
 -- Signing in (F10): `SELECT private.impersonate_scope(user, active, scope);` then
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(79);
+SELECT plan(94);
 
 SELECT private.create_test_helpers();
 
@@ -38,6 +39,10 @@ SELECT private.create_test_helpers();
 --   ...07344; P's provider order ...07345 for C has a line ...07346 on it, and P's sourcing ...07347
 --   for C names it. zm also has a pi document ...07350 on its own file ...07348 (supplier_terms), and a
 --   gallery file ...07349 the seed's mop uses too.
+--   P (final review C1, I1): zp has an internal note, a market cell ...07352 with a note, a pi document
+--   ...07354 (with a note) on its own file ...07353, a test report ...07357 with a note, a gallery file
+--   ...07355, and a gallery file ...07356 that is also the file of a packing list ...07358 on P's
+--   provider order (supplier_identity: the reviewer's dual use).
 SELECT set_config('test.' || x.k, x.v::TEXT, TRUE)
 FROM (VALUES
     ('p', (SELECT id FROM public.tenant WHERE display_name = 'MOESA LTD')),
@@ -63,7 +68,10 @@ FROM (VALUES
     ('noupd', '00000000-0000-4000-8000-000000073015'),
     ('nomdel', '00000000-0000-4000-8000-000000073016'),
     ('pi_file', '00000000-0000-4000-8000-000000073048'),
-    ('shared_file', '00000000-0000-4000-8000-000000073049')
+    ('shared_file', '00000000-0000-4000-8000-000000073049'),
+    ('zp_pi', '00000000-0000-4000-8000-000000073053'),
+    ('zp_img', '00000000-0000-4000-8000-000000073055'),
+    ('zp_dual', '00000000-0000-4000-8000-000000073056')
 ) AS x (k, v);
 
 -- A member of a tenant with one role: every permission of every module, every field.
@@ -184,6 +192,33 @@ INSERT INTO public.sourcing (id, tenant_id, client_tenant_id, product_tenant_id,
 VALUES (current_setting('test.provider_sourcing')::UUID, current_setting('test.p')::UUID, current_setting('test.c')::UUID,
         current_setting('test.c')::UUID, current_setting('test.zm')::UUID, 'THO-MOP40-2P', 'Pamuk mop bezi 40 cm, 2''li',
         current_setting('test.tr1')::UUID, 1.10, 'USD');
+
+-- P: zp's notes, documents and files (C1, I1).
+UPDATE public.product SET notes = 'Provider note 073' WHERE id = current_setting('test.zp')::UUID;
+INSERT INTO storage.objects (bucket_id, name, metadata)
+VALUES ('media', current_setting('test.p') || '/00000000-0000-4000-8000-000000073053/zp-pi.pdf', '{"mimetype": "application/pdf", "size": 3100}'),
+       ('media', current_setting('test.p') || '/00000000-0000-4000-8000-000000073055/zp.png', '{"mimetype": "image/png", "size": 500}'),
+       ('media', current_setting('test.p') || '/00000000-0000-4000-8000-000000073056/zp-dual.png', '{"mimetype": "image/png", "size": 600}');
+INSERT INTO public.media (id, tenant_id, storage_path, file_name, mime_type, size_bytes)
+VALUES (current_setting('test.zp_pi')::UUID, current_setting('test.p')::UUID,
+        current_setting('test.p') || '/00000000-0000-4000-8000-000000073053/zp-pi.pdf', 'zp-pi.pdf', 'application/pdf', 3100),
+       (current_setting('test.zp_img')::UUID, current_setting('test.p')::UUID,
+        current_setting('test.p') || '/00000000-0000-4000-8000-000000073055/zp.png', 'zp.png', 'image/png', 500),
+       (current_setting('test.zp_dual')::UUID, current_setting('test.p')::UUID,
+        current_setting('test.p') || '/00000000-0000-4000-8000-000000073056/zp-dual.png', 'zp-dual.png', 'image/png', 600);
+INSERT INTO public.market_cell (id, tenant_id, product_id, platform_id, country, notes)
+VALUES ('00000000-0000-4000-8000-000000073052', current_setting('test.p')::UUID, current_setting('test.zp')::UUID, 'amazon', 'FR', 'Cell note 073');
+INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, status, media_id, file_name, notes)
+VALUES ('00000000-0000-4000-8000-000000073054', current_setting('test.p')::UUID, 'product', current_setting('test.zp')::UUID, 'pi',
+        'approved', current_setting('test.zp_pi')::UUID, 'ZP_PI', 'supplier price 4.20 USD'),
+       ('00000000-0000-4000-8000-000000073058', current_setting('test.p')::UUID, 'purchase_order', '00000000-0000-4000-8000-000000073045',
+        'packing_list', 'approved', current_setting('test.zp_dual')::UUID, 'ZP_PL', NULL);
+INSERT INTO public.document (id, tenant_id, entity_type, entity_id, type, status, url, file_name, notes)
+VALUES ('00000000-0000-4000-8000-000000073057', current_setting('test.p')::UUID, 'product', current_setting('test.zp')::UUID, 'test_report',
+        'approved', 'https://example.test/zp-test.pdf', 'ZP_TEST', 'Doc note 073');
+INSERT INTO public.media_link (tenant_id, media_id, entity_type, entity_id, role)
+VALUES (current_setting('test.p')::UUID, current_setting('test.zp_img')::UUID, 'product', current_setting('test.zp')::UUID, 'gallery'),
+       (current_setting('test.p')::UUID, current_setting('test.zp_dual')::UUID, 'product', current_setting('test.zp')::UUID, 'gallery');
 
 SELECT set_config('moesa.rules_bypass', '', TRUE);
 
@@ -468,6 +503,63 @@ SELECT is(
 SELECT is(pg_temp.misplaced(current_setting('test.rb')::JSONB), 0::BIGINT, 'and what it writes is THO''s');
 SELECT is((SELECT count(*) FROM public.sourcing WHERE id = '00000000-0000-4000-8000-000000073032'), 1::BIGINT,
           'MOESA LTD keeps its sourcing');
+
+-- C1 (final review): nothing a client may not read reaches THO, owner included (decision 7).
+SELECT is(current_setting('test.rb')::JSONB -> 'report' -> 'excluded_rows', '{"document": 1, "media": 2, "media_link": 1}'::JSONB,
+          'the pi document, its file, and the file a provider order uses with its gallery link are left out, and counted');
+SELECT is(current_setting('test.rb')::JSONB -> 'report' -> 'blanked',
+          '[{"table": "product", "column": "notes", "rows": 1}, {"table": "market_cell", "column": "notes", "rows": 1},
+            {"table": "document", "column": "notes", "rows": 1}]'::JSONB,
+          'the internal notes are reset, reported by column');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM public.document d WHERE d.tenant_id = current_setting('test.c')::UUID
+                  AND d.entity_id = pg_temp.mapped(current_setting('test.rb')::JSONB, 'product', 'zp') AND d.type = 'pi')
+    AND NOT EXISTS (SELECT 1 FROM public.media m WHERE m.tenant_id = current_setting('test.c')::UUID
+                      AND m.file_name IN ('zp-pi.pdf', 'zp-dual.png'))
+    AND (SELECT array_agg(regexp_replace(f ->> 'from', '^.*/', '')) FROM public.transfer t CROSS JOIN LATERAL jsonb_array_elements(t.files) f
+         WHERE t.id = (current_setting('test.rb')::JSONB ->> 'id')::UUID) = ARRAY['zp.png'],
+    'the reviewer''s probe: neither the pi document nor its file (nor the order''s file) arrives in THO; only the open gallery file is copied'
+);
+SELECT is((SELECT p.notes FROM public.product p WHERE p.id = pg_temp.mapped(current_setting('test.rb')::JSONB, 'product', 'zp')), NULL,
+          'the product''s internal note is NULL in THO');
+SELECT ok(
+    (SELECT c.notes IS NULL FROM public.market_cell c
+     WHERE c.tenant_id = current_setting('test.c')::UUID AND c.product_id = pg_temp.mapped(current_setting('test.rb')::JSONB, 'product', 'zp'))
+    AND (SELECT d.notes IS NULL AND d.file_name = 'ZP_TEST' FROM public.document d
+         WHERE d.tenant_id = current_setting('test.c')::UUID AND d.entity_id = pg_temp.mapped(current_setting('test.rb')::JSONB, 'product', 'zp')),
+    'the market cell and the test report arrive without their notes'
+);
+SELECT ok(
+    (SELECT count(*) FROM public.media_link l WHERE l.tenant_id = current_setting('test.c')::UUID
+       AND l.entity_id = pg_temp.mapped(current_setting('test.rb')::JSONB, 'product', 'zp')) = 1
+    AND (SELECT p.notes FROM public.product p WHERE p.id = current_setting('test.zp')::UUID) = 'Provider note 073'
+    AND (SELECT count(*) FROM public.document d WHERE d.entity_id = current_setting('test.zp')::UUID) = 2,
+    'the open gallery link arrives; MOESA LTD keeps its notes and documents'
+);
+
+-- A move into THO would leave the withheld rows naming a removed product: they block it.
+UPDATE public.transfer SET files_status = 'done' WHERE id = (current_setting('test.rb')::JSONB ->> 'id')::UUID;
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
+                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.c')::UUID]);
+SELECT set_config('test.rbm', public.transfer_products(current_setting('test.p')::UUID, current_setting('test.c')::UUID,
+                                                       ARRAY[current_setting('test.zp')::UUID], 'move')::TEXT, TRUE);
+SELECT ok(
+    current_setting('test.rbm')::JSONB -> 'left_behind' @> jsonb_build_array(
+        jsonb_build_object('table', 'document', 'column', 'entity_id', 'refers_to', 'product', 'refers_to_id', current_setting('test.zp'),
+                           'rows', 1, 'blocks', TRUE),
+        jsonb_build_object('table', 'media_link', 'column', 'entity_id', 'refers_to', 'product', 'refers_to_id', current_setting('test.zp'),
+                           'rows', 1, 'blocks', TRUE)),
+    'a move into the client lists the withheld document and link as blocking'
+);
+SELECT throws_like(
+    format($q$ SELECT public.transfer_products(%L, %L, ARRAY[%L]::UUID[], 'move', %L::JSONB, FALSE) $q$,
+           current_setting('test.p'), current_setting('test.c'), current_setting('test.zp'),
+           jsonb_build_object('sku:' || current_setting('test.zp'), '{"action": "rename", "suffix": "-M"}'::JSONB)),
+    '%transfer_product_in_use%',
+    'and the move is refused'
+);
+RESET ROLE;
+SELECT private.unimpersonate();
 
 -- ---------------------------------------------------------------------------------------------
 -- C. A move of THO's THO-MOP40-2P into MOESA LTD.
@@ -810,6 +902,81 @@ SELECT is(
      WHERE table_schema = 'public' AND table_name = 'transfer' AND column_name = 'report'),
     '''{}''::jsonb',
     'a transfer row starts with an empty report'
+);
+-- C1: every provider-only column a transfer into a client may carry can be reset (to NULL or its
+-- default); the tables F5 leaves out whole (transfer_excluded) never reach a client.
+SELECT is_empty(
+    $$ SELECT f.resource_name || '.' || f.field FROM private.transfer_registry g
+       JOIN public.field_class f ON f.resource_name = 'public.' || g.table_name AND f.class = 'sensitive' AND NOT f.client_visible
+       JOIN pg_attribute a ON a.attrelid = ('public.' || g.table_name)::REGCLASS AND a.attname = f.field
+       WHERE a.attnotnull AND NOT a.atthasdef
+         AND NOT g.table_name = ANY (private.transfer_excluded(current_setting('test.p')::UUID, current_setting('test.c')::UUID)) $$,
+    'every provider-only column of the registry takes NULL or has a default'
+);
+-- C1: document_restriction is media_restriction's document arms (the same clauses over the same names).
+SELECT is_empty(
+    format($q$ SELECT n FROM unnest(%L::TEXT[]) AS n
+               WHERE strpos(pg_get_functiondef('private.document_restriction(public.document_type,public.document_entity)'::REGPROCEDURE), n) = 0
+                  OR strpos(pg_get_functiondef('private.media_restriction(uuid)'::REGPROCEDURE), n) = 0 $q$,
+           ARRAY['''supplier_identity''', '''supplier_terms''', 'd.entity_type IN (''supplier'', ''purchase_order'')',
+                 'd.type IN (''pi'', ''commercial_invoice'', ''po'')', 'd.type = ''contract'' AND d.entity_type = ''supplier''']),
+    'a document kind is withheld exactly when it would restrict its file'
+);
+SELECT ok(
+    private.document_restriction('pi', 'product') = ARRAY['supplier_terms']
+    AND private.document_restriction('packing_list', 'purchase_order') = ARRAY['supplier_identity']
+    AND private.document_restriction('contract', 'supplier') = ARRAY['supplier_identity', 'supplier_terms']
+    AND private.document_restriction('spec_sheet', 'product') = '{}'
+    AND NOT has_function_privilege('authenticated', 'private.transfer_withhold()', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'private.transfer_to_client(uuid,uuid)', 'EXECUTE')
+    AND (SELECT p.prosecdef AND p.proconfig @> ARRAY['search_path=""'] FROM pg_proc p
+         WHERE p.oid = 'private.transfer_withhold()'::REGPROCEDURE),
+    'the kinds a client never receives; the withholding is out of the users'' reach'
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- G. A copy inside the company, MOESA LTD → MOESA Europe: C1 is for clients only, so everything
+-- arrives; and a copied file keeps the restriction its source rows gave it (I1).
+
+UPDATE public.transfer SET files_status = 'done';
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT private.impersonate_scope(current_setting('test.akif')::UUID, current_setting('test.p')::UUID,
+                                 ARRAY[current_setting('test.p')::UUID, current_setting('test.e')::UUID]);
+SELECT set_config('test.rg', public.transfer_products(current_setting('test.p')::UUID, current_setting('test.e')::UUID,
+                                                      ARRAY[current_setting('test.zp')::UUID], 'copy',
+                                                      jsonb_build_object('report_hash', public.transfer_products(
+                                                          current_setting('test.p')::UUID, current_setting('test.e')::UUID,
+                                                          ARRAY[current_setting('test.zp')::UUID], 'copy') ->> 'report_hash'),
+                                                      FALSE)::TEXT, TRUE);
+RESET ROLE;
+SELECT private.unimpersonate();
+
+SELECT ok(
+    current_setting('test.rg')::JSONB -> 'report' -> 'excluded' = '[]'::JSONB
+    AND current_setting('test.rg')::JSONB -> 'report' -> 'excluded_rows' = '{}'::JSONB
+    AND current_setting('test.rg')::JSONB -> 'report' -> 'blanked' = '[]'::JSONB,
+    'a copy inside the company leaves nothing out and resets nothing'
+);
+SELECT ok(
+    (SELECT d.notes = 'supplier price 4.20 USD' FROM public.document d
+     WHERE d.tenant_id = current_setting('test.e')::UUID
+       AND d.entity_id = pg_temp.mapped(current_setting('test.rg')::JSONB, 'product', 'zp') AND d.type = 'pi')
+    AND (SELECT p.notes FROM public.product p WHERE p.id = pg_temp.mapped(current_setting('test.rg')::JSONB, 'product', 'zp')) = 'Provider note 073'
+    AND (SELECT c.notes FROM public.market_cell c WHERE c.tenant_id = current_setting('test.e')::UUID
+           AND c.product_id = pg_temp.mapped(current_setting('test.rg')::JSONB, 'product', 'zp')) = 'Cell note 073'
+    AND pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_pi') IS NOT NULL
+    AND pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_dual') IS NOT NULL,
+    'the pi document with its file and note, and the product''s and cell''s notes, arrive in MOESA Europe'
+);
+SELECT is(private.media_restriction(pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_dual')), ARRAY['supplier_identity'],
+          'I1: the gallery file a provider order also uses stays supplier_identity-restricted where only its gallery link was copied');
+SELECT ok(
+    private.media_restriction(pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_img')) = '{}'
+    AND private.media_restriction(pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_pi')) = ARRAY['supplier_terms']
+    AND NOT EXISTS (SELECT 1 FROM private.media_restriction_hold h
+                    WHERE h.media_id IN (pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_img'),
+                                         pg_temp.mapped(current_setting('test.rg')::JSONB, 'media', 'zp_pi'))),
+    'a file whose copied rows give it its restriction (or none) gets no hold'
 );
 
 SELECT * FROM finish();

@@ -58,6 +58,18 @@ const counts = computed(() =>
 );
 
 const excludedList = computed(() => (report.value?.excluded ?? []).map(tableLabel).join(', '));
+// C1: into a client, the rows a client may not read stay behind and provider-only columns are emptied.
+const withheldList = computed(() =>
+   Object.entries(report.value?.excluded_rows ?? {})
+      .filter(([, rows]) => rows > 0)
+      .map(([table, rows]) => `${tableLabel(table)} (${rows})`)
+      .join(', ')
+);
+const blankedList = computed(() =>
+   (report.value?.blanked ?? [])
+      .map(({ table, column, rows }) => `${tableLabel(table)}: ${columnLabel(column)} (${rows})`)
+      .join(', ')
+);
 const linksList = computed(() =>
    Object.entries(report.value?.left_behind_links ?? {})
       .map(([table, rows]) => `${tableLabel(table)} (${rows})`)
@@ -77,6 +89,17 @@ const gapText = (gap: { rule: string; source_id: string; table: string }) => {
       <Message v-if="report.excluded.length" severity="info" data-excluded>
          <span class="font-semibold">{{ $t('ops.transfer.report.excluded_title') }}</span>
          {{ $t('ops.transfer.report.excluded', { list: excludedList }) }}
+      </Message>
+
+      <Message v-if="withheldList || blankedList" severity="info" data-withheld>
+         <span class="font-semibold">{{ $t('ops.transfer.report.withheld_title') }}</span>
+         {{ $t('ops.transfer.report.withheld_intro') }}
+         <span v-if="withheldList" data-withheld-rows>
+            {{ $t('ops.transfer.report.withheld', { list: withheldList }) }}
+         </span>
+         <span v-if="blankedList" data-blanked>
+            {{ $t('ops.transfer.report.blanked', { list: blankedList }) }}
+         </span>
       </Message>
 
       <section class="flex flex-col gap-2">

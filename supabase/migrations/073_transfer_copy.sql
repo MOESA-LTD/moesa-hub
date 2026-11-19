@@ -89,6 +89,11 @@
 --       public.media delete in the source: transfer_permissions_required otherwise.
 --   L3  in a move, transfer_write raises transfer_package_invalid rather than drop a row the move
 --       already removed from the source.
+--   I1  (final review) a copied file keeps the read restriction its source rows gave it: the groups
+--       private.media_restriction gives the source file (taken by transfer_build_map, before a move
+--       removes anything) that the rows copied with it do not give the new file are held for the new
+--       file (private.media_restriction_hold, which the restated media_restriction reads), so a file
+--       that was also a purchase order's, or a supplier's, stays as restricted in the target.
 --   I2  a move removes the source's file rows that only the moved rows used (transfer_delete_source),
 --       lists their objects with keep_source FALSE so the service removes them after the copy, and
 --       holds the read restriction they had (private.media_restriction_hold, read by the restated
@@ -287,6 +292,18 @@ BEGIN
     DELETE FROM pg_temp.transfer_map f
     WHERE f.table_name = 'media'
       AND f.source_id IN (SELECT u.source_id FROM private.transfer_unused_media(conflicts, picks) u);
+
+    -- I1 (final review): each copied file's restriction in the source, before a move removes anything.
+    IF to_regclass('pg_temp.transfer_media_groups') IS NOT NULL THEN
+        DROP TABLE pg_temp.transfer_media_groups;
+    END IF;
+
+    CREATE TEMP TABLE transfer_media_groups (source_id UUID PRIMARY KEY, groups TEXT[] NOT NULL) ON COMMIT DROP;
+
+    INSERT INTO pg_temp.transfer_media_groups (source_id, groups)
+    SELECT m.source_id, private.media_restriction(m.source_id)
+    FROM pg_temp.transfer_map m
+    WHERE m.table_name = 'media' AND NOT m.mapped;
 END;
 $$;
 
@@ -580,6 +597,17 @@ BEGIN
         listed := listed || private.transfer_write(transfer_apply_copy.transfer_id, reg.table_name);
     END LOOP;
 
+    -- I1 (final review): a copied file whose source restriction the copied rows do not all give it
+    -- keeps that restriction in the target.
+    INSERT INTO private.media_restriction_hold (media_id, tenant_id, groups)
+    SELECT m.target_id, t.tenant_id, g.groups
+    FROM pg_temp.transfer_media_groups g
+    JOIN pg_temp.transfer_map m ON m.table_name = 'media' AND m.source_id = g.source_id AND NOT m.mapped
+    JOIN public.transfer t ON t.id = transfer_apply_copy.transfer_id
+    WHERE cardinality(g.groups) > 0
+      AND NOT (g.groups <@ private.media_restriction(m.target_id))
+    ON CONFLICT (media_id) DO UPDATE SET groups = EXCLUDED.groups;
+
     UPDATE public.transfer t
     SET id_map = coalesce((
             SELECT jsonb_object_agg(g.table_name, g.ids)
@@ -770,13 +798,13 @@ BEGIN
 
     excluded := private.transfer_excluded(source_tenant, target_tenant);
 
-    PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded);
+    PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded, target_tenant);
 
     -- 073: a real run locks the package, then reads it again: what a concurrent writer committed
     -- before the lock is in it, and nothing in it changes until commit.
     IF NOT coalesce(rehearse, TRUE) THEN
         PERFORM private.transfer_lock_rows();
-        PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded);
+        PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded, target_tenant);
         PERFORM private.transfer_lock_rows();
     END IF;
 

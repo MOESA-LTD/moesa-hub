@@ -2544,7 +2544,11 @@
             "cleared_item": "{table}.{column}: {rows}",
             "settings_gaps": "Missing under the target's settings",
             "spec_sheet_required": "{label}: the target requires a signed spec sheet",
-            "files": "Files to copy: {count}"
+            "files": "Files to copy: {count}",
+            "withheld_title": "Provider-only data stays with you",
+            "withheld_intro": "The target is your client, and a client never sees supplier documents, restricted files or your internal notes.",
+            "withheld": "Not transferred: {list}.",
+            "blanked": "Emptied in the copies: {list}."
          },
          "conflict_kind": {
             "supplier_code": "Supplier code",

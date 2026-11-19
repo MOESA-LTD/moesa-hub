@@ -66,6 +66,15 @@ export const transferReportSchema = z.object({
    counts: z.record(z.string(), z.number()),
    /** Tables left out because the target is a client of the source (supplier, sourcing, ...). */
    excluded: z.array(z.string()),
+   /**
+    * {table: n}: rows left out because the target is a client of the source and a client may not
+    * read them (restricted documents, restricted files and their links). Absent in older reports.
+    */
+   excluded_rows: z.record(z.string(), z.number()).default({}),
+   /** Provider-only columns emptied in the copies into a client, with the rows that had a value. */
+   blanked: z
+      .array(z.object({ table: z.string(), column: z.string(), rows: z.number() }))
+      .default([]),
    conflicts: z.array(conflictSchema),
    /** The source's rows outside the package that refer to a package row. */
    left_behind: z.array(

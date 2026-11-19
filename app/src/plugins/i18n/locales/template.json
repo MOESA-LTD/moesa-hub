@@ -742,5 +742,15 @@
    "signed_in": {
       "as": "",
       "not_you": ""
+   },
+   "ops": {
+      "transfer": {
+         "report": {
+            "withheld_title": "",
+            "withheld_intro": "",
+            "withheld": "",
+            "blanked": ""
+         }
+      }
    }
 }

@@ -520,7 +520,20 @@ $$;
 --                            sides are matched by company: a relationship held anywhere in the
 --                            source's company names a client anywhere in the target's company, so a
 --                            branch of the provider (or a copy through one first) carries nothing
---                            the company itself could not.
+--                            the company itself could not. private.transfer_to_client is that test.
+-- private.document_restriction  The field groups a document's kind gives its file: the document arms
+--                            of private.media_restriction (060), for a row not yet written.
+-- private.transfer_withhold  C1 (final review): into a client of the source (transfer_to_client) a
+--                            transfer carries nothing the client may not read (decision 7, Goals:
+--                            supplier terms and provider-internal notes never reach the client
+--                            tenant, owner included). Out of the collected package go every document
+--                            whose kind is restricted (document_restriction), every file whose
+--                            restriction in the source is not empty (media_restriction), and what
+--                            goes with them (their links, a document on such a file); they are
+--                            listed in pg_temp.transfer_withheld. In every row left, each column the
+--                            catalog classifies sensitive and not client_visible is reset to its
+--                            default (NULL without one): internal notes, costs, supplier fields, and
+--                            any such column added later; pg_temp.transfer_blanked counts them.
 -- private.transfer_collect   Fills pg_temp.transfer_rows and transfer_edges (dropped at commit) with
 --                            the package, walked in registry order. Every row is the source's own
 --                            (tenant_id = source): a shared row of another tenant never comes in.
@@ -531,7 +544,8 @@ $$;
 --                            - the documents and media links of a package row ((entity_type,
 --                              entity_id)); the files they use, copy_only (another row may use them).
 --                            A collected row carrying a client_tenant_id stops the run (an internal
---                            error: the filters above make it impossible).
+--                            error: the filters above make it impossible). Given the target, a
+--                            transfer into a client of the source is withheld from (transfer_withhold).
 -- private.transfer_references  The columns of the registry tables that hold the id of a row of a
 --                            registry table, through the foreign keys between them.
 -- private.transfer_omission_closure(s)  The package rows that go with seed rows: a NOT NULL reference,
@@ -543,8 +557,11 @@ $$;
 --                            codes only: never a value of a row (no SKU, name, price or file name), so
 --                            nothing the caller could not read reaches it:
 --                            {mode, source_tenant, target_tenant, product_ids, counts, excluded,
---                             conflicts, left_behind, left_behind_links, cleared, settings_gaps, files,
---                             unresolved, report_hash}
+--                             excluded_rows, blanked, conflicts, left_behind, left_behind_links,
+--                             cleared, settings_gaps, files, unresolved, report_hash}
+--                            - excluded: the tables left out whole (F5); excluded_rows {table: n}: the
+--                              rows transfer_withhold left out; blanked [{table, column, rows}]: the
+--                              columns it reset, with the number of rows that had a value.
 --                            - counts {table: n}: the rows the run writes, after the decisions.
 --                            - conflicts [{key, kind, table, source_id, existing_id, actions,
 --                              skip_drops?, taken?}]: supplier_code (key supplier:<id>; map, new_code),
@@ -557,7 +574,9 @@ $$;
 --                              the source's rows outside the package that refer to a package row
 --                              (through any foreign key, or an incident's entity), counted; blocks when
 --                              a move could not remove the package row without breaking or deleting
---                              them (a move refuses then: transfer_product_in_use).
+--                              them (a move refuses then: transfer_product_in_use). In a move, a
+--                              withheld document or link on a package row blocks too: the move would
+--                              leave it naming a removed row.
 --                            - left_behind_links {table: n}: rows of other tenants that reference a
 --                              package row through a client link (sourcing, purchase_order_line with
 --                              product_tenant_id = source, an incident's entity_tenant_id): a move
@@ -757,8 +776,8 @@ $$;
 
 REVOKE ALL ON FUNCTION private.transfer_refusal (UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated;
 
--- F5 (see the header): the procurement tables left out of this transfer.
-CREATE OR REPLACE FUNCTION private.transfer_excluded (p_source UUID, p_target UUID) RETURNS TEXT[] LANGUAGE sql STABLE SECURITY DEFINER
+-- F5 (see the header): the target is a client (active or ended) of the source, by company.
+CREATE OR REPLACE FUNCTION private.transfer_to_client (p_source UUID, p_target UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
 SET
    search_path = '' AS $$
     WITH source_company AS (
@@ -767,7 +786,7 @@ SET
     target_company AS (
         SELECT e.company_id FROM private.entitlements(ARRAY[p_target]) e
     )
-    SELECT CASE WHEN EXISTS (
+    SELECT EXISTS (
         SELECT 1
         FROM public.provider_relationship r
         CROSS JOIN LATERAL (SELECT e.company_id FROM private.entitlements(ARRAY[r.client_tenant_id]) e) client
@@ -775,10 +794,111 @@ SET
         WHERE r.status IN ('active', 'ended')
           AND client.company_id IN (SELECT t.company_id FROM target_company t)
           AND (r.procurement_model = 'provider' OR provider.company_id IN (SELECT c.company_id FROM source_company c))
-    ) THEN ARRAY['supplier', 'supplier_contact', 'sourcing'] ELSE '{}'::TEXT[] END;
+    );
+$$;
+
+REVOKE ALL ON FUNCTION private.transfer_to_client (UUID, UUID) FROM PUBLIC, anon, authenticated;
+
+-- F5 (see the header): the procurement tables left out of this transfer.
+CREATE OR REPLACE FUNCTION private.transfer_excluded (p_source UUID, p_target UUID) RETURNS TEXT[] LANGUAGE sql STABLE SECURITY DEFINER
+SET
+   search_path = '' AS $$
+    SELECT CASE WHEN private.transfer_to_client(p_source, p_target)
+                THEN ARRAY['supplier', 'supplier_contact', 'sourcing'] ELSE '{}'::TEXT[] END;
 $$;
 
 REVOKE ALL ON FUNCTION private.transfer_excluded (UUID, UUID) FROM PUBLIC, anon, authenticated;
+
+-- The groups a document's kind gives its file (see the header): media_restriction's document arms,
+-- written over the same names (d.type, d.entity_type), so 073_transfer_copy.test.sql holds the two
+-- together.
+CREATE OR REPLACE FUNCTION private.document_restriction (p_type public.document_type, p_entity public.document_entity) RETURNS TEXT[] LANGUAGE sql IMMUTABLE
+SET
+   search_path = '' AS $$
+    SELECT coalesce(array_agg(g.grp ORDER BY g.grp), '{}'::TEXT[])
+    FROM (SELECT p_type AS type, p_entity AS entity_type) d
+    CROSS JOIN LATERAL (
+        SELECT 'supplier_identity' AS grp
+        WHERE d.entity_type IN ('supplier', 'purchase_order')
+        UNION ALL
+        SELECT 'supplier_terms'
+        WHERE d.type IN ('pi', 'commercial_invoice', 'po') OR (d.type = 'contract' AND d.entity_type = 'supplier')
+    ) g;
+$$;
+
+REVOKE ALL ON FUNCTION private.document_restriction (public.document_type, public.document_entity) FROM PUBLIC, anon, authenticated;
+
+-- C1 (see the header): out of the package into a client, what the client may not read. Runs on the
+-- collected pg_temp.transfer_rows and transfer_edges.
+CREATE OR REPLACE FUNCTION private.transfer_withhold () RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    restricted_media UUID[];
+    withheld BIGINT[];
+    col RECORD;
+    blank JSONB;
+    n BIGINT;
+BEGIN
+    -- The files the source restricts (by any of its links, documents or holds).
+    restricted_media := ARRAY(
+        SELECT r.source_id FROM pg_temp.transfer_rows r
+        WHERE r.table_name = 'media' AND cardinality(private.media_restriction(r.source_id)) > 0
+    );
+
+    -- Those files, the restricted documents, the documents on such a file, and what goes with them
+    -- (a link names its file NOT NULL; a document's file may be NULL, so it is named here).
+    withheld := ARRAY(
+        SELECT c.seq FROM private.transfer_omission_closure(ARRAY(
+            SELECT r.seq FROM pg_temp.transfer_rows r
+            WHERE (r.table_name = 'media' AND r.source_id = ANY (restricted_media))
+               OR (r.table_name = 'document'
+                   AND (cardinality(private.document_restriction((r.row ->> 'type')::public.document_type,
+                                                                 (r.row ->> 'entity_type')::public.document_entity)) > 0
+                        OR (r.row ->> 'media_id')::UUID = ANY (restricted_media)))
+        )) c
+    );
+
+    INSERT INTO pg_temp.transfer_withheld (table_name, source_id, row)
+    SELECT r.table_name, r.source_id, r.row FROM pg_temp.transfer_rows r WHERE r.seq = ANY (withheld);
+
+    DELETE FROM pg_temp.transfer_edges e WHERE e.parent = ANY (withheld) OR e.child = ANY (withheld);
+    DELETE FROM pg_temp.transfer_rows r WHERE r.seq = ANY (withheld);
+
+    -- Every provider-only column of the rows left, from the catalog: its default, or NULL.
+    FOR col IN
+        SELECT g.table_name, f.field, a.attnotnull AS not_null, pg_catalog.pg_get_expr(d.adbin, d.adrelid) AS default_expr
+        FROM private.transfer_registry g
+        JOIN public.field_class f ON f.resource_name = 'public.' || g.table_name AND f.class = 'sensitive' AND NOT f.client_visible
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = format('public.%I', g.table_name)::REGCLASS AND a.attname = f.field
+         AND NOT a.attisdropped AND a.attgenerated = ''
+        LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE EXISTS (SELECT 1 FROM pg_temp.transfer_rows r WHERE r.table_name = g.table_name)
+        ORDER BY g.position, f.field
+    LOOP
+        IF col.default_expr IS NOT NULL THEN
+            EXECUTE format('SELECT to_jsonb(%s)', col.default_expr) INTO blank;
+        ELSIF col.not_null THEN
+            -- A provider-only column with neither a default nor NULL (073_transfer_copy.test.sql
+            -- asserts there is none).
+            RAISE EXCEPTION 'transfer_package_invalid';
+        ELSE
+            blank := 'null'::JSONB;
+        END IF;
+
+        UPDATE pg_temp.transfer_rows r
+        SET row = r.row || jsonb_build_object(col.field, coalesce(blank, 'null'::JSONB))
+        WHERE r.table_name = col.table_name AND coalesce(r.row -> col.field, 'null'::JSONB) IS DISTINCT FROM coalesce(blank, 'null'::JSONB);
+        GET DIAGNOSTICS n = ROW_COUNT;
+
+        IF n > 0 THEN
+            INSERT INTO pg_temp.transfer_blanked (table_name, column_name, rows) VALUES (col.table_name, col.field, n);
+        END IF;
+    END LOOP;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.transfer_withhold () FROM PUBLIC, anon, authenticated;
 
 -- The references between registry tables (see the header).
 CREATE OR REPLACE FUNCTION private.transfer_references () RETURNS TABLE (
@@ -805,8 +925,14 @@ $$;
 
 REVOKE ALL ON FUNCTION private.transfer_references () FROM PUBLIC, anon, authenticated;
 
--- The package into pg_temp.transfer_rows (see the header). p_exclude: the tables left out (F5).
-CREATE OR REPLACE FUNCTION private.transfer_collect (p_source UUID, p_product_ids UUID[], p_exclude TEXT[] DEFAULT '{}') RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
+-- The package into pg_temp.transfer_rows (see the header). p_exclude: the tables left out (F5);
+-- p_target: the target, whose being a client of the source withholds more (C1).
+CREATE OR REPLACE FUNCTION private.transfer_collect (
+   p_source UUID,
+   p_product_ids UUID[],
+   p_exclude TEXT[] DEFAULT '{}',
+   p_target UUID DEFAULT NULL
+) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
 DECLARE
@@ -829,6 +955,29 @@ BEGIN
     IF to_regclass('pg_temp.transfer_rows') IS NOT NULL THEN
         DROP TABLE pg_temp.transfer_rows;
     END IF;
+
+    IF to_regclass('pg_temp.transfer_withheld') IS NOT NULL THEN
+        DROP TABLE pg_temp.transfer_withheld;
+    END IF;
+
+    IF to_regclass('pg_temp.transfer_blanked') IS NOT NULL THEN
+        DROP TABLE pg_temp.transfer_blanked;
+    END IF;
+
+    -- C1: what a transfer into a client leaves out, and the columns it resets.
+    CREATE TEMP TABLE transfer_withheld (
+        table_name TEXT NOT NULL,
+        source_id UUID NOT NULL,
+        row JSONB NOT NULL,
+        PRIMARY KEY (table_name, source_id)
+    ) ON COMMIT DROP;
+
+    CREATE TEMP TABLE transfer_blanked (
+        table_name TEXT NOT NULL,
+        column_name TEXT NOT NULL,
+        rows BIGINT NOT NULL,
+        PRIMARY KEY (table_name, column_name)
+    ) ON COMMIT DROP;
 
     CREATE TEMP TABLE transfer_rows (
         seq BIGSERIAL PRIMARY KEY,
@@ -940,12 +1089,17 @@ BEGIN
     JOIN pg_temp.transfer_rows o ON o.table_name = e.table_name AND o.source_id::TEXT = r.row ->> 'entity_id'
     WHERE r.table_name IN ('document', 'media_link');
 
+    -- C1: into a client of the source, nothing a client may not read.
+    IF p_target IS NOT NULL AND private.transfer_to_client(p_source, p_target) THEN
+        PERFORM private.transfer_withhold();
+    END IF;
+
     ANALYZE pg_temp.transfer_rows;
     ANALYZE pg_temp.transfer_edges;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION private.transfer_collect (UUID, UUID[], TEXT[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.transfer_collect (UUID, UUID[], TEXT[], UUID) FROM PUBLIC, anon, authenticated;
 
 -- The rows that go with each seed row, seeds included, in one walk: (seed, seq).
 CREATE OR REPLACE FUNCTION private.transfer_omission_closures (seeds BIGINT[]) RETURNS TABLE (seed BIGINT, seq BIGINT) LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -1336,6 +1490,25 @@ BEGIN
         ), '[]');
     END LOOP;
 
+    -- C1: a withheld document or link on a package row stays in the source; a move would leave it
+    -- naming a removed row, so it blocks.
+    IF p_mode = 'move' THEN
+        left_behind := left_behind || coalesce((
+            SELECT jsonb_agg(jsonb_build_object(
+                'table', w.table_name, 'column', 'entity_id', 'refers_to', w.refers_to,
+                'refers_to_id', w.ref_id, 'rows', w.n, 'blocks', TRUE
+            ))
+            FROM (
+                SELECT x.table_name, e.table_name AS refers_to, x.row ->> 'entity_id' AS ref_id, count(*) AS n
+                FROM pg_temp.transfer_withheld x
+                JOIN private.transfer_registry e ON e.entity::TEXT = x.row ->> 'entity_type'
+                JOIN pg_temp.transfer_rows r ON r.table_name = e.table_name AND r.source_id::TEXT = x.row ->> 'entity_id' AND NOT r.copy_only
+                WHERE x.table_name IN ('document', 'media_link')
+                GROUP BY 1, 2, 3
+            ) w
+        ), '[]');
+    END IF;
+
     left_behind := coalesce((
         SELECT jsonb_agg(e ORDER BY e ->> 'table', e ->> 'column', e ->> 'refers_to', e ->> 'refers_to_id')
         FROM jsonb_array_elements(left_behind) e
@@ -1423,6 +1596,17 @@ BEGIN
         'product_ids', (SELECT coalesce(to_jsonb(array_agg(DISTINCT p ORDER BY p)), '[]'::JSONB) FROM unnest(p_product_ids) AS p),
         'counts', counts,
         'excluded', to_jsonb(coalesce(p_excluded, '{}'::TEXT[])),
+        -- C1: counts and column names only.
+        'excluded_rows', (
+            SELECT coalesce(jsonb_object_agg(w.table_name, w.n), '{}')
+            FROM (SELECT x.table_name, count(*) AS n FROM pg_temp.transfer_withheld x GROUP BY 1) w
+        ),
+        'blanked', (
+            SELECT coalesce(jsonb_agg(jsonb_build_object('table', b.table_name, 'column', b.column_name, 'rows', b.rows)
+                                      ORDER BY g.position, b.column_name), '[]')
+            FROM pg_temp.transfer_blanked b
+            JOIN private.transfer_registry g ON g.table_name = b.table_name
+        ),
         'conflicts', conflicts,
         'left_behind', left_behind,
         'left_behind_links', coalesce((
@@ -1592,7 +1776,7 @@ BEGIN
 
     excluded := private.transfer_excluded(source_tenant, target_tenant);
 
-    PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded);
+    PERFORM private.transfer_collect(source_tenant, transfer_products.product_ids, excluded, target_tenant);
 
     -- A package file that an earlier transfer into the source has not copied yet.
     IF EXISTS (
