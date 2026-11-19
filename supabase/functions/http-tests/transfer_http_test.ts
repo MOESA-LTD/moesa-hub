@@ -400,11 +400,14 @@ t('custom headers do not bypass a guard', async () => {
    assertEquals(await count('transfer?id=not.is.null'), transfersBefore);
    assertEquals(await count('media?file_name=eq.httptr-bypass.png'), 0);
    assertEquals((await admin(`sourcing?id=eq.${f.secretId}&select=purchase_price`)).body, priceBefore);
-   // The RPC with the headers is gated like without them.
+   // The RPC with the headers is gated like without them. `params=single-object` is left out here:
+   // it changes which function PostgREST looks up (one json parameter), so the call would miss the
+   // function (PGRST202) instead of reaching the guard.
+   const { Prefer: _prefer, ...rpcTricks } = tricks;
    const r = await rest(f.restricted, 'rpc/transfer_products', {
       method: 'POST',
       profile: 'public',
-      headers: tricks,
+      headers: { ...rpcTricks, Prefer: 'tx=commit' },
       body: { source_tenant: f.moesa, target_tenant: f.europe, product_ids: [f.newProductId], mode: 'copy', decisions: null, rehearse: false },
    });
    assertRefusal(r, 'transfer_forbidden', [403], 'rpc with bypass headers');
