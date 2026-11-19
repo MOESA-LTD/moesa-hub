@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- active tenant is the scope's first); signing out: `RESET ROLE; SELECT private.unimpersonate();`.
 BEGIN;
 
-SELECT plan(109);
+SELECT plan(110);
 
 SELECT private.create_test_helpers();
 
@@ -1034,6 +1034,17 @@ SELECT is_empty($$ SELECT p.tablename FROM pg_policies p
                      AND p.tablename IN ('purchase_order', 'purchase_order_line', 'shipment_purchase_order', 'shipment_line')
                      AND p.qual !~ 'draft|purchase_order_released' $$,
                 'every client_select on an order or a row naming one excludes drafts');
+-- R10: the draft term stays inlinable. Beyond permitted_tenants (an InitPlan, once a query), no
+-- client_select there calls a SECURITY DEFINER function, which would run per row.
+SELECT is_empty($$ SELECT c.relname || ': ' || f.oid::REGPROCEDURE::TEXT
+                   FROM pg_policy p
+                   JOIN pg_class c ON c.oid = p.polrelid
+                   JOIN pg_depend d ON d.classid = 'pg_policy'::REGCLASS AND d.objid = p.oid AND d.refclassid = 'pg_proc'::REGCLASS
+                   JOIN pg_proc f ON f.oid = d.refobjid
+                   WHERE p.polname = 'client_select' AND c.relnamespace = 'public'::REGNAMESPACE
+                     AND c.relname IN ('purchase_order', 'purchase_order_line', 'shipment_purchase_order', 'shipment_line')
+                     AND f.prosecdef AND f.oid <> 'private.permitted_tenants(text,text)'::REGPROCEDURE $$,
+                'no client_select on an order or a row naming one calls a definer function per row');
 -- A shipment needs none: a draft order never joins one (031).
 SELECT throws_ok($$ INSERT INTO public.shipment_purchase_order (tenant_id, shipment_id, purchase_order_id)
                     VALUES ('00000000-0000-4000-8000-000000006701', '00000000-0000-4000-8000-000000006772', '00000000-0000-4000-8000-000000006753') $$,

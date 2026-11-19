@@ -17,7 +17,9 @@
 --                                       draft, and on the tables that name an order
 --                                       (purchase_order_line, shipment_purchase_order,
 --                                       shipment_line) that order is not a draft
---                                       (private.shared_released). A shipment and its events need no
+--                                       (private.shared_released: an EXISTS on
+--                                       private.purchase_order_released, which the planner keeps as
+--                                       an index probe per row). A shipment and its events need no
 --                                       term: an order joins a shipment only from pi_approved on
 --                                       (shipment_po_not_open, 031) and never returns to draft (030).
 --                                       The permission generator (private.manage_policies) names its
@@ -44,25 +46,26 @@
 
 -- ========================================================================================== 1. rows
 
--- Decision 20: whether the provider's order (p_order of p_tenant) has left draft. SECURITY DEFINER:
--- a policy's subquery runs with the reader's privileges, and no API role selects public tables
--- directly (only through api). It reads one order by its key and answers nothing else.
-CREATE OR REPLACE FUNCTION private.purchase_order_released (p_order UUID, p_tenant UUID) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
-SET
-   search_path = '' AS $$
-    SELECT EXISTS (
-        SELECT 1 FROM public.purchase_order o
-        WHERE o.id = p_order AND o.tenant_id = p_tenant AND o.status <> 'draft'::public.purchase_order_status
-    );
-$$;
+-- Decision 20: the orders that have left draft (id, tenant), as postgres. A view owned by postgres
+-- and selectable by api_owner alone, like private.purchase_order_live_shipment below: a policy's
+-- subquery is checked as the role reading the table, which is api_owner through the api views, and
+-- the view reads public.purchase_order as its owner (no RLS), so a client's policy can ask about the
+-- provider's order without reading it. No API role selects public tables directly. The planner
+-- keeps the EXISTS on it as an index probe (purchase_order_id_tenant_id_key) per row; a SECURITY
+-- DEFINER function there cost ~10 µs a row (R10: +3 ms on the client's order list with its lines).
+CREATE OR REPLACE VIEW private.purchase_order_released AS
+SELECT o.id, o.tenant_id
+FROM public.purchase_order o
+WHERE o.status <> 'draft'::public.purchase_order_status;
 
-ALTER FUNCTION private.purchase_order_released (UUID, UUID) OWNER TO postgres;
-REVOKE ALL ON FUNCTION private.purchase_order_released (UUID, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.purchase_order_released (UUID, UUID) TO authenticated;
+ALTER VIEW private.purchase_order_released OWNER TO postgres;
+REVOKE ALL ON private.purchase_order_released FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON private.purchase_order_released TO api_owner;
 
 -- Decision 20: the client_select term that keeps a provider's draft order, and the rows naming it,
 -- from its client ('' on a table that names no order). It follows the sharing term, so a row the
--- reader does not share never calls the function.
+-- reader does not share never runs the subquery. The table's own columns are qualified by its name
+-- (inside the subquery an unqualified tenant_id would be the view's).
 CREATE OR REPLACE FUNCTION private.shared_released (p_table TEXT) RETURNS TEXT LANGUAGE sql STABLE
 SET
    search_path = '' AS $$
@@ -70,7 +73,8 @@ SET
         WHEN p_table = 'purchase_order' THEN
             ' AND status <> ''draft''::public.purchase_order_status'
         WHEN p_table IN ('purchase_order_line', 'shipment_purchase_order', 'shipment_line') THEN
-            ' AND private.purchase_order_released(purchase_order_id, tenant_id)'
+            pg_catalog.format(' AND EXISTS (SELECT FROM private.purchase_order_released r'
+                              ' WHERE r.id = %1$I.purchase_order_id AND r.tenant_id = %1$I.tenant_id)', p_table)
         ELSE ''
     END;
 $$;

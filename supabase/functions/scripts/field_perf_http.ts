@@ -46,6 +46,9 @@ const MEASURED = [
    'public.document',
    'public.purchase_order_overview',
 ];
+// Read by the client_select draft term (067), selectable by api_owner alone: the baseline caller
+// needs it to pay the same policies. Granted and revoked with MEASURED, and checked for leaks.
+const POLICY_READ = 'private.purchase_order_released';
 
 if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(API_URL)) throw new Error('local stack only');
 
@@ -68,7 +71,8 @@ async function psql(sql: string): Promise<string> {
 
 const publicGrants = () =>
    psql(`SELECT count(*) FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) x
-      WHERE c.relnamespace = 'public'::regnamespace AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);`);
+      WHERE (c.relnamespace = 'public'::regnamespace OR c.oid = '${POLICY_READ}'::regclass)
+        AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);`);
 
 type Actor = { name: 'internal' | 'restricted' | 'mixed'; token: string; headers: Record<string, string>; label?: string };
 type Case = { name: string; path: string; method?: string; body?: unknown; prefer?: string };
@@ -179,11 +183,11 @@ try {
    ];
 
    let base: Map<string, number>;
-   await psql(`GRANT SELECT, UPDATE ON ${MEASURED.join(', ')} TO authenticated;`);
+   await psql(`GRANT SELECT, UPDATE ON ${MEASURED.join(', ')} TO authenticated; GRANT SELECT ON ${POLICY_READ} TO authenticated;`);
    try {
       base = await measure(runs, 'public');
    } finally {
-      await psql(`REVOKE SELECT, UPDATE ON ${MEASURED.join(', ')} FROM authenticated;`);
+      await psql(`REVOKE SELECT, UPDATE ON ${MEASURED.join(', ')} FROM authenticated; REVOKE SELECT ON ${POLICY_READ} FROM authenticated;`);
       const left = await publicGrants();
       if (left !== '0') {
          console.error(`LEAK: ${left} public ACL entries for anon/authenticated remain after the baseline`);

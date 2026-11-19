@@ -27,6 +27,9 @@ SELECT private.create_test_helpers();
 GRANT SELECT ON public.product, public.sourcing, public.supplier, public.purchase_order, public.purchase_order_line,
     public.purchase_order_payment, public.project, public.document, public.purchase_order_overview,
     public.provider_relationship TO authenticated;
+-- The client_select draft term (067) reads this view, selectable by api_owner alone; the baseline
+-- caller needs it to pay the same policies.
+GRANT SELECT ON private.purchase_order_released TO authenticated;
 
 -- Median planning + execution ms of `base` and `api`, alternating, after one warm-up of each.
 CREATE FUNCTION t.perf_pair (base TEXT, api TEXT, n INT DEFAULT 5) RETURNS TABLE (base_ms NUMERIC, api_ms NUMERIC)

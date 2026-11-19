@@ -18,6 +18,9 @@ GRANT authenticated TO t_fwd;
 GRANT USAGE, CREATE ON SCHEMA t TO t_fwd;
 GRANT ALL ON public.market_cell, public.platform_account, public.purchase_order_line, public.purchase_order_payment,
    public.shipment_line, public.shipment_purchase_order, public.incident_log TO t_fwd;
+-- The client_select draft term (067) reads private.purchase_order_released, which only the role the
+-- api views run as may select; t_fwd stands in for it here.
+GRANT SELECT ON private.purchase_order_released TO t_fwd;
 
 -- t.<table>: a view over the base table whose INSTEAD OF trigger (SECURITY DEFINER, owner t_fwd)
 -- applies the update or delete to the base row by id. shipment_purchase_order has no id: its key is
