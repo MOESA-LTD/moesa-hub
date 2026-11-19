@@ -563,7 +563,9 @@ describe('mapPostgrestError', () => {
       ['provider_link_forbidden', '23514'],
       ['order_tenant_immutable', '23514'],
       ['incident_entity_tenant_immutable', '23514'],
-      ['cost_link_forbidden', '42501']
+      ['cost_link_forbidden', '42501'],
+      // A client tenant a relationship names is not deleted (071, F14).
+      ['tenant_has_provider_relationship', '23503']
    ])('maps the provider link error %s to a toast, in Turkish and English', (name, code) => {
       const [entry] = NAMED_ERRORS.filter((error) => error.name === name);
       expect(entry).toMatchObject({ code, message: `errors.${name}` });

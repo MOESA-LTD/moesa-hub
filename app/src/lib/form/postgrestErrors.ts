@@ -463,7 +463,13 @@ export const NAMED_ERRORS: { code: string; name: string; field?: string; message
       message: 'errors.relationship_end_forbidden'
    },
    // A client may not write the cost of a request or an incident line on a provider's order.
-   { code: '42501', name: 'cost_link_forbidden', message: 'errors.cost_link_forbidden' }
+   { code: '42501', name: 'cost_link_forbidden', message: 'errors.cost_link_forbidden' },
+   // A client tenant is not deleted while a provider relationship names it (071, F14).
+   {
+      code: '23503',
+      name: 'tenant_has_provider_relationship',
+      message: 'errors.tenant_has_provider_relationship'
+   }
 ];
 
 /**

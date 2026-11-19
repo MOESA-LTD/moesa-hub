@@ -9374,6 +9374,15 @@ export type Database = {
       }
     }
     Functions: {
+      accept_provider_invitation: {
+        Args: {
+          p_user: string
+          p_token: string
+          p_company: Json
+          p_plan_id: string
+        }
+        Returns: Json
+      }
       actor: {
         Args: {
           "": unknown
@@ -9508,6 +9517,12 @@ export type Database = {
           packages: string[]
         }
         Returns: Database["public"]["Enums"]["project_phase"]
+      }
+      invitation_preview: {
+        Args: {
+          token: string
+        }
+        Returns: Json
       }
       is_super_admin: {
         Args: {

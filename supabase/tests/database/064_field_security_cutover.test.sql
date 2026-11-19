@@ -113,6 +113,12 @@ SELECT private.unimpersonate();
 --   invitations in the invitation's tenant; an unknown id is refused with the same 42501 as a
 --   forbidden one. It returns nothing (VOID) and deletes the token hash; it never reads or returns it.
 --   The invitation's other two functions (create, rotate) are granted to the service role alone.
+--   invitation_preview (071): the caller is auth.uid(); it answers only for the invitation behind the
+--   token it is given, and only when the caller's confirmed auth.users e-mail is the invited one,
+--   else {"error"} (a mismatch is counted, 10 lock the invitation; 30 previews per user per 10
+--   minutes). It returns the invitation's terms, the seat count and the active plans: no staff
+--   identity, token or hash, and it writes nothing but those counters. accept_provider_invitation is
+--   granted to the service role alone (F1) and is not listed.
 --   client_procurement (018, owned by api_owner): returns only the procurement model and status of
 --   the relationships naming the active tenant (private.tenant_id(), checked against the user's
 --   tenants) as the client, through private.client_procurement, granted to api_owner alone. No
@@ -130,6 +136,7 @@ SELECT results_eq($$ SELECT format('%s.%s', n.nspname, p.proname) COLLATE "defau
    ('public.delete_branch'),
    ('public.end_provider_relationship'),
    ('public.import_products'),
+   ('public.invitation_preview'),
    ('public.listing_begin_submission'),
    ('public.listing_parent_cell'),
    ('public.managed_in'),

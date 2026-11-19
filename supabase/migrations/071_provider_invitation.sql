@@ -532,3 +532,296 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION private.audit_service_actor () FROM PUBLIC, anon, authenticated;
+
+-- Section 2: preview and one-step acceptance (decision 16). The customer opens the link, signed in
+-- with the invited e-mail, sees the terms and the plans, and accepts: their own tenant (they own it,
+-- on the plan they chose), the relationship with the provider, and the provider staff named on the
+-- invitation in their roles, in one transaction.
+--
+--   private.invitation_attempt                 attempts per key in a window (the throttles).
+--   private.invitation_throttle(key, limit, w) counts one attempt; TRUE while within the limit.
+--   private.invitation_open(user, token)       finds and locks the invitation behind a token and
+--                                              checks it for the user (shared by both below).
+--   public.invitation_preview(token) → JSONB   authenticated (auth.uid()); consumes nothing.
+--   public.accept_provider_invitation(p_user, p_token, p_company, p_plan_id) → JSONB
+--                                              service role only (F1): the provider-invitation Edge
+--                                              Function, p_user from the verified JWT.
+--
+-- Refusals before the first write return {"error": code} and do not raise (F2), so the attempt
+-- counts and failed_attempts they wrote commit: invitation_throttled (preview:<uid> 30 per 10
+-- minutes, accept:<uid> 10 per hour), invitation_invalid (unknown, used, revoked, expired, or locked
+-- by 10 failed attempts until a resend), invitation_email_mismatch (the user's confirmed e-mail is
+-- not the invited one; counted), invitation_payload_invalid, plan_inactive. A failure after the
+-- first write raises and leaves nothing: company_email_exists, company_phone_exists,
+-- company_name_exists (23505), invitation_payload_invalid (23514), plan_limit_users.
+CREATE TABLE private.invitation_attempt (
+   key TEXT PRIMARY KEY,
+   window_start TIMESTAMPTZ NOT NULL,
+   count INT NOT NULL
+);
+
+ALTER TABLE private.invitation_attempt OWNER TO postgres;
+
+ALTER TABLE private.invitation_attempt ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE private.invitation_attempt FROM PUBLIC, anon, authenticated, service_role, api_owner;
+
+-- One attempt under p_key: a window of p_window opens with the first attempt; within it at most
+-- p_limit attempts pass. The count stops at p_limit + 1, so a refused caller cannot overflow it.
+CREATE OR REPLACE FUNCTION private.invitation_throttle (p_key TEXT, p_limit INT, p_window INTERVAL) RETURNS BOOLEAN LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_count INT;
+BEGIN
+    INSERT INTO private.invitation_attempt AS a (key, window_start, count)
+    VALUES (p_key, now(), 1)
+    ON CONFLICT (key) DO UPDATE
+    SET window_start = CASE WHEN a.window_start <= now() - p_window THEN now() ELSE a.window_start END,
+        count = CASE WHEN a.window_start <= now() - p_window THEN 1 ELSE least(a.count + 1, p_limit + 1) END
+    RETURNING a.count INTO v_count;
+    RETURN v_count <= p_limit;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.invitation_throttle (TEXT, INT, INTERVAL) FROM PUBLIC, anon, authenticated, service_role;
+
+-- The invitation behind p_token, for p_user: its id, or the refusal. Looks the hash up, then locks
+-- the invitation (FOR UPDATE, so concurrent accepts, resends and revokes are serialised) and checks
+-- the hash again under the lock, as a resend or revoke may have replaced it meanwhile. One answer,
+-- invitation_invalid, for unknown, accepted, revoked, expired and locked. The e-mail is proven by
+-- auth.users (F1): the user's address, confirmed, is the invited one; else the failed attempt is
+-- counted and invitation_email_mismatch returned (the caller returns it without raising, F2).
+CREATE OR REPLACE FUNCTION private.invitation_open (p_user UUID, p_token TEXT, OUT invitation_id UUID, OUT error TEXT) LANGUAGE plpgsql
+SET
+   search_path = '' AS $$
+DECLARE
+    v_hash BYTEA;
+    v_id UUID;
+    inv public.provider_invitation;
+    v_email TEXT;
+    v_confirmed TIMESTAMPTZ;
+BEGIN
+    IF p_user IS NULL OR p_token IS NULL OR length(p_token) > 256 THEN
+        error := 'invitation_invalid';
+        RETURN;
+    END IF;
+
+    v_hash := extensions.digest(p_token, 'sha256');
+    SELECT t.invitation_id INTO v_id FROM private.provider_invitation_token t WHERE t.token_hash = v_hash;
+    IF v_id IS NOT NULL THEN
+        SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id FOR UPDATE;
+        IF NOT EXISTS (SELECT 1 FROM private.provider_invitation_token t WHERE t.invitation_id = v_id AND t.token_hash = v_hash) THEN
+            inv := NULL;
+        END IF;
+    END IF;
+
+    IF inv.id IS NULL OR inv.status <> 'pending' OR inv.expires_at <= now() OR inv.failed_attempts >= 10 THEN
+        error := 'invitation_invalid';
+        RETURN;
+    END IF;
+
+    SELECT lower(u.email), u.email_confirmed_at INTO v_email, v_confirmed FROM auth.users u WHERE u.id = p_user;
+    IF v_confirmed IS NULL OR v_email IS DISTINCT FROM inv.email THEN
+        UPDATE public.provider_invitation i SET failed_attempts = i.failed_attempts + 1 WHERE i.id = inv.id;
+        error := 'invitation_email_mismatch';
+        RETURN;
+    END IF;
+
+    invitation_id := inv.id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.invitation_open (UUID, TEXT) FROM PUBLIC, anon, authenticated, service_role;
+
+-- What the invited user sees before accepting: the invitation's terms, the seats it needs (the owner
+-- and the staff) and the active plans. Same rules as acceptance; consumes nothing. Staff identities,
+-- the token and its hash are never returned. needs_password: the user has none yet (a magic-link
+-- sign-in), so the page asks for one.
+CREATE OR REPLACE FUNCTION public.invitation_preview (token TEXT) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    uid UUID := auth.uid();
+    v_id UUID;
+    v_error TEXT;
+    inv public.provider_invitation;
+BEGIN
+    IF uid IS NULL THEN
+        RETURN jsonb_build_object('error', 'invitation_invalid');
+    END IF;
+    IF NOT private.invitation_throttle('preview:' || uid::TEXT, 30, INTERVAL '10 minutes') THEN
+        RETURN jsonb_build_object('error', 'invitation_throttled');
+    END IF;
+
+    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(uid, invitation_preview.token) o;
+    IF v_error IS NOT NULL THEN
+        RETURN jsonb_build_object('error', v_error);
+    END IF;
+    SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
+
+    RETURN jsonb_build_object(
+        'company_name', inv.company_name,
+        'email', inv.email,
+        'provider_name', (SELECT t.display_name FROM public.tenant t WHERE t.id = inv.tenant_id),
+        'procurement_model', inv.procurement_model,
+        'contract', jsonb_build_object('commercial_model', inv.commercial_model, 'packages', to_jsonb(inv.packages),
+                                       'start_on', inv.start_on, 'deposit_rate', inv.deposit_rate),
+        'recommended_plan_id', inv.recommended_plan_id,
+        'expires_at', inv.expires_at,
+        'seats', 1 + (SELECT count(*) FROM public.provider_invitation_staff s WHERE s.invitation_id = inv.id),
+        'needs_password', (SELECT coalesce(u.encrypted_password, '') = '' FROM auth.users u WHERE u.id = uid),
+        'plans', coalesce((
+            SELECT jsonb_agg(jsonb_build_object(
+                       'id', p.id, 'display_name', p.display_name, 'description', p.description, 'audience', p.audience,
+                       'price', p.price, 'currency', p.currency, 'billing_period', p.billing_period, 'trial_days', p.trial_days,
+                       'position', p.position,
+                       'modules', coalesce((SELECT jsonb_agg(pm.module_id ORDER BY pm.module_id) FROM public.plan_module pm WHERE pm.plan_id = p.id), '[]'::JSONB),
+                       'limits', coalesce((SELECT jsonb_object_agg(pl.limit_key, pl.value) FROM public.plan_limit pl WHERE pl.plan_id = p.id), '{}'::JSONB)
+                   ) ORDER BY p.position, p.display_name)
+            FROM public.plan p
+            WHERE p.is_active
+        ), '[]'::JSONB)
+    );
+END;
+$$;
+
+-- Accepts the invitation behind p_token for p_user (F1: the service role, with p_user from the
+-- verified JWT). p_company is the new company: the keys of private.create_company, text values; its
+-- e-mail defaults to the invited one (F15). Returns {tenant_id, skipped_staff}: staff who are no
+-- longer members of the provider are skipped.
+CREATE OR REPLACE FUNCTION public.accept_provider_invitation (p_user UUID, p_token TEXT, p_company JSONB, p_plan_id UUID) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+DECLARE
+    allowed CONSTANT TEXT[] := ARRAY['display_name', 'legal_name', 'email', 'phone', 'website', 'country', 'city', 'district',
+                                     'address', 'tax_office', 'tax_number'];
+    v_id UUID;
+    v_error TEXT;
+    inv public.provider_invitation;
+    company JSONB;
+    created public.tenant;
+    v_constraint TEXT;
+    s RECORD;
+    skipped UUID[] := '{}';
+BEGIN
+    IF p_user IS NULL OR NOT EXISTS (SELECT 1 FROM public.user u WHERE u.id = p_user) THEN
+        RETURN jsonb_build_object('error', 'invitation_invalid');
+    END IF;
+
+    -- Every write below is audited as the provider-invitation function acting for p_user (F27),
+    -- whatever actor the caller's header names.
+    PERFORM set_config('request.headers',
+                       (coalesce(nullif(current_setting('request.headers', TRUE), '')::JSONB, '{}'::JSONB)
+                        || jsonb_build_object('x-audit-role', 'provider-invitation', 'x-audit-actor', p_user))::TEXT,
+                       TRUE);
+
+    IF NOT private.invitation_throttle('accept:' || p_user::TEXT, 10, INTERVAL '1 hour') THEN
+        RETURN jsonb_build_object('error', 'invitation_throttled');
+    END IF;
+
+    SELECT o.invitation_id, o.error INTO v_id, v_error FROM private.invitation_open(p_user, p_token) o;
+    IF v_error IS NOT NULL THEN
+        RETURN jsonb_build_object('error', v_error);
+    END IF;
+    SELECT * INTO inv FROM public.provider_invitation i WHERE i.id = v_id;
+
+    -- The accepter names their company only: not the model, the staff, the tenant or the owner.
+    IF jsonb_typeof(p_company) IS DISTINCT FROM 'object'
+       OR EXISTS (SELECT 1 FROM jsonb_each(p_company) AS e WHERE e.key <> ALL (allowed) OR jsonb_typeof(e.value) NOT IN ('string', 'null'))
+       OR length(btrim(coalesce(p_company ->> 'display_name', ''))) NOT BETWEEN 3 AND 200 THEN
+        RETURN jsonb_build_object('error', 'invitation_payload_invalid');
+    END IF;
+    IF p_plan_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.plan p WHERE p.id = p_plan_id AND p.is_active) THEN
+        RETURN jsonb_build_object('error', 'plan_inactive');
+    END IF;
+
+    company := p_company || jsonb_build_object('display_name', btrim(p_company ->> 'display_name'));
+    IF nullif(btrim(coalesce(company ->> 'email', '')), '') IS NULL THEN
+        company := company || jsonb_build_object('email', inv.email);
+    END IF;
+
+    -- From here a failure raises: the whole acceptance is undone.
+    BEGIN
+        created := private.create_company(p_user, company, p_plan_id);
+    EXCEPTION
+        WHEN unique_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'tenant_email_key' THEN
+                RAISE EXCEPTION 'company_email_exists' USING ERRCODE = 'unique_violation';
+            ELSIF v_constraint = 'tenant_phone_key' THEN
+                RAISE EXCEPTION 'company_phone_exists' USING ERRCODE = 'unique_violation';
+            ELSIF v_constraint = 'unique_tenant_display_name' THEN
+                RAISE EXCEPTION 'company_name_exists' USING ERRCODE = 'unique_violation';
+            END IF;
+            RAISE;
+        WHEN check_violation OR not_null_violation OR string_data_right_truncation THEN
+            RAISE EXCEPTION 'invitation_payload_invalid' USING ERRCODE = 'check_violation', DETAIL = SQLERRM;
+    END;
+
+    UPDATE public.tenant t SET code = inv.client_code WHERE t.id = created.id;
+
+    -- The invitation is used up before the relationship takes its code: a pending invitation holds
+    -- the code (provider_relationship_reserved_code).
+    UPDATE public.provider_invitation i
+    SET status = 'accepted', accepted_at = now(), accepted_by = p_user, client_tenant_id = created.id
+    WHERE i.id = inv.id;
+    DELETE FROM private.provider_invitation_token t WHERE t.invitation_id = inv.id;
+
+    -- Every field written explicitly, as agreed on the invitation.
+    INSERT INTO public.provider_relationship (
+        tenant_id, client_tenant_id, client_code, client_name, provider_name, procurement_model, status, accepted_at,
+        commercial_model, packages, contract_status, start_on, deposit_rate, extra_cost_rule, eu_responsible_person
+    )
+    VALUES (
+        inv.tenant_id, created.id, inv.client_code, inv.company_name,
+        (SELECT t.display_name FROM public.tenant t WHERE t.id = inv.tenant_id),
+        inv.procurement_model, 'active', now(),
+        inv.commercial_model, inv.packages, inv.contract_status, inv.start_on, inv.deposit_rate, inv.extra_cost_rule,
+        inv.eu_responsible_person
+    );
+
+    -- The provider's staff, in their roles. One who left the provider is skipped; the plan's user
+    -- limit may refuse one, which fails the whole call.
+    FOR s IN SELECT st.user_id, st.role_name FROM public.provider_invitation_staff st WHERE st.invitation_id = inv.id ORDER BY st.user_id LOOP
+        IF s.user_id = p_user THEN
+            CONTINUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = inv.tenant_id AND tu.user_id = s.user_id) THEN
+            skipped := skipped || s.user_id;
+            CONTINUE;
+        END IF;
+        INSERT INTO public.tenant_user (tenant_id, user_id) VALUES (created.id, s.user_id);
+        INSERT INTO public.user_role (user_id, role_id)
+        SELECT s.user_id, r.id FROM public.role r WHERE r.tenant_id = created.id AND r.display_name = s.role_name;
+    END LOOP;
+
+    RETURN jsonb_build_object('tenant_id', created.id, 'skipped_staff', to_jsonb(skipped));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.invitation_preview (TEXT) FROM PUBLIC, anon;
+
+REVOKE ALL ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.invitation_preview (TEXT) TO authenticated;
+
+GRANT EXECUTE ON FUNCTION public.accept_provider_invitation (UUID, TEXT, JSONB, UUID) TO service_role;
+
+-- A client tenant is not deleted while a relationship names it (F14): the relationship's RESTRICT
+-- foreign key, with a code the app can name. The provider ends the relationship first.
+CREATE OR REPLACE FUNCTION private.tenant_has_provider_relationship () RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET
+   search_path = '' AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.provider_relationship r WHERE r.client_tenant_id = OLD.id) THEN
+        RAISE EXCEPTION 'tenant_has_provider_relationship' USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    RETURN OLD;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.tenant_has_provider_relationship () FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE TRIGGER tenant_has_provider_relationship BEFORE DELETE ON public.tenant FOR EACH ROW
+EXECUTE FUNCTION private.tenant_has_provider_relationship ();
