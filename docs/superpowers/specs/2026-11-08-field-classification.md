@@ -96,6 +96,7 @@ Read-only through `api` (F3): created and resent by the service role (the provid
 
 | column | type | class | group | owner | mgmt | coord | portal | note |
 |---|---|---|---|---|---|---|---|---|
+| id | uuid | system | | | | | | PK; (invitation_id, user_id) is unique |
 | invitation_id | uuid | system | | | | | | FK |
 | tenant_id | uuid | system | | | | | | the provider |
 | user_id | uuid | system | | | | | | FK, a provider member |

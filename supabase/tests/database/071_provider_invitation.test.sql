@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- Sections: the invitation, its token, create / rotate / revoke (Task 3); preview and acceptance (Task 4).
 BEGIN;
 
-SELECT plan(133);
+SELECT plan(135);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -637,10 +637,14 @@ SELECT results_eq($$ SELECT (SELECT array_agg(tu.user_id ORDER BY tu.user_id) FR
 -- A staff role missing in the new tenant fails the whole call: never a member without a role. Only
 -- reachable past the role CHECK, so the test lifts it for one row.
 ALTER TABLE public.provider_invitation_staff DROP CONSTRAINT provider_invitation_staff_role_name_check;
--- (Delete and insert: the audit trigger cannot diff an UPDATE of the staff table, which has no id.)
-DELETE FROM public.provider_invitation_staff WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'badrole');
-INSERT INTO public.provider_invitation_staff (invitation_id, tenant_id, user_id, role_name)
-VALUES ((SELECT id FROM inv_071 WHERE label = 'badrole'), current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'auditor');
+-- The staff row has an id, so the audit diffs its update like any other.
+SELECT set_config('audit.transaction_id', '', TRUE);
+SELECT lives_ok($$ UPDATE public.provider_invitation_staff SET role_name = 'auditor'
+   WHERE invitation_id = (SELECT id FROM inv_071 WHERE label = 'badrole') $$, 'a staff row update is audited without error');
+SELECT ok(EXISTS (SELECT 1 FROM public.audit_log l
+                  WHERE l.table_name = 'provider_invitation_staff' AND l.operation = 'UPDATE'
+                    AND l.new_data ->> 'role_name' = 'auditor' AND l.old_data ->> 'role_name' = 'coordinator'),
+          'and the audit log holds its old and new values');
 SET LOCAL ROLE service_role;
 SELECT throws_ok($$ SELECT public.accept_provider_invitation(current_setting('test.badrole')::UUID, (SELECT token FROM inv_071 WHERE label = 'badrole'),
    '{"display_name": "Badrole Co"}', NULL) $$, '23514', 'invitation_staff_invalid', 'a staff role missing in the new tenant fails the call');

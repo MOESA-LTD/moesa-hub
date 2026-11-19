@@ -127,12 +127,12 @@ INSERT INTO public.incident_log (id, tenant_id, incident_id, note, cost_amount, 
 -- column of a shared table that is not client_visible; 'guarded': the provider-guarded fields
 -- (field_class.rights_column).
 -- A provider invitation (...69fb) and its staff row (071): never shared, so the client reads neither;
--- the staff row has no id column, its invitation_id carries the provider-only id sentinel.
+-- the staff row's id (...69fc) is a provider-only id sentinel, as is its invitation_id.
 INSERT INTO public.provider_invitation (id, tenant_id, email, company_name, client_code, procurement_model, created_by) VALUES
    ('00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, 'leak@invite.test', 'Leak invite', 'LKI', 'provider',
     current_setting('test.koordinator')::UUID);
-INSERT INTO public.provider_invitation_staff (invitation_id, tenant_id, user_id, role_name) VALUES
-   ('00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'viewer');
+INSERT INTO public.provider_invitation_staff (id, invitation_id, tenant_id, user_id, role_name) VALUES
+   ('00000000-0000-4000-8000-0000000069fc', '00000000-0000-4000-8000-0000000069fb', current_setting('test.p')::UUID, current_setting('test.koordinator')::UUID, 'viewer');
 
 CREATE TEMP TABLE leak_target (tbl TEXT, id UUID, mode TEXT) ON COMMIT DROP;
 INSERT INTO leak_target VALUES

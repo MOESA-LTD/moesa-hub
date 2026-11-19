@@ -2405,18 +2405,21 @@ export type Database = {
       }
       provider_invitation_staff: {
         Row: {
+          id: string | null
           invitation_id: string | null
           role_name: string | null
           tenant_id: string | null
           user_id: string | null
         }
         Insert: {
+          id?: string | null
           invitation_id?: string | null
           role_name?: string | null
           tenant_id?: string | null
           user_id?: string | null
         }
         Update: {
+          id?: string | null
           invitation_id?: string | null
           role_name?: string | null
           tenant_id?: string | null
@@ -6627,18 +6630,21 @@ export type Database = {
       }
       provider_invitation_staff: {
         Row: {
+          id: string
           invitation_id: string
           role_name: string
           tenant_id: string
           user_id: string
         }
         Insert: {
+          id?: string
           invitation_id: string
           role_name: string
           tenant_id: string
           user_id: string
         }
         Update: {
+          id?: string
           invitation_id?: string
           role_name?: string
           tenant_id?: string

@@ -71,11 +71,13 @@ UPDATE ON public.provider_invitation FOR EACH ROW
 EXECUTE FUNCTION private.set_updated_at ();
 
 CREATE TABLE public.provider_invitation_staff (
+   -- An id like every audited table: the audit diffs an update's old and new rows by it.
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    invitation_id UUID NOT NULL,
    tenant_id UUID NOT NULL REFERENCES public.tenant (id) ON DELETE CASCADE,
    user_id UUID NOT NULL REFERENCES public.user (id) ON DELETE CASCADE,
    role_name TEXT NOT NULL CHECK (role_name IN ('management', 'coordinator', 'viewer')),
-   PRIMARY KEY (invitation_id, user_id),
+   CONSTRAINT provider_invitation_staff_invitation_user_key UNIQUE (invitation_id, user_id),
    CONSTRAINT provider_invitation_staff_invitation_fkey FOREIGN KEY (invitation_id, tenant_id) REFERENCES public.provider_invitation (id, tenant_id) ON DELETE CASCADE
 );
 
@@ -187,6 +189,7 @@ VALUES
    ('public.provider_invitation', 'created_by', 'system', NULL),
    ('public.provider_invitation', 'created_at', 'system', NULL),
    ('public.provider_invitation', 'updated_at', 'system', NULL),
+   ('public.provider_invitation_staff', 'id', 'system', NULL),
    ('public.provider_invitation_staff', 'invitation_id', 'system', NULL),
    ('public.provider_invitation_staff', 'tenant_id', 'system', NULL),
    ('public.provider_invitation_staff', 'user_id', 'system', NULL),
