@@ -91,7 +91,7 @@ const storage = (token: string, method: string, path: string, init: { body?: Bod
       headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, ...(init.type ? { 'Content-Type': init.type } : {}) },
       body: init.body,
    });
-const upload = async (token: string, path: string, body: Uint8Array = PNG, type = 'image/png') => {
+const upload = async (token: string, path: string, body: Uint8Array<ArrayBuffer> = PNG, type = 'image/png') => {
    const r = await storage(token, 'POST', `object/media/${path}`, { body, type });
    const text = await r.text();
    if (r.ok) objects.push(path);
