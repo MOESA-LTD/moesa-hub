@@ -66,3 +66,15 @@ describe('field names of the business modules', () => {
       expect(missing).toEqual([]);
    });
 });
+
+// The role editor's field rights name each table with sensitive fields (`fields.<table>`, else the
+// raw table name): every table of the generated masked-field list (walk, Task 17:
+// provider_invitation showed raw).
+describe('field names of the tables with field rights', () => {
+   it.each(['en', 'tr'])('%s names every table the role editor lists', async (locale) => {
+      const { MASKED_FIELDS } = await import('@/@types/maskedFields.generated');
+      const names = fields(locale);
+      const missing = Object.keys(MASKED_FIELDS).filter((key) => typeof names[key] !== 'string');
+      expect(missing).toEqual([]);
+   });
+});

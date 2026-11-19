@@ -780,6 +780,7 @@
       "warehouse": "Depo",
       "platform_account": "Platform hesabı",
       "provider_relationship": "Müşteri ilişkisi",
+      "provider_invitation": "Müşteri daveti",
       "client": "Müşteri",
       "sourcing": "Tedarik",
       "product": "Ürün",

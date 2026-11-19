@@ -906,6 +906,7 @@
       "warehouse": "Warehouse",
       "platform_account": "Platform account",
       "provider_relationship": "Client relationship",
+      "provider_invitation": "Client invitation",
       "client": "Client",
       "sourcing": "Sourcing",
       "product": "Product",
