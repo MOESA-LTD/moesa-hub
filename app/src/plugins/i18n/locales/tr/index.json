@@ -282,6 +282,7 @@
       "branch_move_forbidden": "Bir şube başka bir şubenin altına taşınamaz.",
       "plan_default_required": "Bir varsayılan plan olmalı: bunun yerine başka bir planı varsayılan yapın.",
       "plan_default_inactive": "Varsayılan plan sunuluyor olmalı.",
+      "plan_module_requires": "Bir modül aynı planda başka bir modüle ihtiyaç duyuyor (örneğin sevkiyatlar satın alma siparişlerini gerektirir).",
       "super_admin_required": "Bunu yalnızca süper yönetici yapabilir.",
       "platform_setting_invalid": "Platform ayarı geçerli değil.",
       "platform_setting_unknown": "Böyle bir platform ayarı yok.",
@@ -1080,6 +1081,7 @@
          "billing_period": "Faturalama dönemi",
          "unlimited": "Sınırsız",
          "core_hint": "{modules} her planda bulunur.",
+         "requires": "{modules} gerekir",
          "offer": "Sunum",
          "active_hint": "Sunuluyor (pasif plan, üzerindeki firmalarda kalmaya devam eder)",
          "default_hint": "Yeni firmaların varsayılan planı (deneme günleriyle)"

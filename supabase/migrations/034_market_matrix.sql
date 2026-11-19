@@ -325,7 +325,7 @@ SELECT
 INSERT INTO
    public.module (id, is_core, position)
 VALUES
-   ('market_matrix', TRUE, 190)
+   ('market_matrix', FALSE, 190)
 ON CONFLICT (id) DO NOTHING;
 
 -- Permissions. Inserting a permission creates its RLS policies (see private.manage_policies). The

@@ -351,7 +351,7 @@ SELECT
 INSERT INTO
    public.module (id, is_core, position)
 VALUES
-   ('change_request', TRUE, 210)
+   ('change_request', FALSE, 210)
 ON CONFLICT (id) DO NOTHING;
 
 -- Permissions. Inserting a permission creates its RLS policies (see private.manage_policies). No

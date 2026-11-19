@@ -374,6 +374,7 @@
       "branch_move_forbidden": "",
       "plan_default_required": "",
       "plan_default_inactive": "",
+      "plan_module_requires": "",
       "super_admin_required": "",
       "platform_setting_invalid": "",
       "platform_setting_unknown": "",
@@ -592,6 +593,7 @@
          "billing_period": "",
          "unlimited": "",
          "core_hint": "",
+         "requires": "",
          "offer": "",
          "active_hint": "",
          "default_hint": ""

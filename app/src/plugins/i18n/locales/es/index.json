@@ -564,6 +564,7 @@
       "branch_move_forbidden": "Una sucursal no se puede mover bajo otra.",
       "plan_default_required": "Debe haber un plan predeterminado: haga predeterminado otro plan en su lugar.",
       "plan_default_inactive": "El plan predeterminado debe estar ofrecido.",
+      "plan_module_requires": "Un módulo necesita otro en el mismo plan (por ejemplo, los envíos necesitan órdenes de compra).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -1080,6 +1081,7 @@
          "billing_period": "Periodo de facturación",
          "unlimited": "Ilimitado",
          "core_hint": "{modules} se incluyen en todos los planes.",
+         "requires": "Requiere {modules}",
          "offer": "Oferta",
          "active_hint": "Ofrecido (un plan inactivo se mantiene en las empresas que lo tienen)",
          "default_hint": "Plan predeterminado de las empresas nuevas (con los días de prueba)"

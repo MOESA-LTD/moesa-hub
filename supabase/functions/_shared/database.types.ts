@@ -1606,18 +1606,21 @@ export type Database = {
           id: string | null
           is_core: boolean | null
           position: number | null
+          requires: string[] | null
         }
         Insert: {
           created_at?: string | null
           id?: string | null
           is_core?: boolean | null
           position?: number | null
+          requires?: string[] | null
         }
         Update: {
           created_at?: string | null
           id?: string | null
           is_core?: boolean | null
           position?: number | null
+          requires?: string[] | null
         }
         Relationships: []
       }
@@ -5779,18 +5782,21 @@ export type Database = {
           id: string
           is_core: boolean
           position: number
+          requires: string[]
         }
         Insert: {
           created_at?: string | null
           id: string
           is_core?: boolean
           position?: number
+          requires?: string[]
         }
         Update: {
           created_at?: string | null
           id?: string
           is_core?: boolean
           position?: number
+          requires?: string[]
         }
         Relationships: []
       }

@@ -428,6 +428,7 @@
       "branch_move_forbidden": "分店不能移动到其他分店之下。",
       "plan_default_required": "必须有一个默认套餐：请改为将其他套餐设为默认。",
       "plan_default_inactive": "默认套餐必须在售。",
+      "plan_module_requires": "某个模块需要同一套餐中的另一个模块（例如，发货需要采购订单）。",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -1080,6 +1081,7 @@
          "billing_period": "计费周期",
          "unlimited": "不限",
          "core_hint": "所有套餐均包含{modules}。",
+         "requires": "需要{modules}",
          "offer": "销售",
          "active_hint": "在售（停售的套餐仍保留在使用它的公司）",
          "default_hint": "新公司的默认套餐（含试用天数）"

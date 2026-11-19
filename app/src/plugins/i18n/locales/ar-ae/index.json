@@ -525,6 +525,7 @@
       "branch_move_forbidden": "لا يمكن نقل فرع تحت فرع آخر.",
       "plan_default_required": "يجب وجود خطة افتراضية: اجعل خطة أخرى افتراضية بدلًا من ذلك.",
       "plan_default_inactive": "يجب أن تكون الخطة الافتراضية معروضة.",
+      "plan_module_requires": "تحتاج الوحدة إلى وحدة أخرى في الخطة نفسها (مثلًا، الشحنات تتطلب أوامر الشراء).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -1080,6 +1081,7 @@
          "billing_period": "فترة الفوترة",
          "unlimited": "غير محدود",
          "core_hint": "{modules} مشمولة في كل الخطط.",
+         "requires": "يتطلب {modules}",
          "offer": "العرض",
          "active_hint": "معروضة (تبقى الخطة غير النشطة لدى الشركات المشتركة بها)",
          "default_hint": "الخطة الافتراضية للشركات الجديدة (مع أيام التجربة)"

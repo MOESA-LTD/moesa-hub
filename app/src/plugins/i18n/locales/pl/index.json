@@ -428,6 +428,7 @@
       "branch_move_forbidden": "Oddziału nie można przenieść pod inny.",
       "plan_default_required": "Musi istnieć plan domyślny: zamiast tego ustaw inny plan jako domyślny.",
       "plan_default_inactive": "Plan domyślny musi być oferowany.",
+      "plan_module_requires": "Moduł wymaga innego modułu w tym samym planie (na przykład wysyłki wymagają zamówień zakupu).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -1080,6 +1081,7 @@
          "billing_period": "Okres rozliczeniowy",
          "unlimited": "Bez limitu",
          "core_hint": "{modules} są w każdym planie.",
+         "requires": "Wymaga: {modules}",
          "offer": "Oferta",
          "active_hint": "Oferowany (nieaktywny plan zostaje u firm, które go mają)",
          "default_hint": "Domyślny plan nowych firm (z dniami próbnymi)"

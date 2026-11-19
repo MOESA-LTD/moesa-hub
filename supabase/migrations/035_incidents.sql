@@ -642,7 +642,7 @@ SELECT
 INSERT INTO
    public.module (id, is_core, position)
 VALUES
-   ('incident', TRUE, 200)
+   ('incident', FALSE, 200)
 ON CONFLICT (id) DO NOTHING;
 
 -- Permissions. Inserting a permission creates its RLS policies (see private.manage_policies). No

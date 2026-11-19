@@ -428,6 +428,7 @@
       "branch_move_forbidden": "Филиал нельзя перенести под другой.",
       "plan_default_required": "Тариф по умолчанию обязателен: вместо этого назначьте по умолчанию другой тариф.",
       "plan_default_inactive": "Тариф по умолчанию должен предлагаться.",
+      "plan_module_requires": "Модулю нужен другой модуль в том же тарифе (например, отгрузкам нужны заказы на закупку).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -1080,6 +1081,7 @@
          "billing_period": "Период оплаты",
          "unlimited": "Без ограничений",
          "core_hint": "{modules} входят в каждый тариф.",
+         "requires": "Требует: {modules}",
          "offer": "Предложение",
          "active_hint": "Предлагается (неактивный тариф остаётся у компаний, которые на нём)",
          "default_hint": "Тариф по умолчанию для новых компаний (с пробным периодом)"
