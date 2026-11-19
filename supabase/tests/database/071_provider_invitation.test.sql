@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- provider staff (Task 6).
 BEGIN;
 
-SELECT plan(165);
+SELECT plan(168);
 
 -- Fixtures: P = MOESA LTD (baris owns it, koordinator is its coordinator), C = THO (its client,
 -- thomas owns it). limited (...071101) is a MOESA LTD member whose role only reads invitations (F25).
@@ -420,6 +420,34 @@ SELECT is((SELECT (result ->> 'needs_password')::BOOLEAN FROM acc_071 WHERE labe
 SELECT is((SELECT result FROM acc_071 WHERE label = 'preview_unknown'), '{"error": "invitation_invalid"}'::JSONB, 'an unknown token: invitation_invalid');
 SELECT is((SELECT result FROM acc_071 WHERE label = 'preview_other'), '{"error": "invitation_email_mismatch"}'::JSONB,
           'another account cannot preview the invitation');
+
+-- Auth gives an invited account a temporary password of its own when the invitation link is
+-- followed (GoTrue's invite verification), so the account is not password-less by then (found by
+-- the HTTP suite). Invited and no password_set mark (the acceptance page sets it with the password)
+-- still needs one; a mark that is not exactly true does not count.
+UPDATE auth.users SET encrypted_password = '$2a$10$temporaryinvitepasswordhashxxxxxxxxxxxxxxxxxxxxxxxxxxx', invited_at = now()
+WHERE id = current_setting('test.newbie')::UUID;
+SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
+INSERT INTO acc_071 SELECT 'preview_invited', public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1'));
+RESET ROLE;
+SELECT private.unimpersonate();
+UPDATE auth.users SET raw_user_meta_data = '{"password_set": "yes"}' WHERE id = current_setting('test.newbie')::UUID;
+SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
+INSERT INTO acc_071 SELECT 'preview_invited_bad_mark', public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1'));
+RESET ROLE;
+SELECT private.unimpersonate();
+UPDATE auth.users SET raw_user_meta_data = '{"password_set": true}' WHERE id = current_setting('test.newbie')::UUID;
+SELECT private.impersonate_scope(current_setting('test.newbie')::UUID, NULL, '{}'::UUID[]);
+INSERT INTO acc_071 SELECT 'preview_invited_set', public.invitation_preview((SELECT token FROM inv_071 WHERE label = 'inv1'));
+RESET ROLE;
+SELECT private.unimpersonate();
+UPDATE auth.users SET encrypted_password = '', invited_at = NULL, raw_user_meta_data = '{}' WHERE id = current_setting('test.newbie')::UUID;
+SELECT is((SELECT (result ->> 'needs_password')::BOOLEAN FROM acc_071 WHERE label = 'preview_invited'), TRUE,
+          'an invited account with Auth''s temporary password still needs one');
+SELECT is((SELECT (result ->> 'needs_password')::BOOLEAN FROM acc_071 WHERE label = 'preview_invited_bad_mark'), TRUE,
+          'a password_set mark that is not true does not count');
+SELECT is((SELECT (result ->> 'needs_password')::BOOLEAN FROM acc_071 WHERE label = 'preview_invited_set'), FALSE,
+          'an invited account that set its password needs none');
 SELECT results_eq($$ SELECT i.status::TEXT, i.failed_attempts, EXISTS (SELECT 1 FROM private.provider_invitation_token h WHERE h.invitation_id = i.id)
    FROM public.provider_invitation i WHERE i.id = (SELECT id FROM inv_071 WHERE label = 'inv1') $$,
    $$ VALUES ('pending', 0, TRUE) $$, 'previewing consumes and counts nothing, not even the other account''s attempt');

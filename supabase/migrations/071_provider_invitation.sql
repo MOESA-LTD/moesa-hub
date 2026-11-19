@@ -703,8 +703,8 @@ REVOKE ALL ON FUNCTION private.invitation_open (UUID, TEXT, BOOLEAN) FROM PUBLIC
 -- What the invited user sees before accepting: the invitation's terms, the seats it needs (the owner
 -- and the staff still with the provider, the viewer aside) and the active plans. Same validity and
 -- e-mail rules as acceptance, but consumes and counts nothing. Staff identities,
--- the token and its hash are never returned. needs_password: the user has none yet (a magic-link
--- sign-in), so the page asks for one.
+-- the token and its hash are never returned. needs_password: the user has no password of their own
+-- yet (none, or Auth's temporary one of an invited account), so the page asks for one.
 CREATE OR REPLACE FUNCTION public.invitation_preview (token TEXT) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER
 SET
    search_path = '' AS $$
@@ -739,7 +739,11 @@ BEGIN
         'seats', 1 + (SELECT count(*) FROM public.provider_invitation_staff s
                       WHERE s.invitation_id = inv.id AND s.user_id <> uid
                         AND EXISTS (SELECT 1 FROM public.tenant_user tu WHERE tu.tenant_id = inv.tenant_id AND tu.user_id = s.user_id)),
-        'needs_password', (SELECT coalesce(u.encrypted_password, '') = '' FROM auth.users u WHERE u.id = uid),
+        -- No password, or only the temporary one Auth gives an invited account when its link is
+        -- followed: the acceptance page sets one, marking user_metadata.password_set true with it.
+        'needs_password', (SELECT coalesce(u.encrypted_password, '') = ''
+                                  OR (u.invited_at IS NOT NULL AND (u.raw_user_meta_data -> 'password_set') IS DISTINCT FROM 'true'::JSONB)
+                           FROM auth.users u WHERE u.id = uid),
         'plans', coalesce((
             SELECT jsonb_agg(jsonb_build_object(
                        'id', p.id, 'display_name', p.display_name, 'description', p.description, 'audience', p.audience,
