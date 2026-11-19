@@ -47,7 +47,17 @@
       "branch": "",
       "welcome": {
          "title": "",
-         "text": ""
+         "text": "",
+         "headline": "",
+         "lead": "",
+         "route": {
+            "label": "",
+            "gate": "",
+            "shipment": "",
+            "marketplace": ""
+         },
+         "no_account": "",
+         "have_account": ""
       },
       "please_dont_forget_to_update_your_password": "",
       "confirm": {

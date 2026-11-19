@@ -277,7 +277,17 @@
       "branch": "Sucursal",
       "welcome": {
          "title": "Bienvenido",
-         "text": "Bienvenido al panel de administración"
+         "text": "Bienvenido al panel de administración",
+         "headline": "Del fabricante al estante, en un solo panel",
+         "lead": "Proveedores, controles de calidad, envíos y anuncios de Amazon se reúnen en los mismos registros.",
+         "route": {
+            "label": "Ruta del producto del fabricante al marketplace",
+            "gate": "Control de calidad",
+            "shipment": "Envío",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "¿Aún no tienes cuenta?",
+         "have_account": "¿Ya tienes cuenta?"
       },
       "please_dont_forget_to_update_your_password": "Por favor, no olvide actualizar su contraseña",
       "confirm": {

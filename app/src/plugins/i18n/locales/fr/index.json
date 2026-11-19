@@ -47,7 +47,17 @@
       "branch": "Filiale",
       "welcome": {
          "title": "Bienvenue",
-         "text": "Bienvenue dans le panneau de gestion"
+         "text": "Bienvenue dans le panneau de gestion",
+         "headline": "Du fabricant au rayon, dans un seul panneau",
+         "lead": "Fournisseurs, contrôles qualité, expéditions et annonces Amazon se retrouvent dans les mêmes fiches.",
+         "route": {
+            "label": "Parcours du produit du fabricant à la marketplace",
+            "gate": "Contrôle qualité",
+            "shipment": "Expédition",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "Pas encore de compte ?",
+         "have_account": "Vous avez déjà un compte ?"
       },
       "please_dont_forget_to_update_your_password": "Veuillez ne pas oublier de mettre à jour votre mot de passe.",
       "confirm": {

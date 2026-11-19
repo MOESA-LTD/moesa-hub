@@ -47,7 +47,17 @@
       "branch": "Branch",
       "welcome": {
          "title": "Welcome",
-         "text": "Welcome to the management panel"
+         "text": "Welcome to the management panel",
+         "headline": "From the maker to the shelf, in one panel",
+         "lead": "Suppliers, quality gates, shipments and Amazon listings meet in the same records.",
+         "route": {
+            "label": "Product route from makers to the marketplace",
+            "gate": "Quality gate",
+            "shipment": "Shipment",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "No account yet?",
+         "have_account": "Already have an account?"
       },
       "please_dont_forget_to_update_your_password": "Please do not forget to update your password",
       "confirm": {

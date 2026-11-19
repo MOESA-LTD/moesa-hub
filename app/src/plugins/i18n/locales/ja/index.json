@@ -47,7 +47,17 @@
       "branch": "支店",
       "welcome": {
          "title": "ようこそ",
-         "text": "管理パネルへようこそ"
+         "text": "管理パネルへようこそ",
+         "headline": "メーカーから店頭まで、ひとつのパネルで",
+         "lead": "サプライヤー、品質ゲート、出荷、Amazon の出品が同じ記録でつながります。",
+         "route": {
+            "label": "メーカーからマーケットプレイスまでの製品の流れ",
+            "gate": "品質ゲート",
+            "shipment": "出荷",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "アカウントをお持ちでないですか？",
+         "have_account": "すでにアカウントをお持ちですか？"
       },
       "please_dont_forget_to_update_your_password": "パスワードを更新することを忘れないでください。",
       "confirm": {

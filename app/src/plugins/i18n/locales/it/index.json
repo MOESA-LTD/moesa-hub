@@ -47,7 +47,17 @@
       "branch": "Filiale",
       "welcome": {
          "title": "Benvenuto",
-         "text": "Benvenuto nel pannello di gestione"
+         "text": "Benvenuto nel pannello di gestione",
+         "headline": "Dal produttore allo scaffale, in un unico pannello",
+         "lead": "Fornitori, controlli qualità, spedizioni e inserzioni Amazon si incontrano negli stessi record.",
+         "route": {
+            "label": "Percorso del prodotto dal produttore al marketplace",
+            "gate": "Controllo qualità",
+            "shipment": "Spedizione",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "Non hai ancora un account?",
+         "have_account": "Hai già un account?"
       },
       "please_dont_forget_to_update_your_password": "Per favore, non dimenticare di aggiornare la tua password",
       "confirm": {

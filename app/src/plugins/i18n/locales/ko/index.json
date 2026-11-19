@@ -47,7 +47,17 @@
       "branch": "지점",
       "welcome": {
          "title": "환영합니다",
-         "text": "관리 패널에 오신 것을 환영합니다"
+         "text": "관리 패널에 오신 것을 환영합니다",
+         "headline": "제조사에서 매대까지, 하나의 패널로",
+         "lead": "공급업체, 품질 게이트, 배송, Amazon 리스팅이 같은 기록에서 만납니다.",
+         "route": {
+            "label": "제조사에서 마켓플레이스까지의 제품 경로",
+            "gate": "품질 게이트",
+            "shipment": "배송",
+            "marketplace": "Amazon EU"
+         },
+         "no_account": "아직 계정이 없으신가요?",
+         "have_account": "이미 계정이 있으신가요?"
       },
       "please_dont_forget_to_update_your_password": "암호를 변경하지 않으셨다면, 잊지 마시기 바랍니다.",
       "confirm": {
