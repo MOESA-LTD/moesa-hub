@@ -2,7 +2,9 @@
 -- on top of seed.sql. Development only, never in config.toml. Run by scripts/seed-story.mjs (pnpm
 -- dev:seed-story from app/), which uploads the media files first (each under its row's tenant),
 -- then pipes this file to psql as postgres with --single-transaction;
--- supabase/seed_story.check.sql then checks the result.
+-- supabase/seed_story.check.sql then checks the result. Step 10 (THO's 6 mm filter copied into MOESA
+-- Europe through the real transfer) is run by the script after this file, since its files are
+-- copied in Storage.
 --
 -- Every customer is a tenant of its own, linked to MOESA LTD by a provider relationship (step 02):
 --   THOMETZKI ONLINE HANDEL (THO, seed.sql)  provider procures: THO owns its products, documents,
@@ -178,12 +180,13 @@ BEGIN
     FROM public.permission p
     WHERE p.group_name IN ('ops_setting', 'document', 'supplier', 'client', 'product', 'project',
                            'purchase_order', 'shipment', 'market_matrix', 'incident', 'change_request',
-                           'media', 'listing', 'branch', 'user', 'role', 'audit_log')
+                           'media', 'listing', 'branch', 'user', 'role', 'audit_log', 'transfer')
       AND (p_role = 'management'
            OR NOT (p.group_name = 'ops_setting' AND p.command = 'update'
                    OR p.group_name IN ('role', 'user') AND p.command <> 'select'
                    OR p.resource_name = 'public.tenant' AND p.command <> 'select'
-                   OR p.resource_name = 'public.media' AND p.command = 'delete'));
+                   OR p.resource_name = 'public.media' AND p.command = 'delete'
+                   OR p.group_name = 'transfer'));
     PERFORM private.apply_field_defaults(v_role, p_role);
 END;
 $$;
@@ -228,8 +231,8 @@ DECLARE
     v_cls UUID := private.story_company('5eed0001-0000-4000-8000-000000000004', 'Clearstar Handel GmbH', 'CLS', 'Germany',
                                         'info@clearstar.test', 'owner.cls@moesa-panel.test', 'Clara Schmidt');
 BEGIN
-    PERFORM private.story_company('5eed0001-0000-4000-8000-000000000002', 'Leafline Garten GmbH', 'LEA', 'Germany',
-                                  'info@leafline.test', 'owner.lea@moesa-panel.test', 'Lena Fischer');
+    -- Leafline Garten is not created here: it signs up through an invitation (the next block).
+    PERFORM private.story_user('owner.lea@moesa-panel.test', 'Lena Fischer');
     PERFORM private.story_company('5eed0001-0000-4000-8000-000000000003', 'Paxton Haushalt GmbH', 'PAU', 'Germany',
                                   'info@paxton.test', 'owner.pau@moesa-panel.test', 'Paul Wagner');
 
@@ -245,6 +248,46 @@ BEGIN
         note = 'Demo'
     FROM public.plan p
     WHERE s.tenant_id = v_krn AND p.display_name = 'Pro';
+END;
+$$;
+
+-- Step 01, Leafline Garten (41 days ago): the one client that comes through the real path. baris invites
+-- owner.lea@ as the Edge Function does (service role, audit-labelled, actor baris), and owner.lea@
+-- accepts on Pro, which creates the company, its standard roles, the active relationship and
+-- koordinator as the company's coordinator. The relationship is a lead, with no contract yet.
+DO $$
+DECLARE
+    v_moesa UUID := private.story_begin('baris@moesa-panel.test', 'MOESA LTD');
+    v_baris UUID := (SELECT u.id FROM public.user u WHERE u.email = 'baris@moesa-panel.test');
+    v_owner UUID := (SELECT u.id FROM public.user u WHERE u.email = 'owner.lea@moesa-panel.test');
+    v_coord UUID := (SELECT u.id FROM public.user u WHERE u.email = 'koordinator@moesa-panel.test');
+    v_plan UUID := (SELECT p.id FROM public.plan p WHERE p.display_name = 'Pro');
+    v_token TEXT;
+    v_result JSONB;
+BEGIN
+    -- The Edge Function's call: service role claims, labelled for the audit.
+    PERFORM set_config('request.jwt.claims', '{"role": "service_role"}', TRUE);
+    PERFORM set_config('request.headers', json_build_object('x-audit-role', 'provider-invitation', 'x-audit-actor', v_baris)::TEXT, TRUE);
+    SET LOCAL ROLE service_role;
+
+    SELECT i.token INTO v_token FROM public.create_provider_invitation(
+        v_moesa, v_baris,
+        jsonb_build_object('email', 'owner.lea@moesa-panel.test', 'company_name', 'Leafline Garten GmbH', 'client_code', 'LEA',
+                           'procurement_model', 'provider', 'commercial_model', 'trading_partner', 'packages', jsonb_build_array('A1'),
+                           'contract_status', 'lead', 'recommended_plan_id', v_plan),
+        jsonb_build_array(jsonb_build_object('user_id', v_coord, 'role_name', 'coordinator'))) i;
+
+    v_result := public.accept_provider_invitation(
+        v_owner, v_token,
+        jsonb_build_object('display_name', 'Leafline Garten GmbH', 'email', 'info@leafline.test', 'country', 'Germany'), v_plan);
+
+    RESET ROLE;
+
+    IF v_result ->> 'tenant_id' IS NULL THEN
+        RAISE EXCEPTION 'story 01: the invitation of Leafline Garten was not accepted: %', v_result;
+    END IF;
+
+    PERFORM private.story_end('41 days');
 END;
 $$;
 
@@ -264,15 +307,14 @@ BEGIN
         RAISE EXCEPTION 'story 02: the THO relationship, CN1 or TR1 is missing';
     END IF;
 
-    -- Four more clients: one per contract state and commercial model. Kernhaus procures for itself;
-    -- MOESA LTD would procure for the others. No contract yet.
+    -- Three more clients (Leafline Garten came by invitation, the block before): one per contract state
+    -- and commercial model. Kernhaus procures for itself; MOESA LTD would procure for the others.
+    -- No contract yet.
     INSERT INTO public.provider_relationship (id, tenant_id, client_tenant_id, client_code, client_name, procurement_model,
                                               commercial_model, packages, contract_status, start_on)
     VALUES ('5eed0002-0000-4000-8000-000000000001', v_tenant, '5eed0001-0000-4000-8000-000000000001', 'KRN',
             'Kernhaus Living GmbH', 'client', 'commercial_representative', ARRAY['A0', 'A2', 'C'], 'onboarding',
             current_date + 14),
-           ('5eed0002-0000-4000-8000-000000000002', v_tenant, '5eed0001-0000-4000-8000-000000000002', 'LEA',
-            'Leafline Garten GmbH', 'provider', 'trading_partner', ARRAY['A1'], 'lead', NULL),
            ('5eed0002-0000-4000-8000-000000000003', v_tenant, '5eed0001-0000-4000-8000-000000000003', 'PAU',
             'Paxton Haushalt GmbH', 'provider', 'operations_partner', ARRAY['D'], 'paused', current_date - 200),
            -- Closed and ended in step 04, after its project.

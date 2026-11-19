@@ -246,6 +246,40 @@ SELECT 'tenancy.staff', x.email || ' ' || x.tenant FROM (VALUES ('akif@moesa-pan
 WHERE NOT EXISTS (SELECT 1 FROM public.user u JOIN public.tenant_user m ON m.user_id = u.id AND m.tenant_id = pg_temp.tenant(x.tenant)
     JOIN public.user_role ur ON ur.user_id = u.id JOIN public.role r ON r.id = ur.role_id AND r.tenant_id = m.tenant_id AND r.display_name = x.role
     WHERE u.email = x.email);
+-- onboarding.lea_by_invitation: Leafline Garten came through the invitation path: the invitation is accepted and names
+-- the new tenant and its owner, the relationship is active (a lead, no contract), koordinator is a coordinator there,
+-- and the company has the standard roles (management, and only management, may transfer), Pro and the accepted data
+SELECT 'onboarding.lea_by_invitation', 'invitation, relationship or company'
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.tenant t
+    JOIN public.provider_invitation i ON i.client_tenant_id = t.id AND i.tenant_id = pg_temp.moesa() AND i.client_code = 'LEA'
+        AND i.status = 'accepted' AND i.accepted_by = (SELECT u.id FROM public.user u WHERE u.email = 'owner.lea@moesa-panel.test')
+    JOIN public.provider_relationship r ON r.client_tenant_id = t.id AND r.tenant_id = pg_temp.moesa() AND r.client_code = 'LEA'
+        AND r.status = 'active' AND r.contract_status = 'lead' AND r.contract_accepted_on IS NULL
+    JOIN public.subscription s ON s.tenant_id = t.id
+    JOIN public.plan p ON p.id = s.plan_id AND p.display_name = 'Pro'
+    WHERE t.code = 'LEA' AND t.display_name = 'Leafline Garten GmbH' AND t.email = 'info@leafline.test' AND t.country = 'Germany')
+   OR NOT EXISTS (SELECT 1 FROM public.user u JOIN public.user_role ur ON ur.user_id = u.id
+       JOIN public.role r ON r.id = ur.role_id AND r.tenant_id = pg_temp.tenant('Leafline Garten GmbH') AND r.display_name = 'coordinator'
+       WHERE u.email = 'koordinator@moesa-panel.test')
+   OR (SELECT array_agg(r.display_name ORDER BY r.display_name) FROM public.role r WHERE r.tenant_id = pg_temp.tenant('Leafline Garten GmbH'))
+      IS DISTINCT FROM ARRAY['coordinator', 'management', 'viewer']
+   OR (SELECT array_agg(r.display_name ORDER BY r.display_name) FROM public.role r JOIN public.role_permission rp ON rp.role_id = r.id
+       JOIN public.permission pm ON pm.id = rp.permission_id AND pm.group_name = 'transfer' AND pm.command = 'insert'
+       WHERE r.tenant_id = pg_temp.tenant('Leafline Garten GmbH')) IS DISTINCT FROM ARRAY['management'];
+-- transfer.copy_done: step 10 copied THO's 6 mm filter into MOESA Europe through the real transfer: a copy with the
+-- source's SKU, the source untouched, the transfer row a done copy of exactly that product, and its file in Storage
+SELECT 'transfer.copy_done', 'copy, source, transfer row or file'
+WHERE NOT EXISTS (SELECT 1 FROM public.product c JOIN public.product s ON s.sku = c.sku AND s.tenant_id = pg_temp.tho() AND s.id <> c.id
+       WHERE c.tenant_id = pg_temp.tenant('MOESA Europe') AND c.sku = 'THO-TIPS-6-50')
+   OR NOT EXISTS (SELECT 1 FROM public.transfer t
+       WHERE t.source_tenant_id = pg_temp.tho() AND t.tenant_id = pg_temp.tenant('MOESA Europe') AND t.mode = 'copy'
+         AND t.files_status = 'done' AND t.missing_files = '{}'
+         AND (SELECT count(*) FROM public.transfer) = 1 AND cardinality(t.product_ids) = 1)
+   OR EXISTS (SELECT 1 FROM public.transfer t, jsonb_array_elements(t.files) f
+       WHERE NOT EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id = 'media' AND o.name = f ->> 'to')
+          OR NOT EXISTS (SELECT 1 FROM storage.objects o WHERE o.bucket_id = 'media' AND o.name = f ->> 'from'))
+   OR NOT EXISTS (SELECT 1 FROM public.transfer t WHERE jsonb_array_length(t.files) = 1);
 -- tenancy.krn_owns_pos: Kernhaus procures for itself: its orders lie in KRN with no client, and every order of a KRN product is one of them
 SELECT 'tenancy.krn_owns_pos', coalesce(o.id::TEXT, '(no KRN order)') FROM (VALUES (1)) one (n)
 LEFT JOIN public.purchase_order o ON o.id IN (SELECT l.purchase_order_id FROM public.purchase_order_line l WHERE l.product_tenant_id = pg_temp.krn())

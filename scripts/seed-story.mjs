@@ -5,7 +5,8 @@
 // GmbH exists (before any upload), checks the sample files and the media ids, uploads each media
 // file to the local Storage bucket under its row's tenant (<tenant id>/<media id>/…), runs
 // supabase/seed_story.sql in one
-// transaction, then runs supabase/seed_story.check.sql (with story.today set to the date the story
+// transaction, runs step 10 (the transfer of a THO product into MOESA Europe, with its files copied in
+// Storage), then runs supabase/seed_story.check.sql (with story.today set to the date the story
 // began, so a run across midnight UTC stays consistent) and fails on any row it returns.
 //
 // SQL always goes to psql in the database container on stdin, so no host path is mounted and
@@ -36,6 +37,9 @@ export const STORY_TENANT_IDS = Object.freeze({
 const THO = 'THOMETZKI ONLINE HANDEL';
 const MOESA = 'MOESA LTD';
 const KRN = 'Kernhaus Living GmbH';
+const EUROPE = 'MOESA Europe';
+// Step 10 copies THO's 6 mm filter (the 50 pack, which has a gallery video) into MOESA Europe.
+const TRANSFER_SKU = 'THO-TIPS-6-50';
 
 // The media files the story's media rows point at. `id` is the media row's fixed UUID (it also
 // occurs in seed_story.sql), `tenant` the tenant (display name) the row lives in, `file` the
@@ -251,8 +255,72 @@ SELECT set_config('story.amazon_seller_id', '${sellerId}', FALSE);
 `;
 }
 
+// Step 10 (after the story SQL, because the file copy is Storage work): akif@ (management in THO and
+// MOESA Europe) copies THO's 6 mm filter into MOESA Europe through the real transfer. As the panel
+// does it: a rehearsal, then the run with the rehearsal's report_hash, then the files (each files[].from
+// copied to files[].to in Storage, the service role standing in for the app's own upload), then
+// transfer_check_files, which brings the transfer to files_status 'done'.
+export function transferAsAkif(body) {
+   return `BEGIN;
+SELECT set_config('request.jwt.claims', json_build_object('sub', (SELECT id FROM public.user WHERE email = 'akif@moesa-panel.test'), 'role', 'authenticated')::TEXT, TRUE);
+SELECT set_config('request.headers', json_build_object('x-tenant-id', (SELECT id FROM public.tenant WHERE display_name = '${THO}'),
+   'x-tenant-ids', (SELECT id FROM public.tenant WHERE display_name = '${THO}') || ',' || (SELECT id FROM public.tenant WHERE display_name = '${EUROPE}'))::TEXT, TRUE);
+SELECT set_config('audit.transaction_id', '', TRUE);
+${body}
+COMMIT;
+`;
+}
+
+export function transferRunSql() {
+   return transferAsAkif(`SELECT set_config('story.src', id::TEXT, TRUE) FROM public.tenant WHERE display_name = '${THO}';
+SELECT set_config('story.dst', id::TEXT, TRUE) FROM public.tenant WHERE display_name = '${EUROPE}';
+SELECT set_config('story.prod', id::TEXT, TRUE) FROM public.product
+WHERE sku = '${TRANSFER_SKU}' AND tenant_id = current_setting('story.src')::UUID;
+SELECT set_config('story.dec', jsonb_build_object('gtin:' || current_setting('story.prod'), jsonb_build_object('action', 'clear_gtin'))::TEXT, TRUE);
+SELECT set_config('story.hash', public.transfer_products(current_setting('story.src')::UUID, current_setting('story.dst')::UUID,
+   ARRAY[current_setting('story.prod')::UUID], 'copy', current_setting('story.dec')::JSONB) ->> 'report_hash', TRUE);
+SELECT set_config('story.res', public.transfer_products(current_setting('story.src')::UUID, current_setting('story.dst')::UUID,
+   ARRAY[current_setting('story.prod')::UUID], 'copy',
+   current_setting('story.dec')::JSONB || jsonb_build_object('report_hash', current_setting('story.hash')), FALSE)::TEXT, TRUE);
+SELECT json_build_object('id', current_setting('story.res')::JSONB ->> 'id', 'files', coalesce(current_setting('story.res')::JSONB -> 'files', '[]'::JSONB));`);
+}
+
+export function transferCheckSql(transferId) {
+   if (!/^[0-9a-f-]{36}$/.test(transferId)) throw new Error(`unusable transfer id: ${transferId}`);
+   return transferAsAkif(`SELECT set_config('story.src', id::TEXT, TRUE) FROM public.tenant WHERE display_name = '${THO}';
+SELECT (public.transfer_check_files('${transferId}'::UUID)).files_status;`);
+}
+
+async function copyTransferFiles(apiUrl, serviceRoleKey, files) {
+   const appRequire = createRequire(path.join(ROOT, 'app', 'package.json'));
+   const { createClient } = appRequire('@supabase/supabase-js');
+   const storage = createClient(apiUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+   }).storage.from(BUCKET);
+   for (const file of files) {
+      const { error } = await storage.copy(file.from, file.to);
+      if (error) throw new Error(`copy ${file.from} -> ${file.to}: ${error.message}`);
+   }
+}
+
+export async function storyTransfer(apiUrl, serviceRoleKey, sql, copy) {
+   const out = sql(transferRunSql()).split(/\r?\n/).filter((l) => l.includes('"files"')).pop();
+   const run = JSON.parse(out ?? 'null');
+   if (!run?.id) throw new Error('the story transfer returned no transfer id');
+   await copy(apiUrl, serviceRoleKey, run.files);
+   const status = sql(transferCheckSql(run.id)).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
+   if (status !== 'done') throw new Error(`the story transfer's files are ${status}, not done`);
+}
+
 // The steps are injectable so the test can prove the guard stops the run before any upload.
-export async function main({ keys = localKeys, sql = psql, upload = uploadMedia, exit = process.exit } = {}) {
+export async function main({
+   keys = localKeys,
+   sql = psql,
+   upload = uploadMedia,
+   copy = copyTransferFiles,
+   transfer = storyTransfer,
+   exit = process.exit,
+} = {}) {
    const { apiUrl, serviceRoleKey } = keys();
    assertLocalApiUrl(apiUrl);
 
@@ -274,6 +342,7 @@ export async function main({ keys = localKeys, sql = psql, upload = uploadMedia,
    sql(amazonStoryPrelude(ROOT, env) + storySql, { singleTransaction: true });
    // After the story and before its check, which asserts both secrets exist.
    sql(edgeSecretsSql(serviceRoleKey), { singleTransaction: true });
+   await transfer(apiUrl, serviceRoleKey, sql, copy);
 
    const checkSql = readFileSync(CHECK_SQL, 'utf8');
    const failures = parseCheckRows(sql(`SET story.today = '${storyDate}';\n${checkSql}`));

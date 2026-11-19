@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { amazonStoryPrelude, assertLocalApiUrl, bigPdf, countChecks, edgeSecretsSql, GENERATED_BIG_PDF, main, MEDIA, mediaFolder, parseCheckRows, parseStatus, ROOT, run, STORY_TENANT_IDS } from './seed-story.mjs';
+import { amazonStoryPrelude, assertLocalApiUrl, bigPdf, countChecks, edgeSecretsSql, GENERATED_BIG_PDF, main, MEDIA, mediaFolder, parseCheckRows, parseStatus, ROOT, run, STORY_TENANT_IDS, storyTransfer } from './seed-story.mjs';
 
 test('bigPdf is sample.pdf padded with comment lines to exactly 12 MiB', () => {
    const sample = readFileSync(path.join(ROOT, 'supabase', 'seed_files', 'sample.pdf'));
@@ -59,6 +59,7 @@ test("uploads media under each row's tenant", async () => {
          upload: async (_apiUrl, _key, files) => {
             for (const f of files) folders.push([f.media.id, f.folder]);
          },
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -107,6 +108,7 @@ test('refuses a second run when Kernhaus Living GmbH exists', async () => {
          upload: async () => {
             uploads += 1;
          },
+         transfer: async () => {},
          exit: (code) => {
             exited.push(code);
          },
@@ -136,6 +138,7 @@ test('the check runs with the story date the database had before the story began
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -172,6 +175,7 @@ test('edgeSecretsSql sets both secrets after the story and before the check', as
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -261,6 +265,7 @@ test('the story SQL runs after the prelude, in the same transaction', async () =
             return '';
          },
          upload: async () => {},
+         transfer: async () => {},
          exit: (code) => {
             throw new Error(`exit ${code}`);
          },
@@ -271,4 +276,27 @@ test('the story SQL runs after the prelude, in the same transaction', async () =
    assert.equal(statements.length, 1);
    assert.match(statements[0], /^SELECT set_config\('story\.amazon_definition'/);
    assert.ok(statements[0].indexOf('story.amazon_seller_id') < statements[0].indexOf('seed_story: already loaded'));
+});
+
+test('the story transfer copies each file the run lists, then checks the files', async () => {
+   const calls = [];
+   const id = '11111111-2222-3333-4444-555555555555';
+   const files = [{ from: 'src/a.png', to: 'dst/a.png' }];
+   await storyTransfer('http://127.0.0.1:1', 'unused', (text) => {
+      calls.push('sql');
+      if (text.includes("'copy',")) {
+         assert.match(text, /clear_gtin/);
+         assert.match(text, /report_hash/);
+         return `{"sub": "x"}\n${JSON.stringify({ id, files })}\n`;
+      }
+      assert.ok(text.includes(`transfer_check_files('${id}'`));
+      return 'done\n';
+   }, async (_url, _key, list) => {
+      calls.push(`copy ${list.map((f) => `${f.from}>${f.to}`).join()}`);
+   });
+   assert.deepEqual(calls, ['sql', 'copy src/a.png>dst/a.png', 'sql']);
+   await assert.rejects(
+      storyTransfer('http://127.0.0.1:1', 'unused', (text) => (text.includes("'copy',") ? JSON.stringify({ id, files: [] }) : 'partial\n'), async () => {}),
+      /not done/
+   );
 });
