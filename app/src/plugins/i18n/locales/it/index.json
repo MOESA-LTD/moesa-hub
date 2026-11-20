@@ -3022,7 +3022,7 @@
                "add_supplier": {
                   "title": "Add a supplier",
                   "steps": {
-                     "1": "Use Add in the menu; enter the code and the country.",
+                     "1": "Use Add on the list; enter the code (two capital letters and 1-3 digits, e.g. CN1) and the country.",
                      "2": "Fill the terms: default Incoterm, deposit %, damage notice hours.",
                      "3": "Set the status to approved once the supplier has passed the evaluation."
                   }
@@ -3031,8 +3031,8 @@
                   "title": "Add a contact",
                   "steps": {
                      "1": "Open the supplier, then Contacts.",
-                     "2": "Enter the role and the official e-mail.",
-                     "3": "A spec sheet counts as official only when it comes from that e-mail."
+                     "2": "Enter the name, role, e-mail and phone.",
+                     "3": "A spec sheet counts as official only from the official e-mail: tick Sent from the official e-mail on the document."
                   }
                },
                "see_orders": {
@@ -3040,7 +3040,7 @@
                   "steps": {
                      "1": "Open the supplier.",
                      "2": "Open the Purchase orders tab.",
-                     "3": "A row opens the order card."
+                     "3": "A row's pencil opens the order card."
                   }
                }
             }
@@ -3069,7 +3069,7 @@
                   "steps": {
                      "1": "Open the product, then Media.",
                      "2": "Drop the files; the first image becomes the primary image.",
-                     "3": "Change a file's role from its menu."
+                     "3": "To change a file's role, tick its tile and use Set role; Make primary image picks the main photo."
                   }
                },
                "fill_amazon": {
@@ -3088,7 +3088,7 @@
                "open_project": {
                   "title": "Open a project",
                   "steps": {
-                     "1": "Use Add in the menu; pick the type, path and packages.",
+                     "1": "Use Add on the list; pick the type, path and packages.",
                      "2": "Save; the code and the gate set are created.",
                      "3": "Add the products on the Products tab."
                   }
@@ -3155,7 +3155,7 @@
                   "title": "Use a file on another record",
                   "steps": {
                      "1": "Open that record's Media tab.",
-                     "2": "Choose Pick from the library.",
+                     "2": "Choose Link from library.",
                      "3": "A file links only to records of its own company."
                   }
                },
@@ -3565,7 +3565,7 @@
       "topics": {
          "cards_tabs": {
             "title": "Cards and tabs",
-            "text": "A row opens its record as a card over the list, with tabs for its parts: general data, lines, documents, media, history. A new record shows its first tab only; the others open once it is saved. The address of a card and tab can be shared as a link."
+            "text": "A row's pencil opens its record as a card over the list, with tabs for its parts, such as general data, lines, documents and media. A new record shows its first tab only; the others open once it is saved."
          },
          "status_buttons": {
             "title": "Status buttons",
@@ -3578,6 +3578,14 @@
          "branches": {
             "title": "Company, branches and roles",
             "text": "Your company is one tenant: its data is never visible to another company. A company can have branches; pages show the data of the branches checked in the branch picker, and new records go to the branch with the star. What you can do on each page depends on your role."
+         },
+         "adding": {
+            "title": "Adding records",
+            "text": "Add sits next to each list's title or in its toolbar, and in the side menu: right-click a module's entry. Some records are added where they belong: a project's purchase orders and incidents from its card, documents and photos from a record's Documents and Media sections."
+         },
+         "drafts": {
+            "title": "Unsaved changes",
+            "text": "A form keeps its unsaved edits while the browser tab is open: after a reload its dialog comes back with \"Your unsaved changes were restored.\" Save them, or use Discard before you start something else. Each record keeps its own draft."
          }
       }
    },

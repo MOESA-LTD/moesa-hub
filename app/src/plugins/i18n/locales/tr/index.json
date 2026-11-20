@@ -2958,7 +2958,7 @@
                   "steps": {
                      "1": "Satırdan sevkiyatı açın; Tarihler sekmesinde [[ETD]] ve [[ETA]]'yı kontrol edin.",
                      "2": "Her [[S15]] adımını Olaylar sekmesine yazın; [[ETA]] kayınca güncelleyin.",
-                     "3": "Geciken sevkiyat genelde [[OL]]-09 olayı gerektirir; Olaylar sayfasından açın."
+                     "3": "Geciken sevkiyat genelde [[OL]]-09 olayı gerektirir; menüdeki Olaylar sayfasından açın."
                   }
                },
                "close_incident": {
@@ -3022,7 +3022,7 @@
                "add_supplier": {
                   "title": "Tedarikçi ekle",
                   "steps": {
-                     "1": "Menüden Ekle'yi kullanın; kodu ve ülkeyi girin.",
+                     "1": "Listede Ekle'yi kullanın; kodu (iki büyük harf ve 1-3 rakam, örn. CN1) ve ülkeyi girin.",
                      "2": "Şartları doldurun: varsayılan Incoterm, depozito %, hasar bildirim saati.",
                      "3": "Tedarikçi değerlendirmeyi geçince durumu onaylı yapın."
                   }
@@ -3031,16 +3031,16 @@
                   "title": "Kişi ekle",
                   "steps": {
                      "1": "Tedarikçiyi, sonra Kişiler sekmesini açın.",
-                     "2": "Rolü ve resmî e-postayı girin.",
-                     "3": "Spec sheet yalnızca o e-postadan gelirse resmî sayılır."
+                     "2": "Adı, görevi, e-postayı ve telefonu girin.",
+                     "3": "Spec sheet yalnızca resmî e-postadan gelirse resmî sayılır: belgede Resmi e-postadan gönderildi'yi işaretleyin."
                   }
                },
                "see_orders": {
                   "title": "Tedarikçinin siparişlerini gör",
                   "steps": {
                      "1": "Tedarikçiyi açın.",
-                     "2": "Satın alma siparişleri sekmesini açın.",
-                     "3": "Satır sipariş kartını açar."
+                     "2": "PO geçmişi sekmesini açın.",
+                     "3": "Satırdaki kalem sipariş kartını açar."
                   }
                }
             }
@@ -3069,7 +3069,7 @@
                   "steps": {
                      "1": "Ürünü, sonra Ortam sekmesini açın.",
                      "2": "Dosyaları bırakın; ilk görsel birincil görsel olur.",
-                     "3": "Dosyanın rolünü menüsünden değiştirin."
+                     "3": "Dosyanın rolünü değiştirmek için kutucuğunu işaretleyip Rol ata'yı kullanın; ana fotoğrafı Birincil görsel yap belirler."
                   }
                },
                "fill_amazon": {
@@ -3088,7 +3088,7 @@
                "open_project": {
                   "title": "Proje aç",
                   "steps": {
-                     "1": "Menüden Ekle'yi kullanın; tipi, yolu ve paketleri seçin.",
+                     "1": "Listede Ekle'yi kullanın; tipi, yolu ve paketleri seçin.",
                      "2": "Kaydedin; kod ve kapı seti oluşur.",
                      "3": "Ürünleri Ürünler sekmesinde ekleyin."
                   }
@@ -3155,7 +3155,7 @@
                   "title": "Dosyayı başka kayıtta kullan",
                   "steps": {
                      "1": "O kaydın Ortam sekmesini açın.",
-                     "2": "Kütüphaneden seç'i kullanın.",
+                     "2": "Kütüphaneden bağla'yı seçin.",
                      "3": "Dosya yalnız kendi şirketinin kayıtlarına bağlanır."
                   }
                },
@@ -3175,7 +3175,7 @@
                "create_po": {
                   "title": "Sipariş aç",
                   "steps": {
-                     "1": "Ekle'yi (ya da projede Yeni sipariş'i) kullanın; tedarikçiyi seçin.",
+                     "1": "Ekle'yi (ya da projede Yeni PO'yu) kullanın; tedarikçiyi seçin.",
                      "2": "Tedarikçiden gelen Incoterm ve depozitoyu kontrol edip kaydedin.",
                      "3": "Satırları her biri imzalı ya da onaylı spec sheet'le ekleyin, sonra Gönder."
                   }
@@ -3221,7 +3221,7 @@
                   "title": "Teslimi kabul et ([[S16]])",
                   "steps": {
                      "1": "İmzalı teslim tutanağını Belgeler sekmesine ekleyin.",
-                     "2": "Kabul sekmesinde adetlerin tutup tutmadığını ve hasarı kaydedin.",
+                     "2": "Teslim kabulü sekmesinde adetlerin tutup tutmadığını ve hasarı kaydedin.",
                      "3": "Kabul edin; eksik ya da hasar varsa itirazlı olur ve olay açılır."
                   }
                }
@@ -3257,7 +3257,7 @@
                "publish_amazon": {
                   "title": "Hücreyi Amazon'da yayınla",
                   "steps": {
-                     "1": "Bir Amazon hücresini açıp Kontrol et'e basın; listelenen eksik alanları orada doldurun.",
+                     "1": "Bir Amazon hücresini açın, Amazon ilanını aç'ı seçip Kontrol et'e basın (bağlı bir Amazon hesabı gerekir); listelenen eksik alanları orada doldurun.",
                      "2": "Hücre hazır olunca Amazon'da yayınla'ya basın; Amazon bir [[submissionId]] ile yanıt verir.",
                      "3": "Durumun Yayında'ya geçmesini izleyin ya da her sorunda Düzelt'e basıp alanını orada düzeltin."
                   }
@@ -3365,7 +3365,7 @@
       "topics": {
          "cards_tabs": {
             "title": "Kartlar ve sekmeler",
-            "text": "Satır, kaydı listenin üstünde sekmeli bir kart olarak açar: genel bilgiler, satırlar, belgeler, ortam, geçmiş. Yeni kayıtta yalnızca ilk sekme görünür; diğerleri kaydedince açılır. Kartın ve sekmenin adresi bağlantı olarak paylaşılabilir."
+            "text": "Satırdaki kalem, kaydı listenin üstünde sekmeli bir kart olarak açar: genel bilgiler, satırlar, belgeler, ortam gibi. Yeni kayıtta yalnızca ilk sekme görünür; diğerleri kaydedince açılır."
          },
          "status_buttons": {
             "title": "Durum düğmeleri",
@@ -3378,6 +3378,14 @@
          "branches": {
             "title": "Şirket, şubeler ve roller",
             "text": "Şirketiniz bir kiracıdır; verisi başka bir şirkete görünmez. Şirketin şubeleri olabilir; sayfalar şube seçicide işaretli şubelerin verisini gösterir, yeni kayıtlar yıldızlı şubeye gider. Her sayfada ne yapabileceğiniz rolünüze bağlıdır."
+         },
+         "adding": {
+            "title": "Kayıt ekleme",
+            "text": "Ekle her listenin başlığının yanında ya da araç çubuğunda, ayrıca yan menüde durur: modülün girişine sağ tıklayın. Bazı kayıtlar ait oldukları yerden eklenir: projenin siparişleri ve olayları kartından, belgeler ve fotoğraflar kaydın Belgeler ve Ortam bölümlerinden."
+         },
+         "drafts": {
+            "title": "Kaydedilmemiş değişiklikler",
+            "text": "Form, tarayıcı sekmesi açık kaldıkça kaydedilmemiş düzenlemelerini saklar: sayfa yenilenince dialog \"Kaydedilmemiş değişiklikleriniz geri yüklendi.\" uyarısıyla geri gelir. Kaydedin ya da başka bir işe başlamadan Taslağı at'ı kullanın. Her kaydın taslağı ayrıdır."
          }
       }
    },
