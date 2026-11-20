@@ -88,23 +88,41 @@ const save = handleSubmit(async ({ email, code }) => {
          <InputOtp v-bind="slotProps" v-model="values.code" :length="6" />
       </FormField>
       <template #form-actions>
-         <div class="form_box__actions-bar !justify-center">
-            <span class="form_box__button-container">
+         <div class="w-full flex flex-col gap-4">
+            <div class="form_box__actions-bar !justify-center">
+               <span class="form_box__button-container">
+                  <Button
+                     :label="$t('action.resend_code')"
+                     class="form_box__button"
+                     size="small"
+                     severity="secondary"
+                     @click="resendCode"
+                  />
+                  <Button
+                     :label="$t('action.submit')"
+                     class="form_box__button"
+                     size="small"
+                     :disabled="!isDirty"
+                     @click="save"
+                  />
+               </span>
+            </div>
+            <!-- The way out: login replaced this page in history, so Back does not return there. -->
+            <RouterLink
+               custom
+               :to="{ name: 'auth-login', replace: true }"
+               v-slot="{ href, navigate }"
+            >
                <Button
-                  :label="$t('action.resend_code')"
-                  class="form_box__button"
-                  size="small"
-                  severity="secondary"
-                  @click="resendCode"
+                  as="a"
+                  variant="link"
+                  class="self-center"
+                  :href
+                  :label="$t('signup.to_login')"
+                  :icon="PrimeIcons.SIGN_IN"
+                  @click="navigate"
                />
-               <Button
-                  :label="$t('action.submit')"
-                  class="form_box__button"
-                  size="small"
-                  :disabled="!isDirty"
-                  @click="save"
-               />
-            </span>
+            </RouterLink>
          </div>
       </template>
    </FormBox>
