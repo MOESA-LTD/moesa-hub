@@ -198,7 +198,15 @@ type QueryBuilder<Q> = {
 export function applyTableMeta<Q extends QueryBuilder<Q>>(
    query: Q,
    meta: TableMeta | null | undefined,
-   { paginate = true }: { paginate?: boolean } = {}
+   {
+      paginate = true,
+      tiebreaker = 'id'
+   }: {
+      paginate?: boolean;
+      /** A unique column ordered last when paging, so rows tied on the sorted columns keep one
+       * order across pages (no row on two pages, none on neither). */
+      tiebreaker?: string;
+   } = {}
 ): Q {
    if (!meta) return query;
 
@@ -211,12 +219,15 @@ export function applyTableMeta<Q extends QueryBuilder<Q>>(
       query = query.or(group);
    }
 
+   const sorted: string[] = [];
    for (const { field, order } of meta.multiSortMeta ?? []) {
       if (typeof field !== 'string' || !order) continue;
       query = query.order(orderColumn(field), { ascending: order > 0 });
+      sorted.push(field);
    }
 
    if (paginate && meta.rows) {
+      if (!sorted.includes(tiebreaker)) query = query.order(tiebreaker, { ascending: true });
       const first = meta.first ?? 0;
       query = query.range(first, first + meta.rows - 1);
    }
