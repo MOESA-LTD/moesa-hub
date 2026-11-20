@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 -- and a plan never holds a module without one it requires.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(19);
 
 -- The tiers.
 SELECT set_eq($$ SELECT id FROM public.module WHERE is_core $$,
@@ -59,6 +59,29 @@ SELECT lives_ok($$ SELECT public.save_plan(
                        (SELECT jsonb_build_object('id', p.id, 'display_name', p.display_name) FROM api.plan p WHERE p.display_name = 'Ship and order'),
                        ARRAY[]::TEXT[]) $$,
                 'dropping both is saved');
+
+RESET ROLE;
+SELECT private.unimpersonate();
+
+-- What the role would grant outside the plan: the app shows those pages locked, the rest hidden.
+SELECT set_config('test.nova', (SELECT id::TEXT FROM public.tenant WHERE display_name = 'Nova Yazılım'), TRUE);
+SELECT private.impersonate_scope((SELECT id FROM auth.users WHERE email = 'ali@moesa-panel.test'), NULL, NULL);
+
+SELECT ok(public.my_access(current_setting('test.nova')::UUID) -> 'locked_permissions'
+          @> '[{"resource_name": "public.project", "command": "select"}]',
+          'the owner of a Basic company would read projects: they are shown locked');
+
+SELECT ok(NOT jsonb_path_exists(public.my_access(current_setting('test.nova')::UUID) -> 'locked_permissions',
+                                '$[*] ? (@.resource_name == "public.purchase_order" || @.resource_name == "public.product")'),
+          'what the plan holds is not among them');
+
+RESET ROLE;
+SELECT private.unimpersonate();
+
+SELECT private.impersonate_scope((SELECT id FROM auth.users WHERE email = 'admin@moesa-panel.test'), NULL, NULL);
+
+SELECT is(jsonb_array_length(public.my_access(current_setting('test.nova')::UUID) -> 'locked_permissions'), 0,
+          'nothing is locked for the super admin');
 
 RESET ROLE;
 SELECT private.unimpersonate();

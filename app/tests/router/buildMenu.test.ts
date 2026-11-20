@@ -167,7 +167,7 @@ describe('buildMenu', () => {
          {
             can: () => false,
             t: (key) => key,
-            lockedModule: (subject) => (subject === 'stock' ? 'stock' : null)
+            lockedModule: (_action, subject) => (subject === 'stock' ? 'stock' : null)
          }
       );
 
@@ -176,6 +176,24 @@ describe('buildMenu', () => {
          ['client', false, undefined]
       ]);
       expect(menu[0]!.items).toBeUndefined();
+   });
+
+   it('hides an entry of a module outside the plan when the role would not open it either', () => {
+      const menu = buildMenu(
+         [record('/stock', 'stock', read('stock')), record('/project', 'project', read('project'))],
+         {
+            can: () => false,
+            t: (key) => key,
+            // Neither module is in the plan; the role would grant stock, not project.
+            lockedModule: (action, subject) =>
+               subject === 'stock' && action === 'read' ? 'stock' : null
+         }
+      );
+
+      expect(menu.map(({ name, visible, locked }) => [name, visible, locked])).toEqual([
+         ['stock', true, 'stock'],
+         ['project', false, undefined]
+      ]);
    });
 });
 

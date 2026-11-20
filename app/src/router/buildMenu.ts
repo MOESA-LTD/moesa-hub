@@ -24,8 +24,8 @@ type Node = { route: RouteRecordNormalized; items: Record<string, Node> };
 type BuildOptions = {
    can: (action: string, subject: string) => boolean;
    t: (key: string) => string;
-   /** The module outside the plan a permission subject belongs to, if any. */
-   lockedModule?: (subject: string) => string | null;
+   /** The module outside the plan a permission belongs to, if the role would grant it. */
+   lockedModule?: (action: string, subject: string) => string | null;
 };
 
 /**
@@ -35,8 +35,9 @@ type BuildOptions = {
  * - Visibility: `meta.visible` if set, else whether every `meta.requiredPermissions` is granted,
  *   else whether it has visible children; nested entries without either are visible.
  * - Hidden children are left out; hidden top-level entries are kept with `visible: false`.
- * - Locked: an entry without `meta.visible` that needs a module outside the plan is shown (locked),
- *   without its children, whatever the permissions (the plan, not the role, keeps it closed).
+ * - Locked: an entry without `meta.visible` that needs a module outside the plan, which the role
+ *   would grant, is shown (locked), without its children: the plan, not the role, keeps it closed.
+ *   Without the role it is hidden, as it would be with the module in the plan.
  */
 export function buildMenu(
    records: readonly RouteRecordNormalized[],
@@ -68,7 +69,7 @@ export function buildMenu(
             const locked =
                meta.visible === undefined
                   ? meta.requiredPermissions
-                       ?.map(({ subject }) => lockedModule?.(subject))
+                       ?.map(({ action, subject }) => lockedModule?.(action, subject))
                        .find(Boolean)
                   : undefined;
             const children = locked

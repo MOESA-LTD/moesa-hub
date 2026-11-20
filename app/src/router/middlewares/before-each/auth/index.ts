@@ -79,10 +79,11 @@ export const authBeforeEach: NavigationGuardWithThis<undefined> = async (to) => 
       );
    }
 
-   // A page of a module outside the company's plan shows what it would take instead.
+   // A page of a module outside the company's plan shows what it would take instead, to whom the
+   // role would open it; the others are refused below, as they would be with the module in the plan.
    const lockedModule = to.matched
       .flatMap((record) => record.meta.requiredPermissions ?? [])
-      .map(({ subject }) => authStore.lockedModule(subject))
+      .map(({ action, subject }) => authStore.lockedModule(action, subject))
       .find(Boolean);
    if (lockedModule) return { name: 'module-locked', params: { module: lockedModule } };
 

@@ -26,6 +26,11 @@
 --                         deletes the dropped modules before inserting the new ones, and the rows
 --                         left between the two are valid whenever the old and the new set are.
 --
+-- private.locked_permissions
+--                         What the user's roles would grant in the modules outside the plan, in
+--                         my_access.locked_permissions: the app shows such a page locked only to
+--                         whom the role would open it; to the others it stays hidden.
+--
 -- Downgrading keeps the data: a module outside the plan is read-locked by RLS (entitlements, 013)
 -- and its pages show as locked; moving back up shows it again. A transfer does not put data where
 -- it would be locked: public.transfer_products (073) refuses a package with rows of a module the
@@ -104,3 +109,114 @@ EXECUTE FUNCTION private.check_plan_requirements ();
 CREATE OR REPLACE TRIGGER check_plan_requirements
 AFTER UPDATE OF is_core, requires ON public.module FOR EACH STATEMENT
 EXECUTE FUNCTION private.check_plan_requirements ();
+
+-- 4. What the role would grant outside the plan. private.permissions (004) leaves out the modules
+-- the plan lacks, so the app could not tell a page the plan keeps closed from one the role does: a
+-- page of a module outside the plan is shown locked only to whom the role would open it, and to
+-- the others it stays hidden, as it would with the module in the plan (my_access.locked_permissions).
+CREATE OR REPLACE FUNCTION private.locked_permissions (user_id UUID, tenant_id UUID) RETURNS TABLE (resource_name TEXT, command TEXT) LANGUAGE sql SECURITY DEFINER STABLE
+SET
+   search_path = '' AS $$
+    SELECT DISTINCT p.resource_name::TEXT, p.command::TEXT
+    FROM public.permission p
+    JOIN public.role_permission rp ON rp.permission_id = p.id
+    JOIN public.role r ON r.id = rp.role_id
+    CROSS JOIN private.entitlements(ARRAY[locked_permissions.tenant_id]) e
+    WHERE NOT private.check_super_admin(locked_permissions.user_id)
+      AND (
+        (
+            r.tenant_id = locked_permissions.tenant_id
+            AND EXISTS (SELECT 1 FROM public.user_role ur WHERE ur.role_id = r.id AND ur.user_id = locked_permissions.user_id)
+        ) OR (
+            r.tenant_id IS NULL AND r.display_name = 'owner'
+            AND locked_permissions.tenant_id = ANY (private.owned_tenants(locked_permissions.user_id))
+        )
+      )
+      AND p.group_name IS NOT NULL
+      AND NOT p.group_name = ANY (e.modules);
+$$;
+
+REVOKE ALL ON FUNCTION private.locked_permissions (UUID, UUID) FROM PUBLIC, anon, authenticated;
+
+-- my_access (050) with locked_permissions.
+CREATE OR REPLACE FUNCTION public.my_access (requested UUID DEFAULT NULL) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET
+   search_path = '' AS $$
+DECLARE
+    uid UUID := auth.uid();
+    allowed UUID[];
+    owned UUID[];
+    tenant UUID;
+    tenants JSONB;
+BEGIN
+    IF uid IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    allowed := private.allowed_tenant();
+    owned := private.owned_tenants(uid);
+    tenant := CASE WHEN requested = ANY (allowed) THEN requested END;
+    tenant := coalesce(tenant, private.tenant_id());
+    IF tenant IS NULL THEN
+        SELECT t.id INTO tenant FROM public.tenant t WHERE t.id = ANY (allowed) ORDER BY t.created_at, t.id LIMIT 1;
+    END IF;
+
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'id', t.id,
+        'display_name', t.display_name,
+        'code', t.code,
+        -- Its own logo, else the nearest tenant's above it (branches show the company's), also
+        -- when the user may not use that tenant.
+        'logo_path', (
+            WITH RECURSIVE up (id, parent_id, logo_path, depth) AS (
+                SELECT t.id, t.parent_id, t.logo_path, 0
+                UNION ALL
+                SELECT p.id, p.parent_id, p.logo_path, up.depth + 1
+                FROM public.tenant p JOIN up ON p.id = up.parent_id
+                WHERE up.logo_path IS NULL AND up.depth < 32
+            )
+            SELECT up.logo_path FROM up WHERE up.logo_path IS NOT NULL LIMIT 1
+        ),
+        -- Only a parent the user may use; otherwise the branch is a root for them.
+        'parent_id', CASE WHEN t.parent_id = ANY (allowed) THEN t.parent_id END,
+        'owned', t.id = ANY (owned),
+        'permissions', coalesce(
+            (SELECT jsonb_agg(jsonb_build_object('resource_name', p.resource_name, 'command', p.command)
+                              ORDER BY p.resource_name, p.command)
+             FROM private.permissions(uid, t.id) p),
+            '[]'::JSONB
+        )
+    ) ORDER BY t.created_at, t.id), '[]'::JSONB)
+    INTO tenants
+    FROM public.tenant t
+    WHERE t.id = ANY (allowed);
+
+    RETURN jsonb_build_object(
+        'tenant_id', tenant,
+        'tenants', tenants,
+        'permissions', coalesce(
+            (SELECT t -> 'permissions' FROM jsonb_array_elements(tenants) t WHERE (t ->> 'id')::UUID = tenant),
+            '[]'::JSONB
+        ),
+        'fields', coalesce(
+            (SELECT jsonb_agg(jsonb_build_object('resource_name', f.resource_name, 'field', f.field,
+                                                 'can_read', f.can_read, 'can_write', f.can_write)
+                              ORDER BY f.resource_name, f.field)
+             FROM private.field_rights(uid, tenant) f),
+            '[]'::JSONB
+        ),
+        'subscription', private.subscription_summary(tenant),
+        'locked_permissions', coalesce(
+            (SELECT jsonb_agg(jsonb_build_object('resource_name', p.resource_name, 'command', p.command)
+                              ORDER BY p.resource_name, p.command)
+             FROM private.locked_permissions(uid, tenant) p),
+            '[]'::JSONB
+        ),
+        'is_super_admin', private.check_super_admin(uid)
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.my_access (UUID) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.my_access (UUID) TO authenticated;
