@@ -401,12 +401,33 @@ export function useSetTaskStatus() {
 const LINK_TABLES = ['project_product', 'project'] as const;
 
 /** Links a product to a project, in the project's tenant. */
+/**
+ * The products to link from those picked: each picked one, and with `withVariants` the variants of
+ * a picked parent (a family), leaving out those linked already; each once, in pick order.
+ */
+export function productsToLink(
+   picked: readonly string[],
+   products: readonly { id: string; parent_id: string | null }[],
+   linked: ReadonlySet<string>,
+   withVariants: boolean
+): string[] {
+   const ids = new Set<string>();
+   for (const id of picked) {
+      ids.add(id);
+      if (withVariants) {
+         products.filter((product) => product.parent_id === id).forEach(({ id }) => ids.add(id));
+      }
+   }
+   return [...ids].filter((id) => !linked.has(id));
+}
+
 export function useLinkProduct() {
    const queryClient = useQueryClient();
 
    return useMutation({
-      mutationFn: async (link: Omit<ProjectProductRow, 'created_at'>) => {
-         await supabase.from('project_product').insert(link).throwOnError();
+      /** The links, written in one request. */
+      mutationFn: async (links: Omit<ProjectProductRow, 'created_at'>[]) => {
+         await supabase.from('project_product').insert(links).throwOnError();
       },
       onSuccess: () => invalidateTables(queryClient, LINK_TABLES)
    });
