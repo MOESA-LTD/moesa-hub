@@ -1632,7 +1632,11 @@
             "content_listing": "İçerik ve listeleme",
             "logistics": "Lojistik",
             "finance": "Finans",
-            "management": "Yönetim"
+            "management": "Yönetim",
+            "packaging_designer": "Ambalaj tasarımcısı",
+            "photo_video": "Fotoğraf ve video",
+            "seo_copywriter": "SEO ve metin yazarı",
+            "listing_team": "Listeleme ekibi"
          },
          "gate_panel": {
             "pass": "Kapıyı geçir",

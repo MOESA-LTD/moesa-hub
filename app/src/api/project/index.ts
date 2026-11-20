@@ -54,7 +54,11 @@ export const TASK_ROLES = [
    'content_listing',
    'logistics',
    'finance',
-   'management'
+   'management',
+   'packaging_designer',
+   'photo_video',
+   'seo_copywriter',
+   'listing_team'
 ] as const;
 
 // --- phases and gates ---

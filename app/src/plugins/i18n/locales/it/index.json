@@ -1631,7 +1631,11 @@
             "content_listing": "Content & listing",
             "logistics": "Logistics",
             "finance": "Finance",
-            "management": "Management"
+            "management": "Management",
+            "packaging_designer": "Packaging designer",
+            "photo_video": "Photo & video",
+            "seo_copywriter": "SEO & copywriter",
+            "listing_team": "Listing team"
          },
          "gate_panel": {
             "pass": "Pass gate",
