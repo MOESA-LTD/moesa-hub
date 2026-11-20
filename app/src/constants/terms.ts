@@ -166,5 +166,7 @@ export const SYSTEM_GUIDE_TOPICS = [
    'cards_tabs',
    'status_buttons',
    'document_versions',
-   'branches'
+   'branches',
+   'adding',
+   'drafts'
 ] as const;
