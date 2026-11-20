@@ -203,7 +203,13 @@ const routes: RouteRecordRaw[] = [
                anyPermission: COMPANY_TABS.map(({ subject }) => ({ action: 'select', subject }))
             },
             component: CustomRouteView,
-            redirect: { name: 'ops-company-brands' },
+            // The first tab the user may read.
+            redirect: () => ({
+               name: `ops-company-${
+                  COMPANY_TABS.find(({ subject }) => ability.can('select', subject))?.key ??
+                  COMPANY_TABS[0].key
+               }`
+            }),
             children: companyRoutes
          },
          {

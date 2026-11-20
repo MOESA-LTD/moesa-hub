@@ -33,10 +33,12 @@ type BuildOptions = {
  *
  * - Order: `meta.index`, else one after the previous sibling (a child counts on from its parent).
  * - Visibility: `meta.visible` if set, else whether every `meta.requiredPermissions` is granted,
- *   else whether it has visible children; nested entries without either are visible.
+ *   else whether one of `meta.anyPermission` is, else whether it has visible children; nested
+ *   entries without any of these are visible.
  * - Hidden children are left out; hidden top-level entries are kept with `visible: false`.
  * - Locked: an entry without `meta.visible` that needs a module outside the plan, which the role
  *   would grant, is shown (locked), without its children: the plan, not the role, keeps it closed.
+ *   With `meta.anyPermission`, only when none of them is granted.
  *   Without the role it is hidden, as it would be with the module in the plan.
  */
 export function buildMenu(
@@ -66,9 +68,12 @@ export function buildMenu(
          .map(([segment, { route, items }]) => {
             const { meta, name } = route;
             const index = meta.index ?? ++previous;
+            const anyGranted = meta.anyPermission?.some(({ action, subject }) =>
+               can(action, subject)
+            );
             const locked =
                meta.visible === undefined
-                  ? meta.requiredPermissions
+                  ? (meta.requiredPermissions ?? (anyGranted ? [] : meta.anyPermission))
                        ?.map(({ action, subject }) => lockedModule?.(action, subject))
                        .find(Boolean)
                   : undefined;
@@ -80,6 +85,7 @@ export function buildMenu(
                !!locked ||
                (toValue(meta.visible) ??
                   meta.requiredPermissions?.every(({ action, subject }) => can(action, subject)) ??
+                  anyGranted ??
                   (children.length > 0 || nested));
 
             return {
