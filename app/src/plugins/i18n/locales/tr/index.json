@@ -718,7 +718,8 @@
          "ops_client_manage": "İlişki",
          "ops_client_invitations": "Davetler",
          "ops_client_invitation_create": "Müşteri davet et",
-         "ops_transfer": "Ürünleri kopyala ya da taşı"
+         "ops_transfer": "Ürünleri kopyala ya da taşı",
+         "ops_product_incidents": "Olaylar"
       }
    },
    "fields": {
@@ -1455,7 +1456,8 @@
             "orders": "PO/sevkiyat geçmişi",
             "documents": "Belgeler",
             "media": "Ortam",
-            "amazon": "Amazon"
+            "amazon": "Amazon",
+            "incidents": "Olaylar"
          },
          "sections": {
             "identity": "Ürün",

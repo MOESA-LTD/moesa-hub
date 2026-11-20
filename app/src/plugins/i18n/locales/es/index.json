@@ -270,7 +270,8 @@
          "ops_client_invitation_create": "Invite a client",
          "register_complete": "Complete sign-up",
          "admin_platform": "Platform",
-         "ops_transfer": "Copy or move products"
+         "ops_transfer": "Copy or move products",
+         "ops_product_incidents": "Incidents"
       }
    },
    "auth": {
@@ -1455,7 +1456,8 @@
             "media": "Media",
             "sourcing": "Sourcing",
             "orders": "Orders and shipments",
-            "amazon": "Amazon"
+            "amazon": "Amazon",
+            "incidents": "Incidents"
          },
          "sections": {
             "identity": "Product",

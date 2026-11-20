@@ -5,6 +5,7 @@ import Amazon from './tabs/Amazon.vue';
 import Dimensions from './tabs/Dimensions.vue';
 import Documents from './tabs/Documents.vue';
 import General from './tabs/General.vue';
+import Incidents from './tabs/Incidents.vue';
 import Media from './tabs/Media.vue';
 import Orders from './tabs/Orders.vue';
 import Sourcing from './tabs/Sourcing.vue';
@@ -45,6 +46,7 @@ const ability = useAbility();
 const tabs = computed(() =>
    PRODUCT_CARD_TABS.filter((key) => {
       if (key === 'sourcing') return ability.can('read', 'sourcing');
+      if (key === 'incidents') return ability.can('read', 'incident');
       if (key === 'orders')
          return ability.can('read', 'purchase_order') || ability.can('read', 'shipment');
       return true;
@@ -74,6 +76,9 @@ const tabs = computed(() =>
          </TabPanel>
          <TabPanel value="documents">
             <Documents v-if="id && activeTab === 'documents'" :id />
+         </TabPanel>
+         <TabPanel v-if="tabs.includes('incidents')" value="incidents">
+            <Incidents v-if="id && activeTab === 'incidents'" :id />
          </TabPanel>
          <TabPanel value="media">
             <Media v-if="id && activeTab === 'media'" :id />
