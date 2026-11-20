@@ -163,6 +163,26 @@ describe('applyTableMeta sorting and paging', () => {
       expect(search.get('limit')).toBe('5');
    });
 
+   // Without a unique last key, rows that tie on the sorted columns come back in any order, so
+   // one row shows on two pages and another on none.
+   it('breaks ties on the key when paging, so pages neither repeat nor skip rows', () => {
+      expect(
+         params({ first: 10, rows: 5, multiSortMeta: [{ field: 'status', order: 1 }] }).get('order')
+      ).toBe('status.asc,id.asc');
+      expect(params({ first: 0, rows: 5 }).get('order')).toBe('id.asc');
+      expect(
+         params({ first: 0, rows: 5, multiSortMeta: [{ field: 'id', order: -1 }] }).get('order')
+      ).toBe('id.desc');
+      const keyed = urlOf(
+         applyTableMeta(
+            client.from('client').select('*'),
+            { first: 0, rows: 5, multiSortMeta: [{ field: 'status', order: 1 }] },
+            { tiebreaker: 'code' }
+         )
+      ).searchParams;
+      expect(keyed.get('order')).toBe('status.asc,code.asc');
+   });
+
    it('can skip paging, e.g. for count-only queries', () => {
       const search = urlOf(
          applyTableMeta(

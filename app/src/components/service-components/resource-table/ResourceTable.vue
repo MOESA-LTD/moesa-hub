@@ -118,7 +118,7 @@ const listQuery = useQuery({
          props.tenant
       );
 
-      let fixed = applyTableMeta(query, tableMeta);
+      let fixed = applyTableMeta(query, tableMeta, { tiebreaker: String(props.dataKey) });
       for (const { column, in: within, notIn } of props.fixedFilters ?? []) {
          if (within) fixed = fixed.in(column, [...within]);
          if (notIn?.length) fixed = fixed.not(column, 'in', `(${notIn.join(',')})`);
