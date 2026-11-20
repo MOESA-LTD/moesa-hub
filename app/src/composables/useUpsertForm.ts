@@ -43,6 +43,36 @@ export type UseUpsertFormOptions<S extends z.ZodType, Row, Payload> = {
 };
 
 /**
+ * The links of a prefill (`*_id`, `*_type`: which record the new row belongs to) with a value,
+ * sorted by name. Other prefilled values, such as today's date, do not tell records apart and would
+ * change between a reload and the restore.
+ */
+const linkText = (prefill: object) =>
+   JSON.stringify(
+      Object.entries(prefill)
+         .filter(([name, field]) => /_(id|type)$/.test(name) && field != null && field !== '')
+         .sort(([a], [b]) => a.localeCompare(b))
+   );
+
+/** A short, stable hash (FNV-1a) for a draft key. */
+const hashText = (text: string) => {
+   let hash = 0x811c9dc5;
+   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+   return (hash >>> 0).toString(36);
+};
+
+/**
+ * The draft of a form: a saved row's own, or for a new row the one of what it was opened for (the
+ * links in its prefill, e.g. the record a new document is attached to). A new row abandoned for one record must
+ * not come back, with that record's link, in the new row form of another.
+ */
+export function draftForm(subject: string, id: string | null | undefined, prefill?: object | null) {
+   if (id) return `${subject}:${id}`;
+   const context = prefill ? linkText(prefill) : '[]';
+   return context === '[]' ? `${subject}:new` : `${subject}:new:${hashText(context)}`;
+}
+
+/**
  * Edit form for one row: loads it, keeps the form on fresh server data while it is clean, guards
  * unsaved changes, applies permissions, saves with a toast and resets to the saved row.
  *
@@ -68,7 +98,7 @@ export function useUpsertForm<S extends z.ZodType, Row, Payload>(
 
    // Unsaved edits survive a reload; leaving without saving drops them.
    const draft = useFormDraft({
-      form: `${options.subject}:${toValue(options.id) || 'new'}`,
+      form: draftForm(options.subject, toValue(options.id), toValue(options.prefill)),
       values: form.values,
       isDirty: form.isDirty,
       base: formValues,
