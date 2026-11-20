@@ -16,22 +16,35 @@ export const variantCounts = (rows: readonly { parent_id: string | null }[]) => 
    return counts;
 };
 
-/** The number of variants of every parent in scope (one column of the variants only). */
+/** Rows per request when reading the variants' parent ids: the API's max_rows cap. */
+export const VARIANT_PAGE_SIZE = 1000;
+
+/** The number of variants of every parent in scope (one column of the variants only). The API
+ * returns at most VARIANT_PAGE_SIZE rows a request, so the ids are read page by page. */
+export async function fetchVariantCounts(signal: AbortSignal) {
+   const rows: { parent_id: string | null }[] = [];
+   for (let from = 0; ; from += VARIANT_PAGE_SIZE) {
+      const { data } = await supabase
+         .from('product')
+         .select('parent_id')
+         .not('parent_id', 'is', null)
+         .order('id')
+         .range(from, from + VARIANT_PAGE_SIZE - 1)
+         .abortSignal(signal)
+         .throwOnError();
+      rows.push(...(data ?? []));
+      if ((data?.length ?? 0) < VARIANT_PAGE_SIZE) break;
+   }
+   return variantCounts(rows);
+}
+
 export function useVariantCounts(enabled: MaybeRefOrGetter<boolean> = true) {
    const tenantKey = useTenantKey();
    return useQuery({
       queryKey: computed(() =>
          queryKeys.list(tenantKey.value, 'product', { view: 'variant_counts' })
       ),
-      queryFn: async ({ signal }) => {
-         const { data } = await supabase
-            .from('product')
-            .select('parent_id')
-            .not('parent_id', 'is', null)
-            .abortSignal(signal)
-            .throwOnError();
-         return variantCounts(data ?? []);
-      },
+      queryFn: ({ signal }) => fetchVariantCounts(signal),
       enabled: computed(() => toValue(enabled))
    });
 }
