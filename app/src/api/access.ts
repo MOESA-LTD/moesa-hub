@@ -58,6 +58,8 @@ export type Access = {
    /** The user's right on each sensitive field in the active tenant (public.field_class). */
    fields: FieldRight[];
    subscription: SubscriptionSummary | null;
+   /** What the user's roles would grant in the modules outside the plan (shown locked, not hidden). */
+   locked_permissions?: PermissionClaim[];
    is_super_admin: boolean;
 };
 

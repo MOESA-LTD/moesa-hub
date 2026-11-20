@@ -173,7 +173,7 @@
       "platform_account": "Platform account",
       "provider_relationship": "Client relationship",
       "provider_invitation": "Client invitation",
-      "client": "Client",
+      "client": "Partners",
       "sourcing": "Sourcing",
       "product": "Product",
       "project": "Project",
@@ -428,6 +428,7 @@
       "branch_move_forbidden": "支店を別の支店の下に移動することはできません。",
       "plan_default_required": "デフォルトプランが必要です。代わりに別のプランをデフォルトにしてください。",
       "plan_default_inactive": "デフォルトプランは提供中である必要があります。",
+      "plan_module_requires": "モジュールには同じプランの別のモジュールが必要です（例：出荷には発注書が必要です）。",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -660,7 +661,8 @@
       "transfer_products_invalid": "Select products of one company in the source.",
       "transfer_not_found": "Transfer not found.",
       "signup_unconfigured": "Sign-up is not set up on this server yet.",
-      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything."
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "移行先の会社のプランには、これらの製品が持つデータのモジュール（例：市場マトリクス）が含まれていません。プランをアップグレードするか、そのデータのない製品を移行してください。"
    },
    "account": {
       "profile": {
@@ -1080,6 +1082,7 @@
          "billing_period": "請求期間",
          "unlimited": "無制限",
          "core_hint": "{modules}はすべてのプランに含まれます。",
+         "requires": "{modules} が必要",
          "offer": "提供",
          "active_hint": "提供中（停止したプランも利用中の会社には残ります）",
          "default_hint": "新しい会社のデフォルトプラン（トライアル日数付き）"

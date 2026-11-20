@@ -3,7 +3,7 @@ import { useLookup } from '@/api/useLookup';
 import dayjs from 'dayjs';
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 
-export type Module = Pick<Tables['module']['Row'], 'id' | 'is_core' | 'position'>;
+export type Module = Pick<Tables['module']['Row'], 'id' | 'is_core' | 'requires' | 'position'>;
 
 export type PlanWithModules = Pick<
    Tables['plan']['Row'],
@@ -67,7 +67,7 @@ export function planBlock(
 
 /** The app's modules, in their order. */
 export const useModules = () =>
-   useLookup<Module>('module', { select: 'id,is_core,position', order: 'position' });
+   useLookup<Module>('module', { select: 'id,is_core,requires,position', order: 'position' });
 
 /** The active plans with their modules, in their order (e.g. those that have a module). */
 export function usePlans(moduleId?: MaybeRefOrGetter<string | null | undefined>) {

@@ -993,7 +993,7 @@ GRANT SELECT ON public.market_cell_overview TO authenticated;
 INSERT INTO
    public.module (id, is_core, position)
 VALUES
-   ('listing', TRUE, 195)
+   ('listing', FALSE, 195)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO

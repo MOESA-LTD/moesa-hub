@@ -810,6 +810,22 @@ BEGIN
 
     -- 073 (C1), rule 5 for the package: a copied media link needs the update right on its entity in
     -- the target (media_link_check asks it), so it is refused here, not halfway through the run.
+    -- 075 first: a package row of a module the target's plan lacks (market cells into a company
+    -- without the market matrix) would land where nobody there can see it, so the transfer is
+    -- refused, in the rehearsal too (transfer_target_plan_lacks_module). The module is the
+    -- permission group of the row's table; a table without one is not a plan's to withhold.
+    IF EXISTS (
+        SELECT 1
+        FROM (SELECT DISTINCT r.table_name FROM pg_temp.transfer_rows r) t
+        JOIN public.permission p ON p.resource_name = 'public.' || t.table_name
+        WHERE p.group_name IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM private.entitlements(ARRAY[target_tenant]) e WHERE p.group_name = ANY (e.modules)
+          )
+    ) THEN
+        PERFORM private.transfer_raise('transfer_target_plan_lacks_module', 403);
+    END IF;
+
     -- The same function media_link_check uses (tenants_permitting: roles, plan module and a
     -- writable subscription). A move also deletes the source's links, which media_link_check asks
     -- the same right for in the source.

@@ -38,7 +38,8 @@ export function useAuthUi() {
    watch(isSignedIn, async (signedIn, wasSignedIn) => {
       const greet = restored;
       await authStore.initialized;
-      await router.isReady();
+      // A refused first page rejects isReady; router.onError has handled it already.
+      await router.isReady().catch(() => {});
 
       if (signedIn && !wasSignedIn) {
          if (greet) {

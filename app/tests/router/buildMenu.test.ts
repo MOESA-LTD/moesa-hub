@@ -167,7 +167,7 @@ describe('buildMenu', () => {
          {
             can: () => false,
             t: (key) => key,
-            lockedModule: (subject) => (subject === 'stock' ? 'stock' : null)
+            lockedModule: (_action, subject) => (subject === 'stock' ? 'stock' : null)
          }
       );
 
@@ -176,6 +176,67 @@ describe('buildMenu', () => {
          ['client', false, undefined]
       ]);
       expect(menu[0]!.items).toBeUndefined();
+   });
+
+   it('shows an entry with meta.anyPermission when one of them is granted, even with its tabs hidden', () => {
+      const any = {
+         anyPermission: [
+            { action: 'read', subject: 'brand' },
+            { action: 'read', subject: 'contact' }
+         ]
+      };
+      const records = [
+         record('/ops', 'ops'),
+         record('/ops/company', 'company', any),
+         record('/ops/company/brands', 'company-brands', { visible: false, ...read('brand') })
+      ];
+
+      const shown = build(records, ['read:contact'])[0]!.items;
+      const hidden = build(records, [])[0];
+
+      expect(shown?.map(({ name }) => name)).toEqual(['company']);
+      expect(hidden?.items).toBeUndefined();
+   });
+
+   it('locks an entry with meta.anyPermission only when none of them is granted', () => {
+      const records = [
+         record('/company', 'company', {
+            anyPermission: [
+               { action: 'read', subject: 'brand' },
+               { action: 'read', subject: 'platform_account' }
+            ]
+         })
+      ];
+      const lockedModule = (_action: string, subject: string) =>
+         subject === 'platform_account' ? 'listing' : null;
+
+      const granted = buildMenu(records, {
+         can: (_action, subject) => subject === 'brand',
+         t: (key) => key,
+         lockedModule
+      });
+      const none = buildMenu(records, { can: () => false, t: (key) => key, lockedModule });
+
+      expect(granted.map(({ visible, locked }) => [visible, locked])).toEqual([[true, undefined]]);
+      expect(none.map(({ visible, locked }) => [visible, locked])).toEqual([[true, 'listing']]);
+   });
+
+   it('hides an entry of a module outside the plan when the role would not open it either', () => {
+      const menu = buildMenu(
+         [record('/stock', 'stock', read('stock')), record('/project', 'project', read('project'))],
+         {
+            can: () => false,
+            t: (key) => key,
+            // Neither module is in the plan; the role would grant stock, not project.
+            lockedModule: (action, subject) =>
+               subject === 'stock' && action === 'read' ? 'stock' : null
+         }
+      );
+
+      expect(menu.map(({ name, visible, locked }) => [name, visible, locked])).toEqual([
+         ['stock', true, 'stock'],
+         ['project', false, undefined]
+      ]);
    });
 });
 

@@ -21,8 +21,9 @@
 -- call it with the row's tenant; public.next_code calls it with the active tenant
 -- (private.tenant_id(), checked against the user's tenants), and fails without one.
 
--- Modules of the business modules, part of every plan. Their permissions come with the tasks that
--- add their tables; ops_setting has the settings'.
+-- Modules of the business modules: the core ones come with every plan, the others are given to
+-- the plans in 075. Their permissions come with the tasks that add their tables; ops_setting has
+-- the settings'.
 INSERT INTO
    public.module (id, is_core, position)
 VALUES
@@ -31,7 +32,7 @@ VALUES
    ('supplier', TRUE, 120),
    ('client', TRUE, 130),
    ('product', TRUE, 140),
-   ('project', TRUE, 150)
+   ('project', FALSE, 150)
 ON CONFLICT (id) DO NOTHING;
 
 -- Settings

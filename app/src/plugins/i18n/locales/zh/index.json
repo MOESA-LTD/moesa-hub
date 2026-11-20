@@ -173,7 +173,7 @@
       "platform_account": "Platform account",
       "provider_relationship": "Client relationship",
       "provider_invitation": "Client invitation",
-      "client": "Client",
+      "client": "Partners",
       "sourcing": "Sourcing",
       "product": "Product",
       "project": "Project",
@@ -428,6 +428,7 @@
       "branch_move_forbidden": "分店不能移动到其他分店之下。",
       "plan_default_required": "必须有一个默认套餐：请改为将其他套餐设为默认。",
       "plan_default_inactive": "默认套餐必须在售。",
+      "plan_module_requires": "某个模块需要同一套餐中的另一个模块（例如，发货需要采购订单）。",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -660,7 +661,8 @@
       "transfer_products_invalid": "Select products of one company in the source.",
       "transfer_not_found": "Transfer not found.",
       "signup_unconfigured": "Sign-up is not set up on this server yet.",
-      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything."
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "目标公司的套餐不包含这些产品所带数据的模块（例如市场矩阵）。请升级其套餐，或转移不含此类数据的产品。"
    },
    "account": {
       "profile": {
@@ -1080,6 +1082,7 @@
          "billing_period": "计费周期",
          "unlimited": "不限",
          "core_hint": "所有套餐均包含{modules}。",
+         "requires": "需要{modules}",
          "offer": "销售",
          "active_hint": "在售（停售的套餐仍保留在使用它的公司）",
          "default_hint": "新公司的默认套餐（含试用天数）"

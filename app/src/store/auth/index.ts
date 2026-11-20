@@ -127,11 +127,15 @@ export const useAuthStore = defineStore('auth', () => {
    );
 
    /**
-    * The module outside the company's plan that a permission subject belongs to, if it is one:
-    * pages needing it are shown locked. Nothing is locked for the super admin.
+    * The module outside the company's plan that a permission belongs to, when the user's roles would
+    * grant it: pages needing it are shown locked. Without the role they stay hidden, as they would
+    * with the module in the plan. Nothing is locked for the super admin.
     */
-   const lockedModule = (subject: string): string | null =>
-      isSuperAdmin.value ? null : (subscription.value?.locked[subject] ?? null);
+   const lockedAbility = computed(() => createAbility(access.value?.locked_permissions ?? []));
+   const lockedModule = (action: string, subject: string): string | null => {
+      const module = isSuperAdmin.value ? null : (subscription.value?.locked[subject] ?? null);
+      return module && lockedAbility.value.can(action, subject) ? module : null;
+   };
 
    // The newest load wins; an older one finishing later is dropped.
    let latestLoad = 0;
@@ -250,7 +254,9 @@ export const useAuthStore = defineStore('auth', () => {
       const userChanged = newSession?.user.id !== session.value?.user.id;
       session.value = newSession;
 
-      if (userChanged || event === 'INITIAL_SESSION') {
+      // Once per user. A stored session can arrive as SIGNED_IN right before INITIAL_SESSION: the
+      // second would load the same access again. Without a session, the empty access is in place.
+      if (userChanged) {
          preferredTenantId.value = null;
          // Pending right away, so a navigation right after signing in waits for the permissions;
          // the call itself is deferred, as Supabase calls inside this callback can deadlock.
@@ -261,8 +267,8 @@ export const useAuthStore = defineStore('auth', () => {
             })
          );
          loading.catch((error) => console.error('Could not load the access:', error));
-         if (event === 'INITIAL_SESSION') void accessReady().then(resolveInitialized);
       }
+      if (event === 'INITIAL_SESSION') void accessReady().then(resolveInitialized);
    });
 
    async function loginWithPassword(credentials: SignInWithPasswordCredentials) {

@@ -8,6 +8,7 @@ import {
    useSavePlan
 } from '@/api/admin';
 import { LIMIT_KEYS, useModules } from '@/api/subscription';
+import { resolvePlanModules } from '@/lib/planModules';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 
 const props = defineProps<{ id?: string | null }>();
@@ -30,13 +31,32 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
    });
 await Promise.all([ready, suspense()]);
 
-// Core modules come with every plan, so only the others are picked.
+// Core modules come with every plan, so only the others are picked. A module that needs another
+// names it; picking it picks the other too, and dropping the other drops it (075).
+const coreModules = computed(() => (modules.value ?? []).filter(({ is_core }) => is_core));
 const moduleOptions = computed(() =>
    (modules.value ?? [])
       .filter(({ is_core }) => !is_core)
-      .map(({ id }) => ({ id, label: t(`fields.${id}`) }))
+      .map(({ id, requires }) => {
+         const needs = (requires ?? []).filter(
+            (required) => !coreModules.value.some((core) => core.id === required)
+         );
+         return {
+            id,
+            label: t(`fields.${id}`),
+            hint: needs.length
+               ? t('admin.plan.requires', {
+                    modules: needs.map((required) => t(`fields.${required}`)).join(', ')
+                 })
+               : null
+         };
+      })
 );
-const coreModules = computed(() => (modules.value ?? []).filter(({ is_core }) => is_core));
+const pickedModules = computed({
+   get: () => values.value.modules,
+   set: (next: string[]) =>
+      (values.value.modules = resolvePlanModules(values.value.modules, next, modules.value ?? []))
+});
 
 const periods = computed(() =>
    (['month', 'year'] as const).map((value) => ({
@@ -217,12 +237,17 @@ const unlimitedFlags = { max_branches: unlimitedBranches, max_users: unlimitedUs
                <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   <span v-for="option in moduleOptions" :key="option.id" class="flex gap-2">
                      <Checkbox
-                        v-model="values.modules"
+                        v-model="pickedModules"
                         :value="option.id"
                         :inputId="`module-${option.id}`"
                         :disabled="readonly"
                      />
-                     <label :for="`module-${option.id}`">{{ option.label }}</label>
+                     <label :for="`module-${option.id}`" class="flex flex-col">
+                        <span>{{ option.label }}</span>
+                        <small v-if="option.hint" class="text-muted-color" data-requires>
+                           {{ option.hint }}
+                        </small>
+                     </label>
                   </span>
                </div>
                <p class="m-0 text-sm text-muted-color">

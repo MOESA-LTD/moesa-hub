@@ -173,7 +173,7 @@
       "platform_account": "Platform account",
       "provider_relationship": "Client relationship",
       "provider_invitation": "Client invitation",
-      "client": "Client",
+      "client": "Partners",
       "sourcing": "Sourcing",
       "product": "Product",
       "project": "Project",
@@ -428,6 +428,7 @@
       "branch_move_forbidden": "Филиал нельзя перенести под другой.",
       "plan_default_required": "Тариф по умолчанию обязателен: вместо этого назначьте по умолчанию другой тариф.",
       "plan_default_inactive": "Тариф по умолчанию должен предлагаться.",
+      "plan_module_requires": "Модулю нужен другой модуль в том же тарифе (например, отгрузкам нужны заказы на закупку).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -660,7 +661,8 @@
       "transfer_products_invalid": "Select products of one company in the source.",
       "transfer_not_found": "Transfer not found.",
       "signup_unconfigured": "Sign-up is not set up on this server yet.",
-      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything."
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "Тариф целевой компании не включает модуль, данные которого есть у этих товаров (например, матрицу рынков). Повысьте её тариф или перенесите товары без таких данных."
    },
    "account": {
       "profile": {
@@ -1080,6 +1082,7 @@
          "billing_period": "Период оплаты",
          "unlimited": "Без ограничений",
          "core_hint": "{modules} входят в каждый тариф.",
+         "requires": "Требует: {modules}",
          "offer": "Предложение",
          "active_hint": "Предлагается (неактивный тариф остаётся у компаний, которые на нём)",
          "default_hint": "Тариф по умолчанию для новых компаний (с пробным периодом)"

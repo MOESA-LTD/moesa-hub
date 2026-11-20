@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgrowlocks WITH SCHEMA extensions;
 -- `RESET ROLE; SELECT private.unimpersonate();`. Fixtures by current_setting, rows read as postgres.
 BEGIN;
 
-SELECT plan(104);
+SELECT plan(105);
 
 SELECT private.create_test_helpers();
 
@@ -313,23 +313,25 @@ SELECT private.unimpersonate();
 
 -- Rule 5 for links asks what media_link_check asks (cleanup item 4): tenants_permitting, so the
 -- plan's module counts, and in a move the update right on the entity in the source too. A file
--- on E's market cell of ze, for these tests only. Every module but audit_log is core today, so the
--- plan test makes market_matrix a plan module for its duration.
+-- on E's market cell of ze, for these tests only. The plan test takes market_matrix (and listing,
+-- which requires it, 075) out of P's plan for its duration: the package's market cells (and the
+-- link on one) are then refused before rule 5 for links, by the plan rule (075).
 INSERT INTO public.media_link (id, tenant_id, media_id, entity_type, entity_id)
 VALUES ('00000000-0000-4000-8000-000000073060', current_setting('test.e')::UUID, '00000000-0000-4000-8000-000000073006',
         'market_cell', '00000000-0000-4000-8000-000000073005');
 CREATE TEMP TABLE plan_module_073 ON COMMIT DROP AS
 SELECT pm.* FROM public.plan_module pm
-WHERE pm.plan_id = (SELECT e.plan_id FROM private.entitlements(ARRAY[current_setting('test.p')::UUID]) e) AND pm.module_id = 'market_matrix';
+WHERE pm.plan_id = (SELECT e.plan_id FROM private.entitlements(ARRAY[current_setting('test.p')::UUID]) e)
+  AND pm.module_id IN ('market_matrix', 'listing');
 DELETE FROM public.plan_module pm USING plan_module_073 x WHERE pm.plan_id = x.plan_id AND pm.module_id = x.module_id;
-UPDATE public.module SET is_core = FALSE WHERE id = 'market_matrix';
 SELECT private.impersonate_scope(current_setting('test.gate')::UUID, current_setting('test.e')::UUID,
                                  ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);
-SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB) $$, '%transfer_permissions_required%',
-                   'a link on an entity whose module the target''s plan lacks is refused at the gate, not by media_link_check');
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB) $$, '%transfer_target_plan_lacks_module%',
+                   'a package with rows of a module the target''s plan lacks is refused in the rehearsal');
+SELECT throws_like($$ SELECT pg_temp.ep('copy', current_setting('test.d')::JSONB, FALSE) $$, '%transfer_target_plan_lacks_module%',
+                   'and in the run, before media_link_check');
 RESET ROLE;
 SELECT private.unimpersonate();
-UPDATE public.module SET is_core = TRUE WHERE id = 'market_matrix';
 INSERT INTO public.plan_module SELECT * FROM plan_module_073;
 SELECT private.impersonate_scope(current_setting('test.nocell')::UUID, current_setting('test.e')::UUID,
                                  ARRAY[current_setting('test.e')::UUID, current_setting('test.p')::UUID]);

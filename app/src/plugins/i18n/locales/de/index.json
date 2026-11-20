@@ -173,7 +173,7 @@
       "platform_account": "Platform account",
       "provider_relationship": "Client relationship",
       "provider_invitation": "Client invitation",
-      "client": "Client",
+      "client": "Partners",
       "sourcing": "Sourcing",
       "product": "Product",
       "project": "Project",
@@ -428,6 +428,7 @@
       "branch_move_forbidden": "Eine Filiale kann nicht unter eine andere verschoben werden.",
       "plan_default_required": "Es muss einen Standardtarif geben: Machen Sie stattdessen einen anderen Tarif zum Standard.",
       "plan_default_inactive": "Der Standardtarif muss angeboten werden.",
+      "plan_module_requires": "Ein Modul benötigt ein anderes im selben Tarif (zum Beispiel benötigen Sendungen Bestellungen).",
       "super_admin_required": "Only the super admin can do this.",
       "platform_setting_invalid": "The platform setting is not valid.",
       "platform_setting_unknown": "That platform setting does not exist.",
@@ -660,7 +661,8 @@
       "transfer_products_invalid": "Select products of one company in the source.",
       "transfer_not_found": "Transfer not found.",
       "signup_unconfigured": "Sign-up is not set up on this server yet.",
-      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything."
+      "transfer_move_would_lose_data": "A move into your client would leave supplier documents, restricted files or internal notes out. Copy instead: the source keeps everything.",
+      "transfer_target_plan_lacks_module": "Der Tarif des Zielunternehmens enthält ein Modul nicht, dessen Daten diese Produkte mitbringen (zum Beispiel die Marktmatrix). Stufen Sie seinen Tarif hoch oder übertragen Sie Produkte ohne solche Daten."
    },
    "account": {
       "profile": {
@@ -1080,6 +1082,7 @@
          "billing_period": "Abrechnungszeitraum",
          "unlimited": "Unbegrenzt",
          "core_hint": "{modules} sind in jedem Tarif enthalten.",
+         "requires": "Benötigt {modules}",
          "offer": "Angebot",
          "active_hint": "Angeboten (ein inaktiver Tarif bleibt bei den Unternehmen, die ihn haben)",
          "default_hint": "Standardtarif neuer Unternehmen (mit den Testtagen)"
