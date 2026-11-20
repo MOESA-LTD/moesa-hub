@@ -46,6 +46,11 @@ export declare type ResourceTableProps<
     * follow the app's state (e.g. the tenants in scope) and cannot go stale.
     */
    fixedFilters?: FixedFilter[];
+   /**
+    * The text columns the keyword search reads, for a list whose filter columns include enums or
+    * booleans (compared as text they would fail the request). By default, every filter column.
+    */
+   keywordColumns?: readonly string[];
 };
 /** A column that must (`in`) or must not (`notIn`) hold one of `values`. */
 export declare type FixedFilter = {
@@ -118,7 +123,10 @@ const listQuery = useQuery({
          props.tenant
       );
 
-      let fixed = applyTableMeta(query, tableMeta, { tiebreaker: String(props.dataKey) });
+      let fixed = applyTableMeta(query, tableMeta, {
+         tiebreaker: String(props.dataKey),
+         keywordColumns: props.keywordColumns
+      });
       for (const { column, in: within, notIn } of props.fixedFilters ?? []) {
          if (within) fixed = fixed.in(column, [...within]);
          if (notIn?.length) fixed = fixed.not(column, 'in', `(${notIn.join(',')})`);

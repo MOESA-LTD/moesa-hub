@@ -65,7 +65,9 @@ const columns = computed<Props['columns']>(() => [
    { field: 'is_repeat', header: t('ops.incident.fields.is_repeat') }
 ]);
 
-// No keyword search: it would compare the enum and id filter columns as text.
+// The keyword search reads the incident code only; the enum and id filter columns, compared
+// as text, would fail the request.
+const KEYWORD_COLUMNS = ['code'] as const;
 const tableFilters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
@@ -120,7 +122,11 @@ const rowActions: Props['rowActions'] = [
       :rowActions
       :enableExpansion="false"
       v-model:filters="tableFilters"
+      :keywordColumns="KEYWORD_COLUMNS"
    >
+      <template #header>
+         <KeywordSearchInput v-model="tableFilters.global.value" />
+      </template>
       <template #empty>
          <span class="text-muted-color">{{ $t('ops.incident.no_rows') }}</span>
       </template>

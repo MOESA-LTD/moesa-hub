@@ -100,7 +100,9 @@ const idFilter = (ids: readonly string[]) => ({
    constraints: [{ value: [...ids], matchMode: FilterMatchMode.IN }]
 });
 
-// No keyword search: it would compare the enum and id filter columns as text.
+// The keyword search reads the order code only; the enum and id filter columns, compared
+// as text, would fail the request.
+const KEYWORD_COLUMNS = ['code'] as const;
 const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
@@ -150,7 +152,11 @@ const rowActions: Props['rowActions'] = [
       :enableExpansion="false"
       v-model:filters="filters"
       v-model="rows"
+      :keywordColumns="KEYWORD_COLUMNS"
    >
+      <template #header>
+         <KeywordSearchInput v-model="filters.global.value" />
+      </template>
       <template #code_body="{ data }">
          <span class="inline-flex flex-wrap items-center gap-2">
             {{ data.code }}
