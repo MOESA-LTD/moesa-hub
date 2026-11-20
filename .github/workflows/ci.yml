@@ -2,6 +2,14 @@ name: ci
 
 on:
     pull_request:
+        # `labeled` lets the reset-staging label start a run on its own (see the staging job).
+        types: [opened, synchronize, reopened, labeled]
+    workflow_dispatch:
+        inputs:
+            reset_staging:
+                description: Wipe staging and rebuild it from migrations and seed (deletes all data on staging)
+                type: boolean
+                default: false
     push:
         branches:
             - main
@@ -102,10 +110,16 @@ jobs:
 
     # Cloudflare Pages previews read the staging project (moesa-panel-staging). After a pull
     # request's database tests pass, or a push to a refactor/** branch (merged pull requests land
-    # there), staging is rebuilt from that branch's migrations and seed,
-    # so the newest preview and its database match. Older previews are not kept working.
+    # there), staging gets that branch's new migrations with `db push`, which keeps the data people
+    # entered on staging (demo records typed in through the UI). A full rebuild from migrations and
+    # seed, which deletes all staging data, runs only on request: the pull request carries the
+    # `reset-staging` label, or the workflow is started by hand with reset_staging. Use it when a
+    # branch edits an already-applied migration or `db push` fails on diverged migration history.
+    # Older previews are not kept working.
     staging:
-        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/refactor/')
+        if: >-
+            github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/refactor/')
+            || github.event_name == 'workflow_dispatch'
         needs: database
         runs-on: ubuntu-latest
         concurrency:
@@ -134,7 +148,19 @@ jobs:
                   -H 'Content-Type: application/json'
                   "https://api.supabase.com/v1/projects/$STAGING_PROJECT_REF/postgrest"
                   --data '{"db_schema":"public,api"}'
-            - run: supabase db reset --linked --yes
+            - name: Apply the migrations to staging
+              env:
+                  RESET_STAGING: >-
+                      ${{ contains(github.event.pull_request.labels.*.name, 'reset-staging')
+                      || inputs.reset_staging == true }}
+              run: |
+                  if [ "$RESET_STAGING" = "true" ]; then
+                      echo "::warning::reset-staging requested: all staging data is deleted and rebuilt from seed"
+                      supabase db reset --linked --yes
+                  elif ! supabase db push --linked --include-all --yes; then
+                      echo "::error::db push failed (diverged migration history?). Staging data was kept. Add the reset-staging label to rebuild staging from scratch; that deletes all staging data."
+                      exit 1
+                  fi
 
             # The Edge Functions of this branch, so the preview calls the same code it was built with.
             - run: supabase functions deploy --project-ref "$STAGING_PROJECT_REF" --yes
