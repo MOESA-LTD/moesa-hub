@@ -11,6 +11,7 @@ import {
    type DocumentEntity,
    type DocumentRow
 } from '@/api/document';
+import { useDialogRef } from '@/composables/useDialogRef';
 import { useUpsertForm } from '@/composables/useUpsertForm';
 import DocumentFileField from './DocumentFileField.vue';
 
@@ -25,6 +26,10 @@ const props = defineProps<{
    /** The record's code (SKU, supplier or project code) the file is named after. */
    code?: string | null;
 }>();
+
+// A new document is done once saved: its dialog closes and the record's list shows it, instead of
+// staying open with its type and version locked.
+const dialogRef = useDialogRef();
 
 const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, draft } =
    useUpsertForm({
@@ -41,7 +46,10 @@ const { values, errors, isDirty, isSubmitting, readonly, reset, save, ready, dra
       subject: 'document',
       schema: documentSchema,
       toFormValues: toDocumentFormValues,
-      toPayload: (data) => toDocumentPayload(withRouteContext(data, props), props.code)
+      toPayload: (data) => toDocumentPayload(withRouteContext(data, props), props.code),
+      onSaved: () => {
+         if (!props.id) dialogRef?.value.close();
+      }
    });
 await ready;
 
