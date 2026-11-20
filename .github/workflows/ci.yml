@@ -83,6 +83,16 @@ jobs:
             # invitations and sign-up need SITE_URL, Amazon stays unconfigured (fails closed).
             - run: printf 'SITE_URL=http://localhost:6161\nSIGNUP_TRUSTED_PROXY_HOPS=1\n' > supabase/functions/.env
 
+            # The local image still carries Supabase's legacy default ACL in public (ALL to anon and
+            # authenticated); hosted projects created since then do not. Build as on a hosted project, so a
+            # migration that depends on those defaults fails here, not on staging (001_default_privileges).
+            - run: >-
+                  printf '%s\n'
+                  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;'
+                  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;'
+                  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;'
+                  > supabase/migrations/000_hosted_default_acl.sql
+
             # Migrations and seed.sql run on start. Auth and Storage stay up: the seed writes
             # auth.users/identities and the migrations write storage.buckets. The edge runtime serves
             # the functions the HTTP suite calls (invitation, sign-up, transfer, user).
