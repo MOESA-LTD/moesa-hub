@@ -46,7 +46,9 @@ const columns = computed<Props['columns']>(() => [
    { field: 'closed_on', sortable: true, header: t('ops.change_request.fields.closed_on') }
 ]);
 
-// No keyword search: it would compare the enum and id filter columns as text.
+// The keyword search reads the code or title only; the enum and id filter columns, compared
+// as text, would fail the request.
+const KEYWORD_COLUMNS = ['code', 'title'] as const;
 const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       code: 'startsWith',
@@ -87,7 +89,11 @@ const rowActions: Props['rowActions'] = [
       :rowActions
       :enableExpansion="false"
       v-model:filters="filters"
+      :keywordColumns="KEYWORD_COLUMNS"
    >
+      <template #header>
+         <KeywordSearchInput v-model="filters.global.value" />
+      </template>
       <template #empty>
          <span class="text-muted-color">{{ $t('ops.change_request.no_rows') }}</span>
       </template>

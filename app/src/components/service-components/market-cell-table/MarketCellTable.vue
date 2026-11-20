@@ -39,7 +39,9 @@ const columns = computed<Props['columns']>(() => [
    { field: 'last_checked_on', sortable: true, header: t('ops.market.fields.last_checked_on') }
 ]);
 
-// No keyword search: it would compare the enum and id filter columns as text.
+// The keyword search reads the SKU or product name only; the enum and id filter columns, compared
+// as text, would fail the request.
+const KEYWORD_COLUMNS = ['sku', 'product_name'] as const;
 const filters = ref<NonNullable<Props['filters']>>(
    createFilters({
       sku: 'startsWith',
@@ -81,7 +83,11 @@ const COMPLIANCE_SEVERITY: Record<string, string> = {
       :rowActions
       :enableExpansion="false"
       v-model:filters="filters"
+      :keywordColumns="KEYWORD_COLUMNS"
    >
+      <template #header>
+         <KeywordSearchInput v-model="filters.global.value" />
+      </template>
       <template #status_body="{ data }">
          <Tag
             :value="$t(`ops.market.status.${data.status}`)"

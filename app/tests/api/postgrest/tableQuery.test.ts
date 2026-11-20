@@ -103,6 +103,28 @@ describe('applyTableMeta filters', () => {
       expect(search.getAll('or')).toEqual(['(display_name.ilike.*42*,quantity.eq.42)']);
    });
 
+   // A list with enum or boolean filter columns (products: status, signed spec) names the text
+   // columns its keyword search reads; comparing an enum as text would fail the request.
+   it('searches only the keyword columns a list names, as text', () => {
+      const search = urlOf(
+         applyTableMeta(
+            client.from('client').select('*'),
+            {
+               filters: {
+                  global: { value: 'oka', matchMode: FilterMatchMode.CONTAINS },
+                  sku: and([{ value: null, matchMode: FilterMatchMode.STARTS_WITH }]),
+                  status: and([{ value: null, matchMode: FilterMatchMode.EQUALS }])
+               }
+            },
+            { keywordColumns: ['sku', 'display_name', 'gtin'] }
+         )
+      ).searchParams;
+      expect(search.getAll('or')).toEqual([
+         '(sku.ilike.*oka*,display_name.ilike.*oka*,gtin.ilike.*oka*)'
+      ]);
+      expect(search.has('status')).toBe(false);
+   });
+
    it('skips empty constraints and invalid typed values', () => {
       const search = params({
          filters: {

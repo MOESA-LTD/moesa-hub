@@ -132,9 +132,13 @@ const partExpression = (part: Part) => {
 /**
  * Translates DataTable filters into PostgREST clauses:
  * - each column's constraints are ANDed, or form their own OR group with operator "or";
- * - the global filter becomes one OR group across all non-nested filter columns.
+ * - the global filter becomes one OR group across all non-nested filter columns, or across
+ *   `keywordColumns` (matched as text) when given.
  */
-export function buildFilterClauses(filters: TableMeta['filters'] = {}): FilterClauses {
+export function buildFilterClauses(
+   filters: TableMeta['filters'] = {},
+   keywordColumns?: readonly string[]
+): FilterClauses {
    const clauses: FilterClauses = { conditions: [], orGroups: [] };
    const { global, ...columns } = (filters ?? {}) as Record<string, ColumnFilter>;
 
@@ -160,7 +164,10 @@ export function buildFilterClauses(filters: TableMeta['filters'] = {}): FilterCl
 
    const globalValue = normalizeValue(global?.value);
    if (globalValue !== null) {
-      const parts = Object.entries(columns)
+      const searched: [string, ColumnFilter | undefined][] = keywordColumns
+         ? keywordColumns.map((column) => [column, undefined])
+         : Object.entries(columns);
+      const parts = searched
          .filter(([column]) => !column.includes('.'))
          .map(([column, { dataType } = {}]) => {
             const matchMode =
@@ -200,9 +207,12 @@ export function applyTableMeta<Q extends QueryBuilder<Q>>(
    meta: TableMeta | null | undefined,
    {
       paginate = true,
-      tiebreaker = 'id'
+      tiebreaker = 'id',
+      keywordColumns
    }: {
       paginate?: boolean;
+      /** The text columns the keyword (global) filter searches, instead of every filter column. */
+      keywordColumns?: readonly string[];
       /** A unique column ordered last when paging, so rows tied on the sorted columns keep one
        * order across pages (no row on two pages, none on neither). */
       tiebreaker?: string;
@@ -210,7 +220,7 @@ export function applyTableMeta<Q extends QueryBuilder<Q>>(
 ): Q {
    if (!meta) return query;
 
-   const { conditions, orGroups } = buildFilterClauses(meta.filters);
+   const { conditions, orGroups } = buildFilterClauses(meta.filters, keywordColumns);
 
    for (const { column, operator, value } of conditions) {
       query = query.filter(column, operator, value);

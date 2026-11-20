@@ -48,7 +48,9 @@ const columns = computed<Props['columns']>(() => [
    { field: 'url', header: t('ops.document.fields.url') }
 ]);
 
-// No keyword search: it would compare the enum and id columns as text, which the database rejects.
+// The keyword search reads the file name only; the enum and id filter columns, compared
+// as text, would fail the request.
+const KEYWORD_COLUMNS = ['file_name'] as const;
 const filters = ref<NonNullable<Props['filters']>>(
    createFilters(
       {
@@ -100,7 +102,11 @@ const rowActions = computed<Props['rowActions']>(() => [
       :rowActions
       :enableExpansion="false"
       v-model:filters="filters"
+      :keywordColumns="KEYWORD_COLUMNS"
    >
+      <template #header>
+         <KeywordSearchInput v-model="filters.global.value" />
+      </template>
       <template #type_body="{ data }">
          {{ $t(`ops.document.type.${data.type}`) }}
       </template>
