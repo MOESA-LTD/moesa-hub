@@ -20,6 +20,9 @@ import dayjs from 'dayjs';
 import MediaThumb from '@/components/service-components/media/MediaThumb.vue';
 import PendingTransfers from '@/components/service-components/transfer/PendingTransfers.vue';
 import AmazonBulkPublish from './AmazonBulkPublish.vue';
+import ProductVariants from './ProductVariants.vue';
+import { useVariantCounts } from '@/api/product/variants';
+import { hasActiveFilters } from '@/api/postgrest/tableQuery';
 import {
    PRODUCT_STATUSES,
    specFilterFromQuery,
@@ -110,6 +113,15 @@ const STATUS_SEVERITY: Record<ProductStatus, string> = {
    paused: 'warn',
    archived: 'danger'
 };
+
+// The tree view: parents and products without one, each parent's variants under its row. A search
+// or a column filter shows the matching products as a flat list (a matching variant would be
+// hidden under its parent otherwise).
+const groupVariants = ref(true);
+const treeView = computed(() => groupVariants.value && !hasActiveFilters(filters.value));
+const { data: variantCounts } = useVariantCounts(treeView);
+const TOP_LEVEL = [{ column: 'parent_id', isNull: true }] as const;
+const variantsOf = (id: string | null) => (id && variantCounts.value?.get(id)) || 0;
 
 const COMPLIANCE_SEVERITY: Record<ComplianceStatus, string> = {
    none: 'danger',
@@ -263,7 +275,8 @@ const dialogRef = useDialogRef();
       select="*"
       :columns
       :rowActions
-      :enableExpansion="false"
+      :enableExpansion="treeView"
+      :fixedFilters="treeView ? [...TOP_LEVEL] : []"
       selectionMode="multiple"
       v-model:selection="selected"
       v-model:filters="filters"
@@ -273,6 +286,10 @@ const dialogRef = useDialogRef();
          <Teleport to="#page-toolbar" :disabled="!!dialogRef">
             <span class="flex-1 flex justify-end gap-4 flex-wrap-reverse">
                <KeywordSearchInput v-model="filters.global.value" />
+               <label class="flex items-center gap-2" data-product-tree-toggle>
+                  <ToggleSwitch v-model="groupVariants" />
+                  {{ $t('ops.product.variants.group') }}
+               </label>
                <span
                   v-if="$can('create', 'listing_submission')"
                   v-tooltip.bottom="bulkHint"
@@ -350,6 +367,26 @@ const dialogRef = useDialogRef();
       </template>
       <template #primary_image_path_body="{ data }">
          <MediaThumb :path="data.primary_image_path" :alt="data.display_name" :size="40" />
+      </template>
+      <template #sku_body="{ data }">
+         <span class="flex flex-wrap items-center gap-2">
+            {{ data.sku }}
+            <Tag
+               v-if="treeView && variantsOf(data.id)"
+               severity="secondary"
+               :value="
+                  $t(
+                     'ops.product.variants.count',
+                     { count: variantsOf(data.id) },
+                     variantsOf(data.id)
+                  )
+               "
+               data-variant-count
+            />
+         </span>
+      </template>
+      <template #expansion="{ data }">
+         <ProductVariants :parentId="data.id!" :statusSeverity="STATUS_SEVERITY" />
       </template>
       <template #status_body="{ data }">
          <Tag
