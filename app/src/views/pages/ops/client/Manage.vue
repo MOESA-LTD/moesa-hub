@@ -250,5 +250,14 @@ const procurementChoices = computed(() =>
             </FormField>
          </FormBox>
       </FormBox>
+      <!-- The relationship's documents (contract, invoices), named after the client's code. -->
+      <section v-if="id && row" class="mt-6" data-relationship-documents>
+         <h3 class="mt-0 mb-2 text-lg font-semibold">{{ $t('ops.document.title') }}</h3>
+         <EntityDocuments
+            entityType="provider_relationship"
+            :entityId="id"
+            :code="row.client_code"
+         />
+      </section>
    </div>
 </template>

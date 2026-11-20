@@ -61,6 +61,12 @@ const relationship = (overrides: object = {}) => ({
    ...overrides
 });
 
+const EntityDocuments = defineComponent({
+   name: 'EntityDocuments',
+   props: ['entityType', 'entityId', 'code'],
+   setup: () => () => h('div')
+});
+
 const mountManage = async () => {
    const wrapper = mount(
       defineComponent({
@@ -76,7 +82,8 @@ const mountManage = async () => {
                ToastService,
                [abilitiesPlugin, ability, { useGlobalProperties: true }]
             ] as never,
-            directives: { tooltip: Tooltip, focustrap: FocusTrap }
+            directives: { tooltip: Tooltip, focustrap: FocusTrap },
+            stubs: { EntityDocuments }
          }
       }
    );
@@ -124,6 +131,15 @@ describe('relationship Manage page', () => {
       const wrapper = await mountManage();
       expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
       expect(wrapper.text()).not.toContain(en.ops.client.fields.notes);
+   });
+
+   it("keeps the relationship's documents (contract, invoices) under the client's code", async () => {
+      const wrapper = await mountManage();
+      expect(wrapper.getComponent(EntityDocuments).props()).toEqual({
+         entityType: 'provider_relationship',
+         entityId: 'r1',
+         code: 'THO'
+      });
    });
 
    it('the provider side edits the terms', async () => {
