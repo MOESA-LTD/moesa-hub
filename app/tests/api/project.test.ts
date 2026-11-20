@@ -1,6 +1,7 @@
 import {
    GATE_CLOSES_PHASE,
    PHASES_FOR_PATH,
+   productsToLink,
    projectPhases,
    projectSchema,
    toProjectFormValues,
@@ -160,5 +161,33 @@ describe('gate rollback', () => {
          reason: 'brief changed',
          incident_id: I1
       });
+   });
+});
+
+describe('productsToLink', () => {
+   // A family parent and its variants, one variant already linked, and an unrelated product.
+   const products = [
+      { id: 'rec', parent_id: null },
+      { id: 'rec-3mm', parent_id: 'rec' },
+      { id: 'rec-5mm', parent_id: 'rec' },
+      { id: 'rec-7mm', parent_id: 'rec' },
+      { id: 'we', parent_id: null }
+   ];
+   const linked = new Set(['rec-5mm']);
+
+   it("adds a picked parent's variants that are not linked yet, each once", () => {
+      expect(productsToLink(['rec', 'rec-3mm'], products, linked, true)).toEqual([
+         'rec',
+         'rec-3mm',
+         'rec-7mm'
+      ]);
+   });
+
+   it('adds only the picked products without the variants option', () => {
+      expect(productsToLink(['rec', 'we'], products, linked, false)).toEqual(['rec', 'we']);
+   });
+
+   it('skips picked products already linked', () => {
+      expect(productsToLink(['rec-5mm', 'we'], products, linked, true)).toEqual(['we']);
    });
 });

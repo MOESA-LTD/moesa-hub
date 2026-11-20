@@ -1667,7 +1667,9 @@
          "products": {
             "link": "Bağla",
             "unlink": "Kaldır",
-            "empty": "Henüz bağlı ürün yok."
+            "empty": "Henüz bağlı ürün yok.",
+            "with_variants": "Seçilen ana ürünlerin varyantlarıyla",
+            "link_count": "{count} ürünü bağla | {count} ürünü bağla"
          },
          "phase": {
             "P1": "P1",

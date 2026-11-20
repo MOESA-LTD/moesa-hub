@@ -1667,7 +1667,9 @@
          "products": {
             "link": "Link",
             "unlink": "Unlink",
-            "empty": "No products linked yet."
+            "empty": "No products linked yet.",
+            "with_variants": "With the variants of picked parents",
+            "link_count": "Link {count} product | Link {count} products"
          },
          "phase": {
             "P1": "P1",
