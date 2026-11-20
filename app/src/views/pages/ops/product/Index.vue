@@ -72,8 +72,6 @@ const columns = computed<Props['columns']>(() => [
    { field: 'compliance_status', sortable: true, header: t('ops.product.fields.compliance_status') }
 ]);
 
-// No keyword search: it would compare every filter column as text, the status enum included,
-// which the database rejects.
 // The keyword search: SKU, name or barcode contain the text (status and the signed-spec flag are
 // left to their column filters).
 const KEYWORD_COLUMNS = ['sku', 'display_name', 'gtin'] as const;
