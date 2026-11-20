@@ -33,7 +33,8 @@ export function useRouteDialogRestore() {
             do {
                again = false;
                await authStore.initialized;
-               await router.isReady();
+               // A refused first page rejects isReady; router.onError has handled it already.
+               await router.isReady().catch(() => {});
                // Signing in from the login page: useAuthUi first leaves it; a dialog navigation now
                // would cancel that and leave the user on the login page.
                await until(

@@ -254,7 +254,9 @@ export const useAuthStore = defineStore('auth', () => {
       const userChanged = newSession?.user.id !== session.value?.user.id;
       session.value = newSession;
 
-      if (userChanged || event === 'INITIAL_SESSION') {
+      // Once per user. A stored session can arrive as SIGNED_IN right before INITIAL_SESSION: the
+      // second would load the same access again. Without a session, the empty access is in place.
+      if (userChanged) {
          preferredTenantId.value = null;
          // Pending right away, so a navigation right after signing in waits for the permissions;
          // the call itself is deferred, as Supabase calls inside this callback can deadlock.
@@ -265,8 +267,8 @@ export const useAuthStore = defineStore('auth', () => {
             })
          );
          loading.catch((error) => console.error('Could not load the access:', error));
-         if (event === 'INITIAL_SESSION') void accessReady().then(resolveInitialized);
       }
+      if (event === 'INITIAL_SESSION') void accessReady().then(resolveInitialized);
    });
 
    async function loginWithPassword(credentials: SignInWithPasswordCredentials) {
