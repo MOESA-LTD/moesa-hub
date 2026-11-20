@@ -574,6 +574,21 @@ const routes: RouteRecordRaw[] = [
                         }
                      },
                      {
+                        path: 'incidents',
+                        name: 'ops-product-manage-incidents',
+                        props: true,
+                        meta: {
+                           label: 'route.label.ops_product_incidents',
+                           icon: PrimeIcons.EXCLAMATION_TRIANGLE,
+                           visible: false,
+                           anyPermission: [{ action: 'select', subject: 'incident' }]
+                        },
+                        components: {
+                           default: () => import('@/views/pages/ops/product/tabs/Incidents.vue'),
+                           skeleton: () => import('@/views/pages/ops/product/tabs/Incidents.vue')
+                        }
+                     },
+                     {
                         path: 'media',
                         name: 'ops-product-manage-media',
                         props: true,

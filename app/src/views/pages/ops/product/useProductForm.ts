@@ -20,6 +20,7 @@ export const PRODUCT_CARD_TABS = [
    'sourcing',
    'orders',
    'documents',
+   'incidents',
    'media',
    'amazon'
 ] as const;

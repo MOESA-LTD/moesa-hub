@@ -876,7 +876,8 @@
          "ops_client_manage": "Relationship",
          "ops_client_invitations": "Invitations",
          "ops_client_invitation_create": "Invite a client",
-         "ops_transfer": "Copy or move products"
+         "ops_transfer": "Copy or move products",
+         "ops_product_incidents": "Incidents"
       }
    },
    "dashboard": {
@@ -1455,7 +1456,8 @@
             "orders": "Orders and shipments",
             "documents": "Documents",
             "media": "Media",
-            "amazon": "Amazon"
+            "amazon": "Amazon",
+            "incidents": "Incidents"
          },
          "sections": {
             "identity": "Product",
