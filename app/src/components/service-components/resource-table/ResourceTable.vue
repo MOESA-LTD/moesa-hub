@@ -1,5 +1,11 @@
 <script setup lang="ts" generic="F extends TableName, T = TableRow<F>">
-import { applyTableMeta, type ColumnFilter, type TableMeta } from '@/api/postgrest/tableQuery';
+import {
+   applyFixedFilters,
+   applyTableMeta,
+   type ColumnFilter,
+   type FixedFilter as TableFixedFilter,
+   type TableMeta
+} from '@/api/postgrest/tableQuery';
 import { readableColumns } from '@/composables/useFieldAccess';
 import { useRouteLoading } from '@/composables/useRouteStatus';
 import CustomTable, { CustomTableProps } from '@/components/ui/custom-table/CustomTable.vue';
@@ -52,12 +58,7 @@ export declare type ResourceTableProps<
     */
    keywordColumns?: readonly string[];
 };
-/** A column that must (`in`) or must not (`notIn`) hold one of `values`. */
-export declare type FixedFilter = {
-   column: string;
-   in?: readonly string[];
-   notIn?: readonly string[];
-};
+export declare type FixedFilter = TableFixedFilter;
 export declare type ResourceTableSlots<T = any> = CustomTableSlots<T>;
 
 defineOptions({
@@ -123,15 +124,11 @@ const listQuery = useQuery({
          props.tenant
       );
 
-      let fixed = applyTableMeta(query, tableMeta, {
+      const fixed = applyTableMeta(query, tableMeta, {
          tiebreaker: String(props.dataKey),
          keywordColumns: props.keywordColumns
       });
-      for (const { column, in: within, notIn } of props.fixedFilters ?? []) {
-         if (within) fixed = fixed.in(column, [...within]);
-         if (notIn?.length) fixed = fixed.not(column, 'in', `(${notIn.join(',')})`);
-      }
-      const filtered = fixed;
+      const filtered = applyFixedFilters(fixed, props.fixedFilters);
       const { data, count } = await (
          branches.length ? filtered.in('tenant_id', branches) : filtered
       ).throwOnError();

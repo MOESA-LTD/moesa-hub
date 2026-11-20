@@ -1564,7 +1564,12 @@
                "status_karantina_as_paused": "\"Karantina\", durduruldu olarak aktarılır"
             }
          },
-         "spec_signed": "İmzalı"
+         "spec_signed": "İmzalı",
+         "variants": {
+            "group": "Varyantlar ana ürünün altında",
+            "count": "{count} varyant | {count} varyant",
+            "none": "Varyant yok."
+         }
       },
       "project": {
          "title": "Projeler",

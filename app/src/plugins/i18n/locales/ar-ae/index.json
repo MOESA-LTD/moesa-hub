@@ -1564,7 +1564,12 @@
                "status_karantina_as_paused": "\"Karantina\" (quarantine) is imported as paused"
             }
          },
-         "spec_signed": "Signed"
+         "spec_signed": "Signed",
+         "variants": {
+            "group": "Variants under their parent",
+            "count": "{count} variant | {count} variants",
+            "none": "No variants."
+         }
       },
       "project": {
          "title": "Projects",

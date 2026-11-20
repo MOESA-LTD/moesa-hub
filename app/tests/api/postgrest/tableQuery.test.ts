@@ -1,4 +1,10 @@
-import { applyTableMeta, quoteValue, type TableMeta } from '@/api/postgrest/tableQuery';
+import {
+   applyFixedFilters,
+   applyTableMeta,
+   hasActiveFilters,
+   quoteValue,
+   type TableMeta
+} from '@/api/postgrest/tableQuery';
 import { FilterMatchMode, FilterOperator } from '@primevue/core/api';
 import { createClient } from '@supabase/supabase-js';
 import dayjs from 'dayjs';
@@ -214,5 +220,39 @@ describe('applyTableMeta sorting and paging', () => {
          )
       ).searchParams;
       expect(search.has('limit')).toBe(false);
+   });
+});
+
+describe('applyFixedFilters', () => {
+   it('keeps rows in or out of a list, or with a column empty', () => {
+      const search = urlOf(
+         applyFixedFilters(client.from('product').select('*') as never, [
+            { column: 'tenant_id', in: ['t1', 't2'] },
+            { column: 'status', notIn: ['archived'] },
+            { column: 'parent_id', isNull: true }
+         ])
+      ).searchParams;
+      expect(search.get('tenant_id')).toBe('in.(t1,t2)');
+      expect(search.get('status')).toBe('not.in.(archived)');
+      expect(search.get('parent_id')).toBe('is.null');
+   });
+});
+
+describe('hasActiveFilters', () => {
+   it('tells a keyword or a column value from an empty filter state', () => {
+      expect(hasActiveFilters(null)).toBe(false);
+      expect(
+         hasActiveFilters({
+            global: { value: null, matchMode: FilterMatchMode.CONTAINS },
+            sku: and([{ value: null, matchMode: FilterMatchMode.STARTS_WITH }])
+         })
+      ).toBe(false);
+      expect(
+         hasActiveFilters({ global: { value: 'oka', matchMode: FilterMatchMode.CONTAINS } })
+      ).toBe(true);
+      expect(
+         hasActiveFilters({ sku: and([{ value: 'OKA', matchMode: FilterMatchMode.STARTS_WITH }]) })
+      ).toBe(true);
+      expect(hasActiveFilters({ tags: { value: [], matchMode: FilterMatchMode.IN } })).toBe(false);
    });
 });

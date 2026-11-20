@@ -244,3 +244,40 @@ export function applyTableMeta<Q extends QueryBuilder<Q>>(
 
    return query;
 }
+
+/** A column that must (`in`) or must not (`notIn`) hold one of the values, or must be empty. */
+export type FixedFilter = {
+   column: string;
+   in?: readonly string[];
+   notIn?: readonly string[];
+   isNull?: boolean;
+};
+
+type FixedFilterBuilder<Q> = {
+   in(column: string, values: readonly string[]): Q;
+   not(column: string, operator: string, value: unknown): Q;
+   is(column: string, value: null): Q;
+};
+
+/** Adds the conditions every read of a list carries (see ResourceTable's fixedFilters). */
+export function applyFixedFilters<Q extends FixedFilterBuilder<Q>>(
+   query: Q,
+   filters: readonly FixedFilter[] | null | undefined
+): Q {
+   for (const { column, in: within, notIn, isNull } of filters ?? []) {
+      if (within) query = query.in(column, [...within]);
+      if (notIn?.length) query = query.not(column, 'in', `(${notIn.join(',')})`);
+      if (isNull) query = query.is(column, null);
+   }
+   return query;
+}
+
+/** Whether the filter state narrows the list: a keyword, or a value in any column's filter. */
+export function hasActiveFilters(filters: TableMeta['filters'] | null | undefined): boolean {
+   return Object.values((filters ?? {}) as Record<string, ColumnFilter | undefined>).some(
+      (filter) =>
+         [filter?.value, ...(filter?.constraints ?? []).map(({ value }) => value)].some(
+            (value) => normalizeValue(value) !== null
+         )
+   );
+}
