@@ -2110,7 +2110,18 @@
          },
          "live_missing": "Missing for live: {fields}",
          "load_error": "Market cells could not be loaded.",
-         "platform_select": "Select a platform"
+         "platform_select": "Select a platform",
+         "bulk": {
+            "open": "Update {count} cell | Update {count} cells",
+            "title": "Update {count} cell | Update {count} cells",
+            "status": "Move the status to",
+            "keep": "Keep as it is",
+            "no_move": "No move all of them may make",
+            "note": "Add a line to the notes",
+            "apply": "Update {count} cell | Update {count} cells",
+            "updated": "{count} cell updated. | {count} cells updated.",
+            "failed": "{count} cell not updated | {count} cells not updated"
+         }
       },
       "incident": {
          "title": "Incidents",
