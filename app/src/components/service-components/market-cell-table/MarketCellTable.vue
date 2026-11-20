@@ -4,17 +4,25 @@ import {
    MARKET_CELL_STATUSES,
    type MarketCellStatus
 } from '@/api/marketMatrix';
-import type { ResourceTableProps } from '@/components/service-components/resource-table/ResourceTable.vue';
+import type {
+   ResourceTableProps,
+   TableRow
+} from '@/components/service-components/resource-table/ResourceTable.vue';
 import {
    createFilters,
    equalsFilter
 } from '@/components/service-components/resource-table/createFilters';
 import { formatEmpty } from '@/constants/format';
 import { DIALOG_POSITIONS } from '@/constants/router';
+import BulkCellDialog from './BulkCellDialog.vue';
 
 // The market cells (public.market_cell_overview) of the tenants in scope, as a list: the matrix's
 // other view.
 type Props = ResourceTableProps<'market_cell_overview'>;
+
+// Picked rows are updated together (BulkCellDialog).
+const selected = ref<TableRow<'market_cell_overview'>[]>([]);
+const bulkOpen = ref(false);
 
 const router = useRouter();
 const { t } = useI18n();
@@ -82,11 +90,23 @@ const COMPLIANCE_SEVERITY: Record<string, string> = {
       :columns
       :rowActions
       :enableExpansion="false"
+      selectionMode="multiple"
+      v-model:selection="selected"
       v-model:filters="filters"
       :keywordColumns="KEYWORD_COLUMNS"
    >
       <template #header>
-         <KeywordSearchInput v-model="filters.global.value" />
+         <span class="flex flex-wrap items-center justify-between gap-2">
+            <KeywordSearchInput v-model="filters.global.value" />
+            <Button
+               v-if="$can('update', 'market_cell') && selected.length"
+               variant="outlined"
+               :icon="PrimeIcons.PENCIL"
+               :label="$t('ops.market.bulk.open', { count: selected.length }, selected.length)"
+               data-bulk-open
+               @click="bulkOpen = true"
+            />
+         </span>
       </template>
       <template #status_body="{ data }">
          <Tag
@@ -120,4 +140,5 @@ const COMPLIANCE_SEVERITY: Record<string, string> = {
          {{ data.content_status ? $t(`ops.market.content_status.${data.content_status}`) : '' }}
       </template>
    </ResourceTable>
+   <BulkCellDialog v-model:visible="bulkOpen" :cells="selected as never" @done="selected = []" />
 </template>

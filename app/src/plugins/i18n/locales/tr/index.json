@@ -2115,7 +2115,18 @@
          },
          "live_missing": "Yayın için eksik: {fields}",
          "load_error": "Pazar hücreleri yüklenemedi.",
-         "platform_select": "Platform seçin"
+         "platform_select": "Platform seçin",
+         "bulk": {
+            "open": "{count} hücreyi güncelle | {count} hücreyi güncelle",
+            "title": "{count} hücreyi güncelle | {count} hücreyi güncelle",
+            "status": "Durumu taşı",
+            "keep": "Olduğu gibi kalsın",
+            "no_move": "Hepsinin yapabileceği bir geçiş yok",
+            "note": "Notlara satır ekle",
+            "apply": "{count} hücreyi güncelle | {count} hücreyi güncelle",
+            "updated": "{count} hücre güncellendi. | {count} hücre güncellendi.",
+            "failed": "{count} hücre güncellenmedi | {count} hücre güncellenmedi"
+         }
       },
       "incident": {
          "title": "Olaylar",

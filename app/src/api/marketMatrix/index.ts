@@ -357,6 +357,67 @@ export function useSetMarketCellStatus() {
    });
 }
 
+// --- bulk update (the list view's selection) ---
+
+/** The status moves every one of the cells may make (none when they share none). */
+export const commonNextStatuses = (statuses: readonly MarketCellStatus[]): MarketCellStatus[] =>
+   statuses.length
+      ? NEXT_STATUSES[statuses[0]].filter((next) =>
+           statuses.every((status) => NEXT_STATUSES[status].includes(next))
+        )
+      : [];
+
+/** A cell's notes with a line added below. */
+export const appendNote = (notes: string | null | undefined, note: string) =>
+   notes ? `${notes}\n${note}` : note;
+
+export type BulkCellUpdate = {
+   cells: readonly { id: string; notes: string | null }[];
+   /** The same values for every cell (e.g. content status, target launch). */
+   patch: Pick<Tables['market_cell']['Update'], 'content_status' | 'target_launch_on'>;
+   /** A line added to every cell's notes. */
+   note?: string | null;
+   /** A status every cell moves to (see commonNextStatuses). */
+   status?: MarketCellStatus | null;
+};
+
+export type BulkCellResult = { updated: number; failed: { id: string; error: unknown }[] };
+
+/**
+ * Updates several cells, one after the other: each cell's fields first, then its status move,
+ * which the database checks per cell (a cell that needs more before the move fails alone, with its
+ * reason, and the others go on).
+ */
+export function useBulkUpdateCells() {
+   const queryClient = useQueryClient();
+
+   return useMutation({
+      mutationFn: async ({
+         cells,
+         patch,
+         note,
+         status
+      }: BulkCellUpdate): Promise<BulkCellResult> => {
+         const result: BulkCellResult = { updated: 0, failed: [] };
+         for (const cell of cells) {
+            try {
+               const fields = {
+                  ...patch,
+                  ...(note ? { notes: appendNote(cell.notes, note) } : {})
+               };
+               if (Object.keys(fields).length) await updateRow('market_cell', cell.id, fields);
+               if (status) await updateRow('market_cell', cell.id, { status });
+               result.updated++;
+            } catch (error) {
+               result.failed.push({ id: cell.id, error });
+            }
+         }
+         return result;
+      },
+      onSettled: () => invalidateTables(queryClient, ['market_cell'])
+   });
+}
+
 export type MarketCellsFilter = { tenantId?: string | null; platformId?: string | null };
 
 /** The matrix's cells (market_cell_overview), of one tenant and platform when given. */

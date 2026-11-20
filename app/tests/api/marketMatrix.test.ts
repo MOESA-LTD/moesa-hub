@@ -1,5 +1,7 @@
 import {
+   appendNote,
    buildMatrix,
+   commonNextStatuses,
    cellKey,
    CONTENT_STATUSES,
    LIVE_FIELDS,
@@ -17,6 +19,7 @@ import {
    toMarketCellFormValues,
    toMarketCellPayload,
    useAddMarketCells,
+   useBulkUpdateCells,
    useMarketCells,
    useSetMarketCellStatus,
    type MarketCellOverviewRow,
@@ -479,5 +482,52 @@ describe('market cell mutations', () => {
          ['select', 'id'],
          ['throwOnError']
       ]);
+   });
+});
+
+describe('bulk cell update', () => {
+   beforeEach(() => {
+      recorded.length = 0;
+      response = null;
+   });
+
+   it('offers only the moves every selected cell may make', () => {
+      expect(commonNextStatuses(['planned', 'planned'])).toEqual(['preparing', 'paused']);
+      expect(commonNextStatuses(['uploaded', 'live'])).toEqual(['suppressed']);
+      expect(commonNextStatuses(['planned', 'preparing'])).toEqual([]);
+      expect(commonNextStatuses([])).toEqual([]);
+   });
+
+   it("adds a note line under a cell's notes", () => {
+      expect(appendNote(null, 'Listing report 2026-07')).toBe('Listing report 2026-07');
+      expect(appendNote('Checked', 'Listing report 2026-07')).toBe(
+         'Checked\nListing report 2026-07'
+      );
+   });
+
+   it("writes each cell's fields first, then moves its status", async () => {
+      const mutation = withSetup(useBulkUpdateCells);
+      const result = await mutation.mutateAsync({
+         cells: [
+            { id: 'c1', notes: 'Checked' },
+            { id: 'c2', notes: null }
+         ],
+         patch: { content_status: 'translated' },
+         note: 'Report v1',
+         status: 'preparing'
+      });
+
+      const updates = recorded.filter(([method]) => method === 'update' || method === 'eq');
+      expect(updates).toEqual([
+         ['update', { content_status: 'translated', notes: 'Checked\nReport v1' }],
+         ['eq', 'id', 'c1'],
+         ['update', { status: 'preparing' }],
+         ['eq', 'id', 'c1'],
+         ['update', { content_status: 'translated', notes: 'Report v1' }],
+         ['eq', 'id', 'c2'],
+         ['update', { status: 'preparing' }],
+         ['eq', 'id', 'c2']
+      ]);
+      expect(result).toEqual({ updated: 2, failed: [] });
    });
 });
