@@ -74,6 +74,12 @@ const Slot = defineComponent({
          h('div', slots.default?.({}))
 });
 
+const EntityDocuments = defineComponent({
+   name: 'EntityDocuments',
+   props: ['entityType', 'entityId', 'code'],
+   setup: () => () => h('div')
+});
+
 const mountCell = async (props: object, row: Partial<MarketCellRow> | null = null) => {
    api.row = row;
    const wrapper = mount(
@@ -93,7 +99,8 @@ const mountCell = async (props: object, row: Partial<MarketCellRow> | null = nul
                ProductSelect: true,
                ProjectSelect: true,
                CellAmazonDrawer: CellAmazonDrawerStub,
-               StatusActions: true
+               StatusActions: true,
+               EntityDocuments
             }
          }
       }
@@ -123,6 +130,22 @@ describe('market cell currency', () => {
    it('prefills EUR on a new DE cell, whose dialog names only the identity', async () => {
       await mountCell({ country: 'DE' });
       expect(formValues().currency).toBe('EUR');
+   });
+
+   it("keeps a saved cell's documents (listing reports) under its product and market", async () => {
+      const wrapper = await mountCell({ id: 'c1' }, {
+         ...saved,
+         platform_id: 'amazon',
+         product: { sku: 'OKA-REC' }
+      } as never);
+      expect(wrapper.getComponent(EntityDocuments).props()).toEqual({
+         entityType: 'market_cell',
+         entityId: 'c1',
+         code: 'OKA-REC-amazon-DE'
+      });
+      expect((await mountCell({ country: 'DE' })).findComponent(EntityDocuments).exists()).toBe(
+         false
+      );
    });
 
    it('is a select on a saved cell, keeping the stored currency', async () => {

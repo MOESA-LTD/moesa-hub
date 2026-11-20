@@ -137,6 +137,7 @@ const mountDialog = async (page: Component, props: Record<string, unknown> = {})
                SelectPlatform,
                ProjectSelect: picker('ProjectSelect'),
                ProductSelect: picker('ProductSelect'),
+               EntityDocuments: true,
                teleport: true
             }
          }

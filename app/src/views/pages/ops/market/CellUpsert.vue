@@ -436,4 +436,13 @@ const DATES = ['target_launch_on', 'launched_on', 'last_checked_on'] as const;
          <Textarea v-bind="slotProps" v-model="values.notes" auto-resize rows="3" />
       </FormField>
    </FormBox>
+   <!-- The cell's documents (listing reports, screenshots), named after its product and market. -->
+   <section v-if="id && cell" class="mt-6" data-cell-documents>
+      <h3 class="mt-0 mb-2 text-lg font-semibold">{{ $t('ops.document.title') }}</h3>
+      <EntityDocuments
+         entityType="market_cell"
+         :entityId="id"
+         :code="[cell.product?.sku, cell.platform_id, cell.country].filter(Boolean).join('-')"
+      />
+   </section>
 </template>
