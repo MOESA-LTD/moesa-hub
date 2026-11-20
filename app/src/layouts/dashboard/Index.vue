@@ -3,6 +3,7 @@ import { useSidebar } from '@/composables/useSidebar';
 import { useIsFetching } from '@tanstack/vue-query';
 
 const { mode, active } = useSidebar();
+const route = useRoute();
 const { currentTenant, scopeTenants, isSignedIn } = storeToRefs(useAuthStore());
 
 const isFetching = useIsFetching();
@@ -73,7 +74,13 @@ const containerClass = computed(() => {
             </RouterView>
 
             <SubscriptionBanner v-if="isSignedIn" />
-            <CustomRouteView :key="`${currentTenant?.id}:${scopeTenants.length}`" />
+            <!-- Signing out changes the key before useAuthUi leaves a protected page: remounted
+                 there, the page would query again without a session (e.g. 42501 on a super admin
+                 RPC). Nothing protected renders signed out. -->
+            <CustomRouteView
+               v-if="isSignedIn || !route.meta.requiresAuth"
+               :key="`${currentTenant?.id}:${scopeTenants.length}`"
+            />
 
             <RouterView v-slot="{ Component }" name="page-footer">
                <div v-if="Component" class="p-4">
