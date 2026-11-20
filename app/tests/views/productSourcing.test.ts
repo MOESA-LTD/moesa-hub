@@ -1,4 +1,5 @@
 import '../setup/mockMain';
+import { provideFormTenant } from '@/api/formTenant';
 import { ability } from '@/plugins/casl';
 import en from '@/plugins/i18n/locales/en/index.json';
 import Sourcing from '@/views/pages/ops/product/tabs/Sourcing.vue';
@@ -7,7 +8,7 @@ import { abilitiesPlugin } from '@casl/vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, Suspense } from 'vue';
+import { defineComponent, h, Suspense, type MaybeRefOrGetter } from 'vue';
 
 // The product's sourcing tab: the active tenant's row in a form, the other tenants' rows beside it,
 // and the provider's spec sheets on its row for a client's product.
@@ -42,10 +43,17 @@ vi.mock('@/api/sourcing', async (importOriginal) => {
       useSourcing: () => ({ data: ref(api.rows), isPending: ref(false) })
    };
 });
+// Like the real one: the relationships of the enclosing form's tenant, else of the active tenant.
 vi.mock('@/api/relationship', async () => {
-   const { computed } = await import('vue');
+   const { computed, toValue } = await import('vue');
+   const { useFormTenant } = await import('@/api/formTenant');
    return {
-      useClientOptions: () => computed(() => api.clients),
+      useClientOptions: (_keep: unknown, tenantId?: MaybeRefOrGetter<string | null>) => {
+         const formTenant = useFormTenant();
+         return computed(() =>
+            (toValue(tenantId) ?? formTenant?.value ?? 'provider') === 'provider' ? api.clients : []
+         );
+      },
       useProviderProcures: () => computed(() => api.providerProcures)
    };
 });
@@ -61,9 +69,13 @@ const EntityDocuments = defineComponent({
    setup: () => () => h('div')
 });
 
-const mountTab = async () => {
+/** Mounts the tab; `formTenant` is the tenant the enclosing product card's form provides. */
+const mountTab = async (formTenant?: string) => {
    const wrapper = mount(
       defineComponent({
+         setup() {
+            if (formTenant) provideFormTenant(formTenant);
+         },
          render: () => h(Suspense, null, { default: () => h(Sourcing, { id: 'p1' }) })
       }),
       {
@@ -127,6 +139,13 @@ describe('product sourcing tab', () => {
          id: null,
          clientTenantId: 'client'
       });
+   });
+
+   it("offers the add inside the client's product card, whose form is the client's", async () => {
+      const wrapper = await mountTab('client');
+      expect(wrapper.text()).not.toContain(i18n.t('ops.product.sourcing.no_relationship'));
+      await wrapper.get('[data-sourcing-add]').trigger('click');
+      expect(wrapper.getComponent(SourcingForm).props('clientTenantId')).toBe('client');
    });
 
    it('offers no add without a relationship to the product owner, or without the right', async () => {

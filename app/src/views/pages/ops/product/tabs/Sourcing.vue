@@ -33,7 +33,9 @@ const clientTenantId = computed(() =>
       ? product.value.tenant_id
       : null
 );
-const clientOptions = useClientOptions();
+// The active tenant's relationships: the tab sits in the product card, whose form is the product's
+// tenant (a client's, for a provider adding its own row).
+const clientOptions = useClientOptions(null, activeTenantId);
 const providerProcures = useProviderProcures();
 
 /** Why the active tenant cannot add a row, if it cannot. */

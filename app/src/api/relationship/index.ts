@@ -70,20 +70,21 @@ export const toClientOptions = (
  * The client options of the active tenant (inside a form, the form's tenant): see toClientOptions.
  * A client tenant reads its relationships too, as the client; they are not its own.
  */
-export function useClientOptions(keep: MaybeRefOrGetter<string | null | undefined> = null) {
+export function useClientOptions(
+   keep: MaybeRefOrGetter<string | null | undefined> = null,
+   /** Whose relationships, when not the form's: e.g. the active tenant adding its own row inside
+    * a card of a client's record (the card's form is the client's). */
+   tenantId: MaybeRefOrGetter<string | null | undefined> = null
+) {
    const authStore = useAuthStore();
    const formTenant = useFormTenant();
-   const { data } = useLookup<ClientRelationship>('provider_relationship', {
+   const tenant = () => toValue(tenantId) ?? formTenant?.value ?? authStore.currentTenant?.id;
+   const { data } = useLookup<ClientRelationship>('provider_relationship', () => ({
       select: CLIENT_RELATIONSHIP_SELECT,
-      order: 'client_code'
-   });
-   return computed(() =>
-      toClientOptions(
-         data.value ?? [],
-         formTenant?.value ?? authStore.currentTenant?.id,
-         toValue(keep)
-      )
-   );
+      order: 'client_code',
+      tenantId: toValue(tenantId) ?? undefined
+   }));
+   return computed(() => toClientOptions(data.value ?? [], tenant(), toValue(keep)));
 }
 
 /** What a project's link (a new order opened from a project) says about the order's client. */
