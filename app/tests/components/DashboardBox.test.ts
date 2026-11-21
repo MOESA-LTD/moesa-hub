@@ -159,3 +159,12 @@ it('makes every link inert while the dashboard is edited', async () => {
    ).toBeDefined();
    expect(buttonByText(w, i18n.t('guide.panel.close_card'))!.attributes('disabled')).toBeDefined();
 });
+it('shows placeholders instead of "None" and the count while loading', async () => {
+   const w = mountBox({ count: 0, loading: true } as never);
+   expect(w.find('[data-test="box-loading"]').exists()).toBe(true);
+   expect(w.find('[data-test="box-badge"]').exists()).toBe(false);
+   expect(w.text()).not.toContain(i18n.t('dashboard.ops.none'));
+   await w.setProps({ loading: false });
+   expect(w.find('[data-test="box-loading"]').exists()).toBe(false);
+   expect(w.text()).toContain(i18n.t('dashboard.ops.none'));
+});

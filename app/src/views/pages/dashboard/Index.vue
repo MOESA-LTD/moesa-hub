@@ -10,9 +10,10 @@ import { useAuthStore } from '@/store/auth';
 import { useDashboardLayout, type CanSee } from '@/store/dashboardLayout';
 import DashboardBoxEditBar from '@/views/pages/dashboard/DashboardBoxEditBar.vue';
 import DashboardHiddenStrip from '@/views/pages/dashboard/DashboardHiddenStrip.vue';
+import DashboardOverview from '@/views/pages/dashboard/DashboardOverview.vue';
 import { useAbility } from '@casl/vue';
 import { PrimeIcons } from '@primevue/core/api';
-import { useMediaQuery } from '@vueuse/core';
+import { useElementSize } from '@vueuse/core';
 import { useToast } from 'primevue/usetoast';
 import { computed, onBeforeUnmount, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -50,11 +51,19 @@ const emptyText = computed(() => {
    return layout.editing ? null : 'dashboard.layout.all_hidden';
 });
 
-// Arranging needs a grid of two columns or more; below md, and when the dashboard is left, an
-// unsaved draft is dropped so a half-made layout never looks saved later.
-const canEdit = useMediaQuery('(min-width: 768px)');
+// The dashboard's own width, not the screen's, decides its columns (see _charts.scss), so it lays out
+// the same in a page and in a dialog of any size.
+const root = ref<HTMLElement | null>(null);
+const { width } = useElementSize(root);
+/** The width (px) from which the grid has two columns: the `dashboard` container's 40rem. */
+const TWO_COLUMNS = 640;
+
+// Arranging needs a grid of two columns or more; when it narrows below that, and when the dashboard
+// is left, an unsaved draft is dropped so a half-made layout never looks saved later. Before the
+// first measure (width 0) nothing is decided.
+const canEdit = computed(() => width.value >= TWO_COLUMNS);
 watch(canEdit, (wide) => {
-   if (!wide) layout.discard();
+   if (!wide && width.value > 0) layout.discard();
 });
 onBeforeUnmount(() => layout.discard());
 provide(
@@ -71,7 +80,8 @@ const save = () => {
 
 <template>
    <div
-      class="bg-[var(--surface-ground)] flex flex-col gap-4"
+      ref="root"
+      class="dashboard-flow bg-[var(--surface-ground)] flex flex-col gap-4"
       :class="{
          'p-4': !!dialogRef
       }"
@@ -106,13 +116,14 @@ const save = () => {
          </span>
       </Teleport>
       <template v-if="accessLoaded">
+         <DashboardOverview />
          <p v-if="emptyText" class="text-muted-color">
             {{ $t(emptyText) }}
          </p>
          <draggable
             v-else
             tag="div"
-            class="w-full grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start"
+            class="dashboard-grid w-full"
             :model-value="shown"
             :item-key="(id: DashboardBoxId) => id"
             handle=".dashboard-drag-handle"
@@ -123,8 +134,9 @@ const save = () => {
             <template #item="{ element: id, index }">
                <div
                   :data-box-id="id"
+                  class="dashboard-cell"
                   :class="{
-                     'md:col-span-2': layout.sizeOf(id) === 'wide',
+                     'dashboard-cell--wide': layout.sizeOf(id) === 'wide',
                      'outline-dashed outline-2 outline-offset-2 outline-surface-300 dark:outline-surface-600 rounded-xl':
                         layout.editing
                   }"

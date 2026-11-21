@@ -29,19 +29,28 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+/** The list boxes of an order, without the charts. */
+const listsOf = (order: readonly string[]) => order.filter((id) => !id.startsWith('chart_'));
+
 describe('normalizeLayout', () => {
    it('falls back to the default for nothing, null, an array, a number or a string', () => {
       for (const raw of [undefined, null, [], 3, 'x'])
          expect(normalizeLayout(raw)).toEqual(defaultLayout());
    });
-   it('drops unknown and duplicate ids and appends new boxes visible', () => {
+   it('drops unknown and duplicate ids and shows new boxes at their default place', () => {
       expect(
          normalizeLayout({ order: ['old_box', 'po_action', 'po_action'], hidden: ['gone'] })
-      ).toEqual({
-         order: ['po_action', ...ALL.filter((id) => id !== 'po_action')],
-         sizes: {},
-         hidden: []
-      });
+      ).toEqual({ order: ALL, sizes: {}, hidden: [] });
+   });
+   it('keeps a saved arrangement and puts the boxes added since after their registry neighbour', () => {
+      const charts = ALL.filter((id) => id.startsWith('chart_'));
+      const lists = ALL.filter((id) => !id.startsWith('chart_'));
+      expect(normalizeLayout({ order: ['notifications', 'gates_team'] }).order).toEqual([
+         ...charts,
+         'notifications',
+         'gates_team',
+         ...lists.filter((id) => id !== 'notifications' && id !== 'gates_team')
+      ]);
    });
    it('takes a hidden id out of the order', () => {
       expect(normalizeLayout({ order: ALL, hidden: ['notifications'] })).toEqual({
@@ -177,13 +186,13 @@ describe('useDashboardLayout', () => {
       const canSee = (id: DashboardBoxId) => id !== 'gates_management';
       const s = editing();
       s.move('gates_team', 1, canSee);
-      expect(s.layout.order.slice(0, 3)).toEqual([
+      expect(listsOf(s.layout.order).slice(0, 3)).toEqual([
          'gates_customer',
          'gates_management',
          'gates_team'
       ]);
       s.move('gates_customer', -1, canSee);
-      expect(s.layout.order.slice(0, 3)).toEqual([
+      expect(listsOf(s.layout.order).slice(0, 3)).toEqual([
          'gates_customer',
          'gates_management',
          'gates_team'
@@ -195,9 +204,9 @@ describe('useDashboardLayout', () => {
       const shown = s.visibleBoxes(canSee).shown;
       s.reorder([shown[1], shown[0], ...shown.slice(2)], canSee);
       expect(s.layout.order.indexOf('po_action')).toBe(ALL.indexOf('po_action'));
-      expect(s.layout.order.slice(0, 2)).toEqual(['gates_management', 'gates_team']);
+      expect(s.layout.order.slice(0, 2)).toEqual(['chart_task_horizon', 'chart_gate_aging']);
       s.reorder(['gates_team'], canSee); // not the shown set: ignored
-      expect(s.layout.order.slice(0, 2)).toEqual(['gates_management', 'gates_team']);
+      expect(s.layout.order.slice(0, 2)).toEqual(['chart_task_horizon', 'chart_gate_aging']);
    });
    it('offers neither shown nor hidden boxes the user cannot see', () => {
       store('u1', { order: ALL, hidden: ['incidents_open'] });

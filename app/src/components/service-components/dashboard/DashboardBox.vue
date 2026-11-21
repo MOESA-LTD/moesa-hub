@@ -18,8 +18,10 @@ const props = withDefaults(
       rows?: DashboardRow[];
       /** Whether the box shows "None" instead of its rows; by default when the count is zero. */
       empty?: boolean;
+      /** The records are still being read: placeholders instead of "None" and the count. */
+      loading?: boolean;
    }>(),
-   { rows: () => [], empty: undefined }
+   { rows: () => [], empty: undefined, loading: false }
 );
 
 /** Custom content in place of the row list; it gets the size's row limit and the edit state. */
@@ -29,7 +31,7 @@ const editing = inject(DASHBOARD_EDITING, ref(false));
 
 const area = computed(() => DASHBOARD_AREA_CLASSES[props.box.area]);
 const limit = computed(() => ROW_LIMIT[props.size]);
-const isEmpty = computed(() => props.empty ?? props.count === 0);
+const isEmpty = computed(() => !props.loading && (props.empty ?? props.count === 0));
 const shown = computed(() => props.rows.slice(0, limit.value));
 
 // The store is reached on click only, so the box needs no pinia until its guide link is used.
@@ -42,8 +44,10 @@ const select = (row: DashboardRow, navigate: () => unknown) => {
 </script>
 
 <template>
-   <div class="rounded-xl shadow-md bg-surface-0 dark:bg-surface-900 p-4 flex flex-col gap-3">
-      <div class="flex items-center gap-2">
+   <div
+      class="dashboard-box h-full rounded-xl border border-surface-200 dark:border-surface-700 shadow-sm bg-surface-0 dark:bg-surface-900 p-4 flex flex-col gap-3"
+   >
+      <div class="flex items-center gap-2 min-w-0">
          <span
             data-test="box-icon"
             class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -51,16 +55,30 @@ const select = (row: DashboardRow, navigate: () => unknown) => {
          >
             <i :class="box.icon" />
          </span>
-         <span class="font-semibold" v-text="$t(box.title)" />
+         <span class="font-semibold truncate" v-text="$t(box.title)" />
+         <Skeleton
+            v-if="loading"
+            class="ms-auto shrink-0"
+            width="2rem"
+            height="1.25rem"
+            border-radius="999px"
+         />
          <span
+            v-else
             data-test="box-badge"
-            class="ms-auto rounded-full px-2 text-sm font-semibold"
+            class="ms-auto shrink-0 rounded-full px-2 text-sm font-semibold"
             :class="area.badge"
             v-text="count"
          />
       </div>
       <div class="flex flex-col gap-3 grow" :class="{ 'pointer-events-none select-none': editing }">
-         <span v-if="isEmpty" class="block text-muted-color" v-text="$t('dashboard.ops.none')" />
+         <div v-if="loading" data-test="box-loading" class="flex flex-col gap-2">
+            <Skeleton v-for="n in 3" :key="n" height="2.25rem" border-radius="0.5rem" />
+         </div>
+         <span v-else-if="isEmpty" class="flex items-center gap-2 text-muted-color">
+            <i class="pi pi-check-circle" aria-hidden="true" />
+            <span v-text="$t('dashboard.ops.none')" />
+         </span>
          <slot v-else-if="$slots.default" :limit="limit" :editing="editing" />
          <ul v-else class="p-0 m-0 list-none flex flex-col gap-2">
             <li

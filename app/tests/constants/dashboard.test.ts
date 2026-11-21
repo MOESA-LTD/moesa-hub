@@ -19,6 +19,13 @@ const routeNames = (routes: RouteRecordRaw[]): string[] =>
 
 it("has unique ids in today's order", () => {
    expect(DASHBOARD_BOXES.map((b) => b.id)).toEqual([
+      'chart_gate_aging',
+      'chart_task_horizon',
+      'chart_po_pipeline',
+      'chart_shipments',
+      'chart_incidents',
+      'chart_market',
+      'chart_product_readiness',
       'gates_team',
       'gates_management',
       'gates_customer',
