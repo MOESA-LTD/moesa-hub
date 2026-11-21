@@ -2,8 +2,15 @@ import { PrimeIcons } from '@primevue/core/api';
 import { defineAsyncComponent, type Component, type InjectionKey, type Ref } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 
-/** Every dashboard box, in today's order (the default layout). */
+/** Every dashboard box, in today's order (the default layout): the charts, then the lists. */
 export const DASHBOARD_BOX_IDS = [
+   'chart_gate_aging',
+   'chart_task_horizon',
+   'chart_po_pipeline',
+   'chart_shipments',
+   'chart_incidents',
+   'chart_market',
+   'chart_product_readiness',
    'gates_team',
    'gates_management',
    'gates_customer',
@@ -131,9 +138,86 @@ const MarketBox = defineAsyncComponent(() => import('@/views/pages/dashboard/box
 const NotificationsBox = defineAsyncComponent(
    () => import('@/views/pages/dashboard/boxes/NotificationsBox.vue')
 );
+const ChartBox = defineAsyncComponent(() => import('@/views/pages/dashboard/boxes/ChartBox.vue'));
 
 /** Every dashboard box, in `DASHBOARD_BOX_IDS` order (today's layout). */
 export const DASHBOARD_BOXES: readonly DashboardBoxDef[] = [
+   {
+      id: 'chart_gate_aging',
+      title: 'dashboard.charts.gate_aging',
+      icon: PrimeIcons.HOURGLASS,
+      area: 'projects',
+      size: 'narrow',
+      permission: 'project_gate',
+      to: { name: 'ops-project-list' },
+      guideTask: 'close_gates',
+      component: ChartBox
+   },
+   {
+      id: 'chart_task_horizon',
+      title: 'dashboard.charts.task_horizon',
+      icon: PrimeIcons.CALENDAR,
+      area: 'projects',
+      size: 'narrow',
+      permission: 'project_task',
+      guideTask: 'close_tasks',
+      component: ChartBox
+   },
+   {
+      id: 'chart_po_pipeline',
+      title: 'dashboard.charts.po_pipeline',
+      icon: PrimeIcons.CHART_BAR,
+      area: 'supply',
+      size: 'narrow',
+      permission: 'purchase_order',
+      to: { name: 'ops-purchase-order-list' },
+      guideTask: 'advance_po',
+      component: ChartBox
+   },
+   {
+      id: 'chart_shipments',
+      title: 'dashboard.charts.shipments',
+      icon: PrimeIcons.TRUCK,
+      area: 'logistics',
+      size: 'narrow',
+      permission: 'shipment',
+      to: { name: 'ops-shipment-list' },
+      guideTask: 'track_shipment',
+      component: ChartBox
+   },
+   {
+      id: 'chart_incidents',
+      title: 'dashboard.charts.incidents',
+      icon: PrimeIcons.BOLT,
+      area: 'incidents',
+      size: 'narrow',
+      permission: 'incident',
+      to: { name: 'ops-incident-list' },
+      guideTask: 'close_incident',
+      component: ChartBox
+   },
+   {
+      id: 'chart_market',
+      title: 'dashboard.charts.market',
+      icon: PrimeIcons.GLOBE,
+      area: 'market',
+      size: 'narrow',
+      permission: 'market_cell',
+      to: { name: 'ops-market-list' },
+      guideTask: 'update_market',
+      component: ChartBox
+   },
+   {
+      id: 'chart_product_readiness',
+      title: 'dashboard.charts.product_readiness',
+      icon: PrimeIcons.VERIFIED,
+      area: 'products',
+      size: 'narrow',
+      permission: 'product',
+      to: { name: 'ops-product-list' },
+      guideTask: 'complete_compliance',
+      component: ChartBox
+   },
    {
       id: 'gates_team',
       title: 'dashboard.ops.gates_team',

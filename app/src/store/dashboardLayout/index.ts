@@ -38,16 +38,20 @@ const boxIds = (value: unknown): DashboardBoxId[] =>
 
 /**
  * Makes a stored (or drafted) layout safe to render: unknown ids dropped, a hidden id taken out of
- * the order, boxes added since it was saved appended shown, sizes kept only when valid and not the
+ * the order, boxes added since it was saved shown at their default place, sizes kept only when valid and not the
  * default. Permissions are not applied here.
  */
 export const normalizeLayout = (raw: unknown): DashboardLayout => {
    if (!isRecord(raw)) return defaultLayout();
    const hidden = boxIds(raw.hidden);
    const order = boxIds(raw.order).filter((id) => !hidden.includes(id));
-   for (const id of DASHBOARD_BOX_IDS) {
-      if (!order.includes(id) && !hidden.includes(id)) order.push(id);
-   }
+   // A box added since the layout was saved goes where the default puts it: after the nearest box
+   // before it in the registry that the order holds, else first.
+   DASHBOARD_BOX_IDS.forEach((id, index) => {
+      if (order.includes(id) || hidden.includes(id)) return;
+      const before = _findLast(DASHBOARD_BOX_IDS.slice(0, index), (other) => order.includes(other));
+      order.splice(before ? order.indexOf(before) + 1 : 0, 0, id);
+   });
    const sizes: DashboardLayout['sizes'] = {};
    if (isRecord(raw.sizes)) {
       for (const [id, size] of Object.entries(raw.sizes)) {
